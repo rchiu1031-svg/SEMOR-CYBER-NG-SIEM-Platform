@@ -195,6 +195,7 @@ import CorrelationSettingView from './components/CorrelationSettingView';
 import CyberWargamingView from './components/CyberWargamingView';
 import CriticalIncidentsView from './components/CriticalIncidentsView';
 import AIAnalystView from './components/AIAnalystView';
+import SOARViewComponent from './components/SOARView';
 
 // Mock Data
 const ALERT_DATA = [
@@ -2368,7 +2369,7 @@ export default function App() {
       case 'endpoint':
         return <OpenXDRView />;
       case 'soar':
-        return <SOARView />;
+        return <SOARViewComponent />;
       case 'digital-forensics':
         return <DigitalForensicsView />;
       case 'case-management':
