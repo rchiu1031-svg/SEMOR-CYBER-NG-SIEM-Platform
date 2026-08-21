@@ -129,6 +129,14 @@ export const MODULES: ModuleInfo[] = [
     icon: 'Map'
   },
   {
+    id: 'wargaming',
+    name: '軍方網絡兵棋推演 (Cyber Wargaming)',
+    description: '軍方攻防對抗模擬與戰術決策驗證平台：紅軍戰術想定劇本、MITRE ATT&CK 攻擊路徑模擬、藍軍戰區態勢感知 (COP) 與 DEFCON 戰備交戰規則 (ROE)、導演部交戰裁決引擎 (Referee) 與時間軸戰後復盤 (AAR)。',
+    category: 'DECEPTION',
+    engines: ['CALDERA', 'AtomicRedTeam', 'MITRE-ATT&CK', 'Referee-Engine', 'AAR-Playback'],
+    icon: 'Swords'
+  },
+  {
     id: 'traffic-control',
     name: '交通號誌控制 (Traffic Control)',
     description: '智慧城市交通號誌基礎設施：結合 SCADA/HMI 整合監控 CMS 資訊可變標誌看板、車道管制、速限標誌與 CCTV 交通攝影機。',
