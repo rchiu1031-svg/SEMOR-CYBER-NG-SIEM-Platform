@@ -62,7 +62,7 @@
     "gateway": "平台效能監控",
     "sso": "身份認證與 SSO",
     "fim": "檔案完整性監控",
-    "industrial": "工業安全",
+    "industrial": "工業控制安全",
     "ueba": "行為分析 (UEBA)",
     "executive": "主管洞察儀表板",
     "compliance_center": "合規報表中心",

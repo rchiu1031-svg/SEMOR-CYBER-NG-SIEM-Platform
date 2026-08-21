@@ -62,7 +62,7 @@
     "gateway": "プラットフォーム性能監視",
     "sso": "IDとSSO",
     "fim": "ファイル整合性監視",
-    "industrial": "産業セキュリティ",
+    "industrial": "産業制御セキュリティ (ICS/OT)",
     "apm": "APMとインサイト",
     "correlation-analysis": "相関分析",
     "correlation-summary": "サマリーダッシュボード",

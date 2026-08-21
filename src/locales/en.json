@@ -62,7 +62,7 @@
     "gateway": "Platform Performance Monitoring",
     "sso": "Identity & SSO",
     "fim": "File Integrity Monitoring",
-    "industrial": "Industrial Security",
+    "industrial": "Industrial Control Security (ICS/OT)",
     "ueba": "Behavior Analytics (UEBA)",
     "executive": "Executive Insights",
     "compliance_center": "Compliance Center",

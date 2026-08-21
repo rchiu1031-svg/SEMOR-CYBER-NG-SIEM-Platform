@@ -196,6 +196,7 @@ import CyberWargamingView from './components/CyberWargamingView';
 import CriticalIncidentsView from './components/CriticalIncidentsView';
 import AIAnalystView from './components/AIAnalystView';
 import SOARViewComponent from './components/SOARView';
+import OTSecurityViewComponent from './components/OTSecurityView';
 
 // Mock Data
 const ALERT_DATA = [
@@ -2355,7 +2356,7 @@ export default function App() {
       case 'fim':
         return <FIMView />;
       case 'industrial':
-        return <OTSecurityView />;
+        return <OTSecurityViewComponent />;
       case 'traffic-control':
         return <TrafficControlView />;
       case 'monitor':
