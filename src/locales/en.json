@@ -1,0 +1,223 @@
+{
+  "common": {
+    "dashboard": "Dashboard",
+    "critical_incidents": "Critical Incident Analysis",
+    "collection_layer": "Data Collection Module",
+    "infrastructure_layer": "Infrastructure Layer",
+    "intelligence_layer": "Intelligence Layer",
+    "orchestration_response": "SOAR & Automation",
+    "settings": "Settings",
+    "license": "License",
+    "logout": "Logout",
+    "search": "Search...",
+    "notifications": "Notifications",
+    "user_profile": "User Profile",
+    "language": "Language",
+    "overview": "Overview",
+    "custom_dashboard": "Customer Dashboard",
+    "active_threats": "Active Threats",
+    "distributed_traffic": "Distributed Traffic Analysis",
+    "ccs_realtime": "Cross-Cluster Search (CCS) Real-time Results",
+    "active_calls": "Active Calls (CTI)",
+    "avg_speed": "Avg Speed of Answer",
+    "total_bandwidth": "Total Bandwidth",
+    "critical_logs": "Critical Logs (1h)",
+    "panel_templates": "Panel Templates",
+    "viz_preview": "Visualization Preview",
+    "custom_visibility": "Custom Visibility",
+    "edit_dashboard": "Edit Dashboard",
+    "finish_editing": "Finish Editing",
+    "data_source": "Data Source",
+    "time_range": "Time Range",
+    "auto_refresh": "Auto-refresh",
+    "save_to_library": "Save to Library",
+    "searching": "Searching...",
+    "global_summary": "Global Security Summary",
+    "risk_dist": "Risk Distribution",
+    "admin_user": "Admin User",
+    "security_analyst": "Security Analyst",
+    "total_events": "Total Events",
+    "ccs_workers": "CCS Workers",
+    "endpoints": "Endpoints",
+    "storage_efficiency": "Storage Efficiency",
+    "vuln_trends": "Vuln Trends",
+    "network_bandwidth": "Network Bandwidth",
+    "daily": "Daily",
+    "online": "Online",
+    "saved": "Saved",
+    "ccs_usage": "CCS Usage"
+  },
+  "modules": {
+    "flow": "Flow (NDR)",
+    "endpoint": "Open XDR (EDR/XDR)",
+    "ingest": "Data Ingest",
+    "discovery": "Log Search",
+    "intel": "Intel (CTI)",
+    "malware-analysis": "Malware Analysis",
+    "vulnerability": "Vulnerability Detection",
+    "ai-analyst": "AI Security Analyst",
+    "honeypot-map": "Honeypot & Attack Map",
+    "soar": "SOAR",
+    "case-management": "Case Management",
+    "gateway": "Platform Performance Monitoring",
+    "sso": "Identity & SSO",
+    "fim": "File Integrity Monitoring",
+    "industrial": "Industrial Security",
+    "ueba": "Behavior Analytics (UEBA)",
+    "executive": "Executive Insights",
+    "compliance_center": "Compliance Center",
+    "real_time_view": "Real-time View",
+    "export_report": "Export Report",
+    "security_health": "Security Health Score",
+    "apm": "APM & Insights",
+    "correlation-analysis": "Correlation Analysis",
+    "correlation-summary": "Summary Dashboard",
+    "correlation-setting": "Correlation Setting",
+    "traffic-control": "Traffic Control",
+    "digital-forensics": "Digital Forensics",
+    "monitor": "Network Monitor"
+  },
+  "semorcti": {
+    "title": "Intel (CTI)",
+    "description": "A powerful Threat Intelligence Platform (TIP) designed for security analysts to structure, manage, visualize, and share cyber threat information. It adopts a data structure based on the STIX2 standard, enabling the import of intelligence from multiple sources, helping organizations centrally manage malicious IPs, files, attack techniques (TTPs), etc., effectively transforming fragmented data into actionable defense knowledge.",
+    "tabs": {
+      "dashboard": "Dashboard",
+      "graph": "Knowledge Graph",
+      "map": "Global Threat Map",
+      "indicators": "Indicators",
+      "connectors": "Connectors"
+    },
+    "time": {
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly"
+    },
+    "analysis": {
+      "by_industry": "Analysis by Industry",
+      "by_region": "Analysis by Region",
+      "by_malware": "Analysis by Malware Type",
+      "by_apt": "Analysis by APT/Attack Type",
+      "by_vulnerability": "Network Vulnerability Analysis"
+    },
+    "vans": {
+      "title": "VANS (Vulnerability Analysis and Notice System)",
+      "subtitle": "Asset-based vulnerability management and automated notification system.",
+      "tabs": {
+        "dashboard": "VANS Dashboard",
+        "assets": "CPE Assets",
+        "remediation": "Remediation Tracking",
+        "scans": "Scan Results"
+      },
+      "metrics": {
+        "total_vulns": "Total VANS Vulnerabilities",
+        "critical": "Critical Risk",
+        "high": "High Risk",
+        "affected_assets": "Affected Assets %",
+        "pending": "Pending Remediation"
+      },
+      "assets": {
+        "collection_progress": "Asset Collection Progress",
+        "software_classification": "Software Classification",
+        "eol_alerts": "EOL Software Alerts"
+      },
+      "remediation": {
+        "success_rate": "Remediation Success Rate",
+        "mttr": "Mean Time To Repair (MTTR)",
+        "overdue": "Overdue Remediation"
+      },
+      "trends": {
+        "vuln_trend": "Vulnerability Trend",
+        "major_notifications": "Major NVD Notifications"
+      }
+    },
+    "entities": {
+      "threat_actors": "Threat Actors",
+      "malware": "Malware",
+      "infrastructure": "Infrastructure",
+      "attack_patterns": "Attack Patterns",
+      "indicators": "Indicators",
+      "reports": "Reports"
+    },
+    "dashboard": {
+      "ingestion_trends": "Ingestion Trends (STIX2 Objects)",
+      "last_24h": "Last 24 Hours",
+      "connector_status": "Connector Status"
+    },
+    "graph": {
+      "title": "Threat Knowledge Graph",
+      "subtitle": "Visualizing STIX2 relationships & dependencies",
+      "investigation": "Open Deep Investigation"
+    },
+    "indicators": {
+      "title": "STIX2 Indicators (IOCs)",
+      "search": "Search IOCs...",
+      "add": "Add Indicator",
+      "table": {
+        "type": "Type",
+        "value": "Value",
+        "confidence": "Confidence",
+        "attribution": "Attribution",
+        "first_seen": "First Seen",
+        "action": "Action"
+      }
+    },
+    "connectors": {
+      "title": "Threat Intel Connectors",
+      "add": "Add Connector",
+      "table": {
+        "name": "Connector Name",
+        "status": "Status",
+        "type": "Type",
+        "last_sync": "Last Sync",
+        "data_volume": "Data Volume"
+      }
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "General",
+      "network": "System Settings",
+      "auth": "Authentication Settings",
+      "users": "User Management",
+      "engine_monitoring": "Engine Monitoring",
+      "collection": "Data Collection",
+      "nac": "Network Access Control (NAC)",
+      "remotelog": "Remote Log Server",
+      "ueba": "UEBA Behavioral Intelligence",
+      "decoder": "AI Log Decoder",
+      "alert": "Alert Configuration",
+      "update": "Updates Management"
+    },
+    "network": {
+      "title": "System Configuration",
+      "subtitle": "Configure system network interfaces and routing.",
+      "ip": "IP Address",
+      "netmask": "Netmask",
+      "gateway": "Gateway",
+      "dns": "DNS Servers",
+      "ntp": "NTP Server",
+      "route": "Static Routes",
+      "interfaces": "Interface Settings",
+      "mgmt_port": "Management Port",
+      "bypass_port": "Bypass Port",
+      "add_dns": "Add DNS",
+      "add_route": "Add Route"
+    },
+    "auth": {
+      "title": "Authentication Configuration",
+      "subtitle": "Manage external authentication providers.",
+      "ad": "Active Directory",
+      "ldap": "LDAP",
+      "radius": "RADIUS",
+      "sso": "SSO (SAML/OIDC)"
+    }
+  },
+  "ndr": {
+    "tabs": {
+      "forensics": "Network Forensics",
+      "monitoring": "Security Monitoring",
+      "analysis": "Traffic Analysis",
+      "topology": "Device Traffic Topology"
+    }
+  }
+}

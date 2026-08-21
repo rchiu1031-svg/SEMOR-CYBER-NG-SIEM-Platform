@@ -1,0 +1,208 @@
+{
+  "common": {
+    "dashboard": "ダッシュボード",
+    "critical_incidents": "重大インシデント分析",
+    "collection_layer": "データ収集モジュール",
+    "infrastructure_layer": "インフラレイヤー",
+    "intelligence_layer": "インテリジェンスレイヤー",
+    "orchestration_response": "SOARと自動化",
+    "settings": "設定",
+    "license": "ライセンス管理",
+    "logout": "ログアウト",
+    "search": "検索...",
+    "notifications": "通知",
+    "user_profile": "ユーザープロファイル",
+    "language": "言語設定",
+    "overview": "概要",
+    "custom_dashboard": "カスタムダッシュボード",
+    "active_threats": "アクティブな脅威",
+    "distributed_traffic": "分散トラフィック分析",
+    "ccs_realtime": "クロススクラスター検索 (CCS) リアルタイム結果",
+    "active_calls": "アクティブな通話 (CTI)",
+    "avg_speed": "平均応答速度",
+    "total_bandwidth": "合計帯域幅",
+    "critical_logs": "重大なログ (1時間)",
+    "panel_templates": "パネルテンプレート",
+    "viz_preview": "視覚化プレビュー",
+    "custom_visibility": "カスタム可視化",
+    "edit_dashboard": "ダッシュボードを編集",
+    "finish_editing": "編集を終了",
+    "data_source": "データソース",
+    "time_range": "時間範囲",
+    "auto_refresh": "自動更新",
+    "save_to_library": "ライブラリに保存",
+    "searching": "検索中...",
+    "global_summary": "グローバルセキュリティサマリー",
+    "risk_dist": "リスク分布",
+    "admin_user": "管理者",
+    "security_analyst": "セキュリティアナリスト",
+    "total_events": "総イベント数",
+    "ccs_workers": "CCSワーカー",
+    "endpoints": "エンドポイント",
+    "storage_efficiency": "ストレージ効率",
+    "vuln_trends": "脆弱性トレンド",
+    "network_bandwidth": "ネットワーク帯域幅",
+    "daily": "毎日",
+    "online": "オンライン",
+    "saved": "保存済み",
+    "ccs_usage": "CCS使用率"
+  },
+  "modules": {
+    "flow": "フロー分析 (NDR)",
+    "endpoint": "オープン XDR (EDR/XDR)",
+    "ingest": "データ取り込み",
+    "discovery": "ログ検索",
+    "intel": "Intel (CTI)",
+    "malware-analysis": "マルウェア分析",
+    "vulnerability": "脆弱性検出",
+    "ai-analyst": "AIセキュリティアナリスト",
+    "honeypot-map": "ハニーポット＆攻撃マップ",
+    "soar": "SOAR",
+    "case-management": "ケース管理",
+    "gateway": "プラットフォーム性能監視",
+    "sso": "IDとSSO",
+    "fim": "ファイル整合性監視",
+    "industrial": "産業セキュリティ",
+    "apm": "APMとインサイト",
+    "correlation-analysis": "相関分析",
+    "correlation-summary": "サマリーダッシュボード",
+    "correlation-setting": "相関設定",
+    "traffic-control": "交通信号制御",
+    "digital-forensics": "デジタルフォレンジック",
+    "monitor": "ネットワークモニター"
+  },
+  "semorcti": {
+    "title": "Intel (CTI)",
+    "description": "SEMORCTIは、セキュリティアナリストがサイバー脅威情報を構造化、管理、可視化、共有するために設計された強力な脅威インテリジェンスプラットフォーム（TIP）です。STIX2標準に基づいたデータ構造を採用し、複数のソースからインテリジェンスをインポートできるため、組織が悪意のあるIP、ファイル、攻撃手法（TTP）などを一元管理し、断片化されたデータを実用的な防御知識に効果的に変換するのに役立ちます。",
+    "tabs": {
+      "dashboard": "ダッシュボード",
+      "graph": "ナレッジグラフ",
+      "indicators": "インジケーター",
+      "connectors": "コネクタ"
+    },
+    "time": {
+      "daily": "毎日",
+      "weekly": "毎週",
+      "monthly": "毎月"
+    },
+    "analysis": {
+      "by_industry": "産業別分析",
+      "by_region": "地域別分析",
+      "by_malware": "マルウェアタイプ別分析",
+      "by_apt": "APT/攻撃タイプ別分析",
+      "by_vulnerability": "ネットワーク脆弱性分析"
+    },
+    "vans": {
+      "title": "VANS (情報セキュリティ脆弱性通知システム)",
+      "subtitle": "資産ベースの脆弱性管理および自動通知システム。",
+      "tabs": {
+        "dashboard": "VANS ダッシュボード",
+        "assets": "CPE 資産",
+        "remediation": "修復トラッキング",
+        "scans": "スキャン結果"
+      },
+      "metrics": {
+        "total_vulns": "VANS 脆弱性合計",
+        "critical": "致命的 (Critical)",
+        "high": "高 (High)",
+        "affected_assets": "影響を受ける資産 %",
+        "pending": "未修復リスト"
+      },
+      "assets": {
+        "collection_progress": "資産収集の進捗",
+        "software_classification": "ソフトウェア分類",
+        "eol_alerts": "EOL ソフトウェア警告"
+      },
+      "remediation": {
+        "success_rate": "修復成功率",
+        "mttr": "平均修復時間 (MTTR)",
+        "overdue": "期限切れの修復"
+      },
+      "trends": {
+        "vuln_trend": "脆弱性トレンド",
+        "major_notifications": "主要な NVD 通知"
+      }
+    },
+    "entities": {
+      "threat_actors": "脅威アクター",
+      "malware": "マルウェア",
+      "infrastructure": "インフラストラクチャ",
+      "attack_patterns": "攻撃パターン",
+      "indicators": "インジケーター",
+      "reports": "レポート"
+    },
+    "dashboard": {
+      "ingestion_trends": "取り込みトレンド (STIX2オブジェクト)",
+      "last_24h": "過去24時間",
+      "connector_status": "コネクタステータス"
+    },
+    "graph": {
+      "title": "脅威ナレッジグラフ",
+      "subtitle": "STIX2のリレーションシップと依存関係の可視化",
+      "investigation": "詳細調査を開く"
+    },
+    "indicators": {
+      "title": "STIX2 インジケーター (IOC)",
+      "search": "IOCを検索...",
+      "add": "インジケーターを追加",
+      "table": {
+        "type": "タイプ",
+        "value": "値",
+        "confidence": "信頼度",
+        "attribution": "帰属",
+        "first_seen": "初回検知",
+        "action": "アクション"
+      }
+    },
+    "connectors": {
+      "title": "脅威インテリジェンスコネクタ",
+      "add": "コネクタを追加",
+      "table": {
+        "name": "コネクタ名",
+        "status": "ステータス",
+        "type": "タイプ",
+        "last_sync": "最終同期",
+        "data_volume": "データ量"
+      }
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "一般",
+      "network": "システム設定",
+      "auth": "認証設定",
+      "users": "ユーザー管理",
+      "engine_monitoring": "エンジン監視",
+      "collection": "データ収集設定",
+      "nac": "ネットワークアクセス制御 (NAC)",
+      "remotelog": "リモートログサーバー",
+      "ueba": "UEBA 行動分析",
+      "decoder": "ログデコーダー",
+      "alert": "アラートルール設定",
+      "update": "アップデート管理"
+    },
+    "network": {
+      "title": "システム構成",
+      "subtitle": "システムネットワークインターフェースとルーティングを構成します。",
+      "ip": "IPアドレス",
+      "netmask": "ネットマスク",
+      "gateway": "ゲートウェイ",
+      "dns": "DNSサーバー",
+      "ntp": "NTPサーバー",
+      "route": "静的ルート",
+      "interfaces": "インターフェース設定",
+      "mgmt_port": "管理ポート",
+      "bypass_port": "バイパスポート",
+      "add_dns": "DNSを追加",
+      "add_route": "ルートを追加"
+    },
+    "auth": {
+      "title": "認証構成",
+      "subtitle": "外部認証プロバイダーを管理します。",
+      "ad": "Active Directory",
+      "ldap": "LDAP",
+      "radius": "RADIUS",
+      "sso": "SSO (SAML/OIDC)"
+    }
+  }
+}

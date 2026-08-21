@@ -1,0 +1,6 @@
+{
+  "name": "SEMOR CYBER NG-SIEM Platform",
+  "description": "A comprehensive Next-Generation SIEM platform integrating SIEM, SOAR, FPC, CTI, and Apache SkyWalking Enterprise-Grade APM & Insights Observability.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

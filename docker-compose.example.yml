@@ -1,0 +1,92 @@
+# SEMOR NG-SIEM Docker Architecture
+
+services:
+  # Reverse Proxy & Edge
+  traefik:
+    image: traefik:v2.10
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # SIEM Core
+  victorialogs:
+    image: victoriametrics/victoria-logs:latest
+    ports:
+      - "9428:9428"
+
+  # Log Collection
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.10.0
+  
+  # SOAR
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+  
+  thehive:
+    image: thehiveproject/thehive:5.2
+  
+  # CTI
+  misp:
+    image: coolacid/misp-docker:latest
+  
+  opencti:
+    image: opencti/platform:5.11.0
+
+  # FPC & Network
+  arkime:
+    image: arkime/arkime:latest
+  
+  suricata:
+    image: jasonish/suricata:latest
+  
+  zeek:
+    image: zeek/zeek:latest
+
+  # Forensics
+  velociraptor:
+    image: velocidex/velociraptor:latest
+
+  # Malware
+  cortex:
+    image: thehiveproject/cortex:3.1.7
+  
+  mwdb:
+    image: certpl/mwdb-core:latest
+
+  # AI Analyst
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ./ollama:/root/.ollama
+  
+  # APM & Insight
+  skywalking:
+    image: apache/skywalking-oap-server:9.5.0
+  
+  skywalking-ui:
+    image: apache/skywalking-ui:9.5.0
+    ports:
+      - "8080:8080"
+
+  # Auth & Gateway
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+
+  # Honeypot
+  t-pot:
+    image: dtagdevsec/tpotce:latest
+
+  # Management
+  fleet:
+    image: fleetdm/fleet:latest
+  
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

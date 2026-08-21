@@ -1,0 +1,224 @@
+{
+  "common": {
+    "dashboard": "儀表板",
+    "critical_incidents": "嚴重事件分析",
+    "collection_layer": "資料收集模組",
+    "infrastructure_layer": "基礎設施層",
+    "intelligence_layer": "情報層",
+    "orchestration_response": "SOAR 自動化",
+    "settings": "設定",
+    "license": "授權管理",
+    "logout": "登出",
+    "search": "搜尋...",
+    "notifications": "通知",
+    "user_profile": "使用者個人資料",
+    "language": "語言設定",
+    "overview": "總覽",
+    "custom_dashboard": "客製化儀表板",
+    "active_threats": "活動威脅",
+    "distributed_traffic": "分散式流量分析",
+    "ccs_realtime": "跨集群搜尋 (CCS) 即時結果",
+    "active_calls": "活躍通話 (CTI)",
+    "avg_speed": "平均回應速度",
+    "total_bandwidth": "總頻寬速度",
+    "critical_logs": "關鍵日誌 (1小時)",
+    "panel_templates": "面板範本庫",
+    "viz_preview": "視覺化預覽",
+    "custom_visibility": "自定義可視化",
+    "edit_dashboard": "編輯儀表板",
+    "finish_editing": "完成編輯",
+    "data_source": "數據來源",
+    "time_range": "時間範圍",
+    "auto_refresh": "自動刷新",
+    "save_to_library": "儲存至庫",
+    "searching": "搜尋中...",
+    "global_summary": "全球安全總覽",
+    "risk_dist": "風險分布",
+    "admin_user": "管理員",
+    "security_analyst": "安全分析師",
+    "total_events": "總事件數",
+    "ccs_workers": "CCS 工作節點",
+    "endpoints": "端點數量",
+    "storage_efficiency": "存儲效率",
+    "vuln_trends": "漏洞趨勢",
+    "network_bandwidth": "網路頻寬",
+    "daily": "每日",
+    "online": "在線",
+    "saved": "已節省",
+    "ccs_usage": "CCS 使用率"
+  },
+  "modules": {
+    "flow": "流量分析 (NDR)",
+    "endpoint": "開放式 XDR (EDR/XDR)",
+    "ingest": "數據接入",
+    "discovery": "日誌搜尋",
+    "intel": "Intel (CTI)",
+    "malware-analysis": "惡意程式分析",
+    "vulnerability": "漏洞偵測",
+    "ai-analyst": "AI 安全分析師",
+    "honeypot-map": "誘捕與攻擊地圖",
+    "soar": "自動化響應 (SOAR)",
+    "case-management": "案件管理",
+    "gateway": "平台效能監控",
+    "sso": "身份認證與 SSO",
+    "fim": "檔案完整性監控",
+    "industrial": "工業安全",
+    "ueba": "行為分析 (UEBA)",
+    "executive": "主管洞察儀表板",
+    "compliance_center": "合規報表中心",
+    "real_time_view": "即時檢視",
+    "export_report": "匯出報告",
+    "security_health": "企業安全健康分",
+    "apm": "APM 與洞察",
+    "correlation-analysis": "關聯分析",
+    "correlation-summary": "總覽儀表板",
+    "correlation-setting": "關聯設定",
+    "traffic-control": "交通號誌控制",
+    "digital-forensics": "數位鑑識",
+    "monitor": "網路監控"
+  },
+  "semorcti": {
+    "title": "Intel (CTI)",
+    "description": "SEMORCTI 是一個強大的威脅情報平台（TIP），專為安全分析師設計，用於結構化、管理、視覺化及分享網路威脅資訊。它採用基於 STIX2 標準的資料結構，能夠匯入多種來源的情報，協助組織集中管理惡意IP、文件、攻擊手法（TTPs）等，有效將碎片化的資料轉化為可操作的防禦知識。",
+    "tabs": {
+      "dashboard": "儀表板",
+      "graph": "知識圖譜",
+      "indicators": "指標 (IOCs)",
+      "connectors": "連接器"
+    },
+    "time": {
+      "daily": "每日",
+      "weekly": "每週",
+      "monthly": "每月"
+    },
+    "analysis": {
+      "by_industry": "依產業分析",
+      "by_region": "依地區分析",
+      "by_malware": "依惡意程式種類分析",
+      "by_apt": "依 APT/攻擊種類分析",
+      "by_vulnerability": "網路漏洞分析"
+    },
+    "vans": {
+      "title": "VANS (資通安全弱點通報系統)",
+      "subtitle": "基於資產的弱點管理與自動化通報系統。",
+      "tabs": {
+        "dashboard": "VANS 儀表板",
+        "assets": "CPE 資產盤點",
+        "remediation": "修補進度追蹤",
+        "scans": "掃描結果"
+      },
+      "metrics": {
+        "total_vulns": "VANS 弱點總數",
+        "critical": "危險 (Critical)",
+        "high": "高 (High)",
+        "affected_assets": "受影響資產佔比",
+        "pending": "待修補清單"
+      },
+      "assets": {
+        "collection_progress": "資產收集進度",
+        "software_classification": "軟體分類統計",
+        "eol_alerts": "過時軟體警示 (EOL)"
+      },
+      "remediation": {
+        "success_rate": "修補成功率",
+        "mttr": "平均修補時間 (MTTR)",
+        "overdue": "逾期未修補"
+      },
+      "trends": {
+        "vuln_trend": "弱點趨勢分析",
+        "major_notifications": "近期重大通報 (NVD)"
+      }
+    },
+    "entities": {
+      "threat_actors": "威脅行為者",
+      "malware": "惡意軟體",
+      "infrastructure": "基礎設施",
+      "attack_patterns": "攻擊手法",
+      "indicators": "情資指標",
+      "reports": "分析報告"
+    },
+    "dashboard": {
+      "ingestion_trends": "情資攝取趨勢 (STIX2 對象)",
+      "last_24h": "最近 24 小時",
+      "connector_status": "連接器狀態"
+    },
+    "graph": {
+      "title": "威脅知識圖譜",
+      "subtitle": "視覺化 STIX2 關聯與依賴關係",
+      "investigation": "開啟深度調查"
+    },
+    "indicators": {
+      "title": "STIX2 指標 (IOCs)",
+      "search": "搜尋 IOCs...",
+      "add": "新增指標",
+      "table": {
+        "type": "類型",
+        "value": "數值",
+        "confidence": "置信度",
+        "attribution": "歸屬",
+        "first_seen": "首次發現",
+        "action": "操作"
+      }
+    },
+    "connectors": {
+      "title": "威脅情報連接器",
+      "add": "新增連接器",
+      "table": {
+        "name": "連接器名稱",
+        "status": "狀態",
+        "type": "類型",
+        "last_sync": "最後同步",
+        "data_volume": "數據量"
+      }
+    }
+  },
+  "settings": {
+    "tabs": {
+      "general": "一般設定",
+      "network": "系統介面設定",
+      "auth": "認證管理設定",
+      "users": "使用者管理",
+      "engine_monitoring": "引擎監控",
+      "collection": "資料採集設定",
+      "nac": "網路存取控制 (NAC)",
+      "remotelog": "遠端日誌伺服器",
+      "ueba": "UEBA 行為分析",
+      "decoder": "日誌解碼器",
+      "alert": "告警規則設定",
+      "update": "更新管理"
+    },
+    "network": {
+      "title": "系統配置",
+      "subtitle": "配置系統網路介面與路由。",
+      "ip": "IP 地址",
+      "netmask": "子網路遮罩",
+      "gateway": "預設閘道",
+      "dns": "DNS 伺服器",
+      "ntp": "NTP 伺服器",
+      "route": "靜態路由",
+      "interfaces": "網卡設定",
+      "mgmt_port": "管理 Port",
+      "bypass_port": "旁路 Port",
+      "add_dns": "新增 DNS",
+      "add_route": "新增路由"
+    },
+    "auth": {
+      "title": "身分認證管理配置",
+      "subtitle": "管理企業 Active Directory、LDAP、RADIUS 與 SSO 單一登入整合。",
+      "ad": "Active Directory 網域",
+      "ldap": "標準 LDAP",
+      "radius": "RADIUS 認證",
+      "sso": "單一登入 (SSO / SAML / OIDC)",
+      "mfa": "多因子身分驗證 (MFA)",
+      "policy": "密碼與安全政策"
+    }
+  },
+  "ndr": {
+    "tabs": {
+      "forensics": "網路鑑識",
+      "monitoring": "安全監控",
+      "analysis": "流量分析",
+      "topology": "設備流量拓樸"
+    }
+  }
+}
