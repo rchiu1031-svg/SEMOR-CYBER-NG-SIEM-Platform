@@ -37,6 +37,7 @@ import {
   Key
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import SecurityAttackTree from './SecurityAttackTree';
 
 interface SecurityModel {
   id: string;
@@ -1317,75 +1318,16 @@ export default function AIModelConfigView() {
           <div className="space-y-8" id="audit-pdf-exporter-panel">
             
             {/* COLUMN 1: Llama-3 Derived Vulnerability Map (Security Attack Tree) */}
-            <div className="bg-[#0b0f14] border border-gray-800 rounded-xl p-6 relative overflow-hidden transition-all duration-300 shadow-md">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-[#00FF66]/2 rounded-full blur-3xl pointer-events-none"></div>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-gray-800 pb-4 mb-6 gap-2">
-                <div className="flex items-center gap-2">
-                  <Network className="text-[#00FF66]" size={18} />
-                  <h3 className="text-sm uppercase font-black tracking-widest text-[#00FF66]">
-                    {tVal('derivedVulnerTree')}
-                  </h3>
-                </div>
-                <span className="text-[10px] font-mono bg-black text-gray-400 px-3 py-1 rounded border border-gray-850 font-black tracking-wider uppercase">
-                  {tVal('auditorVeneer')}
-                </span>
-              </div>
-
-              {/* SVG Node Path Chain Graph */}
-              <div className="bg-black/60 rounded-xl border border-gray-850 p-6 md:p-8 min-h-[250px] flex items-center justify-center relative">
-                <svg viewBox="0 0 600 220" className="w-full max-w-2xl h-full select-none font-mono">
-                  
-                  {/* Direction arrows */}
-                  <defs>
-                    <marker id="arr" viewBox="0 0 10 10" refX="24" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                      <path d="M 0 1 L 10 5 L 0 9 z" fill="#00FF66" />
-                    </marker>
-                  </defs>
-
-                  {/* Path 1: SSH Bypass -> AD Query */}
-                  <path d="M 120 110 L 280 110" stroke="#00FF66" strokeWidth="2.5" strokeDasharray="3,3" markerEnd="url(#arr)" />
-                  {/* Path 2: AD Query -> Postgres Exploit */}
-                  <path d="M 280 110 L 440 110" stroke="#00FF66" strokeWidth="2.5" markerEnd="url(#arr)" />
-
-                  {/* Node 1: Front Bridge */}
-                  <g transform="translate(60, 110)">
-                    <circle r="36" fill="#111" stroke="#FF3366" strokeWidth="3" />
-                    <g transform="translate(-10, -10)">
-                      <Terminal size={20} className="text-red-400" />
-                    </g>
-                    <text textAnchor="middle" y="52" fill="white" fontSize="9" fontWeight="bold">Prod-Web-01</text>
-                    <text textAnchor="middle" y="62" fill="#9ca3af" fontSize="8" className="tracking-tight">10.10.12.31</text>
-                    <rect x="-35" y="-50" width="70" height="14" rx="4" fill="rgba(239, 68, 68, 0.15)" stroke="#ef4444" strokeWidth="1" />
-                    <text textAnchor="middle" y="-40" fill="#ef4444" fontSize="7" fontWeight="black">{activeLang === 'zh' ? '主機失陷' : activeLang === 'ja' ? '侵害確認' : 'COMPROMISED'}</text>
-                  </g>
-
-                  {/* Node 2: LDAP Directory replica */}
-                  <g transform="translate(280, 110)">
-                    <circle r="32" fill="#111" stroke="#FFB000" strokeWidth="2" />
-                    <g transform="translate(-10, -10)">
-                      <Key size={18} className="text-yellow-400 animate-pulse" />
-                    </g>
-                    <text textAnchor="middle" y="48" fill="white" fontSize="9" fontWeight="bold">ldap-replica-01</text>
-                    <text textAnchor="middle" y="58" fill="#9ca3af" fontSize="8" className="tracking-tight">10.10.42.5</text>
-                    <rect x="-30" y="-46" width="60" height="14" rx="4" fill="rgba(245, 158, 11, 0.15)" stroke="#f59e0b" strokeWidth="1" />
-                    <text textAnchor="middle" y="-36" fill="#f59e0b" fontSize="7" fontWeight="black">{activeLang === 'zh' ? '特權暴露' : activeLang === 'ja' ? 'クエリ露出' : 'QUERY EXPOSED'}</text>
-                  </g>
-
-                  {/* Node 3: PostgreSQL Ledger database */}
-                  <g transform="translate(500, 110)">
-                    <circle r="36" fill="#111" stroke="#00FF66" strokeWidth="3" />
-                    <g transform="translate(-10, -10)">
-                      <Database size={20} className="text-green-400" />
-                    </g>
-                    <text textAnchor="middle" y="52" fill="white" fontSize="9" fontWeight="bold">Postgres Core</text>
-                    <text textAnchor="middle" y="62" fill="#9ca3af" fontSize="8" className="tracking-tight">10.10.42.10</text>
-                    <rect x="-35" y="-50" width="70" height="14" rx="4" fill="rgba(0, 255, 102, 0.15)" stroke="#00FF66" strokeWidth="1" />
-                    <text textAnchor="middle" y="-40" fill="#00FF66" fontSize="7" fontWeight="black">{activeLang === 'zh' ? '安全守衛在線' : activeLang === 'ja' ? '稼働保護' : 'SECURED'}</text>
-                  </g>
-
-                </svg>
-              </div>
-            </div>
+            <SecurityAttackTree 
+              activeLang={activeLang}
+              onExecuteMitigation={(cmd, nodeName) => {
+                setReasoningLogs(prev => [
+                  ...prev,
+                  `[MITIGATION-DEPLOY] Executed hardening playbook on node: ${nodeName}`,
+                  `[REASONER-LLAMA3] Rule applied: ${cmd}`
+                ]);
+              }}
+            />
 
             {/* COLUMN 2: Audit Document Generator - Prominent Independent Master Block */}
             <div className="bg-[#10141f] border border-gray-800 rounded-xl p-6 md:p-8 relative overflow-hidden transition-all duration-300 shadow-xl" id="audit-document-generator-master">
