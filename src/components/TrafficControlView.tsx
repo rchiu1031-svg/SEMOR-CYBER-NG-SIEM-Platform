@@ -93,12 +93,13 @@ import {
   Rewind
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import TrafficTelemetryDashboard from './TrafficTelemetryDashboard';
 
 // =========================================================================
 // DATA STRUCTURES & INTERFACES
 // =========================================================================
 
-export type TrafficTab = 'intersection' | 'cms_matrix' | 'scada_topology' | 'ics_security' | 'cctv_vision';
+export type TrafficTab = 'dashboard' | 'intersection' | 'cms_matrix' | 'scada_topology' | 'ics_security' | 'cctv_vision';
 
 export interface TrafficSensor {
   id: string;
@@ -505,7 +506,7 @@ export default function TrafficControlView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<TrafficTab>('intersection');
+  const [activeTab, setActiveTab] = useState<TrafficTab>('dashboard');
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -692,9 +693,10 @@ export default function TrafficControlView() {
         {/* PRIMARY SUB-MODULE NAVIGATION TABS */}
         <div className="mt-6 flex flex-wrap bg-black/80 p-1.5 rounded-xl border border-gray-800 gap-1.5">
           {[
+            { id: 'dashboard', label: isZh ? '📈 即時車流與號誌動態儀表盤 (Live Telemetry Dashboard)' : 'Live Flow & Signal Telemetry', icon: <Activity size={14} /> },
             { id: 'intersection', label: isZh ? '🚦 路口號誌實時相態控制 (ISC Phase Controller)' : 'ISC Signal Phase Controller', icon: <Signal size={14} /> },
             { id: 'cms_matrix', label: isZh ? '📺 資訊看板與標誌矩陣 (CMS / LCS / VSLS / FAFYL)' : 'CMS / LCS / VSLS / FAFYL Matrix', icon: <MessageSquare size={14} /> },
-            { id: 'scADA_topology', key: 'scada_topology', label: isZh ? '🗺️ 交通基礎設施 SCADA 拓撲 (Network Topology)' : 'SCADA Infrastructure Topology', icon: <Network size={14} /> },
+            { id: 'scada_topology', key: 'scada_topology', label: isZh ? '🗺️ 交通基礎設施 SCADA 拓撲 (Network Topology)' : 'SCADA Infrastructure Topology', icon: <Network size={14} /> },
             { id: 'ics_security', label: isZh ? '🛡️ 工控協定資安稽核與 DPI (ICS Protocol Security)' : 'ICS Protocol Security & DPI', icon: <ShieldAlert size={14} /> },
             { id: 'cctv_vision', label: isZh ? '📹 CCTV 交通監控與 AI 車流辨識 (Edge Vision)' : 'CCTV Vision & Edge Analytics', icon: <Video size={14} /> }
           ].map((tab) => {
@@ -815,6 +817,11 @@ export default function TrafficControlView() {
         </div>
 
       </div>
+
+      {/* ========================================================================= */}
+      {/* TAB 0: 📈 即時車流與號誌動態儀表盤 (LIVE TELEMETRY DASHBOARD)                 */}
+      {/* ========================================================================= */}
+      {activeTab === 'dashboard' && <TrafficTelemetryDashboard />}
 
       {/* ========================================================================= */}
       {/* TAB 1: 🚦 路口號誌實時相態控制與雙環時相 (ISC & INTERSECTION LIVE)           */}
