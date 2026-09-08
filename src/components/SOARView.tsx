@@ -63,6 +63,7 @@ import {
   Code
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { SOARFIMView } from './soar/fim/SOARFIMView';
 
 // --- DATA DEFINITIONS & TYPES ---
 
@@ -264,7 +265,7 @@ export default function SOARView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Sub-tabs
-  const [activeSubTab, setActiveSubTab] = useState<'workflows' | 'executions' | 'builder' | 'forensics' | 'correlation' | 'connectors'>('workflows');
+  const [activeSubTab, setActiveSubTab] = useState<'workflows' | 'executions' | 'builder' | 'forensics' | 'correlation' | 'connectors' | 'fim'>('workflows');
   
   // Selected Playbook
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>('pb-01');
@@ -553,6 +554,7 @@ export default function SOARView() {
         <div className="mt-8 flex bg-black/70 p-1.5 rounded-xl border border-gray-800 overflow-x-auto custom-scrollbar gap-1">
           {[
             { id: 'workflows', label: isZh ? '工作流程與劇本編排' : 'Playbook Canvas', icon: <Workflow size={14} /> },
+            { id: 'fim', label: isZh ? '檔案完整性監控 (FIM 自動化)' : 'File Integrity Monitoring (FIM)', icon: <Fingerprint size={14} /> },
             { id: 'executions', label: isZh ? '即時處置紀錄與審批' : 'Live Executions & Approvals', icon: <History size={14} /> },
             { id: 'builder', label: isZh ? '動作與連接器建構器' : 'Action & Connector Builder', icon: <Code size={14} /> },
             { id: 'forensics', label: isZh ? '跨據點遠端數位鑑識' : 'Distributed Forensics', icon: <FileSearch size={14} /> },
@@ -1450,6 +1452,13 @@ export default function SOARView() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 7: FILE INTEGRITY MONITORING (FIM) & SOAR AUTOMATION */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'fim' && (
+        <SOARFIMView />
       )}
 
     </div>
