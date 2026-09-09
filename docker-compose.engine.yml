@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # 1. SEMOR VictoriaLogs-Style 儲存核心 (Rust Engine)
+  storage-rust:
+    build:
+      context: ./engine/storage-rust
+      dockerfile: Dockerfile
+    container_name: semor-storage-rust
+    environment:
+      - VLOG_DATA_DIR=/var/lib/semor/vlog
+      - RUST_UDS_PATH=/var/run/semor/semor_rust.sock
+      - RUST_TCP_ADDR=0.0.0.0:9527
+    volumes:
+      - vlog-data:/var/lib/semor/vlog
+      - ipc-socket:/var/run/semor
+    ports:
+      - "9527:9527"
+    restart: unless-stopped
+
+  # 2. SEMOR 高效能接收器 (Go Engine)
+  collector-go:
+    build:
+      context: ./engine/collector-go
+      dockerfile: Dockerfile
+    container_name: semor-collector-go
+    environment:
+      - SYSLOG_UDP_PORT=5140
+      - SYSLOG_TCP_PORT=5140
+      - COLLECTOR_HTTP_PORT=8080
+      - BATCH_SIZE=2000
+      - BATCH_TIMEOUT_MS=250
+      - RUST_UDS_PATH=/var/run/semor/semor_rust.sock
+      - RUST_TCP_ADDR=storage-rust:9527
+      - USE_UDS=false
+    volumes:
+      - ipc-socket:/var/run/semor
+    ports:
+      - "5140:5140/udp"
+      - "5140:5140/tcp"
+      - "8080:8080"
+    depends_on:
+      - storage-rust
+    restart: unless-stopped
+
+  # 3. SEMOR Next-Gen SIEM Web 平台控制台
+  web-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: semor-web-platform
+    environment:
+      - PORT=3000
+      - COLLECTOR_URL=http://collector-go:8080
+      - STORAGE_URL=http://storage-rust:9527
+    ports:
+      - "3000:3000"
+    depends_on:
+      - collector-go
+    restart: unless-stopped
+
+volumes:
+  vlog-data:
+  ipc-socket:

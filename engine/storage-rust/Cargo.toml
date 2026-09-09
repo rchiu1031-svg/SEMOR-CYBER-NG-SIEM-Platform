@@ -1,0 +1,17 @@
+[package]
+name = "semor-vlog-engine"
+version = "0.1.0"
+edition = "2021"
+authors = ["SEMOR Cyber R&D <chiur@ke-la.com>"]
+description = "SEMOR VictoriaLogs-Style High-Performance Log Storage Engine in Rust"
+
+[dependencies]
+tokio = { version = "1.36", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zstd = "0.13"
+byteorder = "1.5"
+chrono = "0.4"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"

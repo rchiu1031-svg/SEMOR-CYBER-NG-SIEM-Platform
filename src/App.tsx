@@ -208,6 +208,7 @@ import { ExecutiveDashboardView } from './components/executive/ExecutiveDashboar
 import { OverviewDashboardView } from './components/overview/OverviewDashboardView';
 import { CustomDashboardView } from './components/custom-dashboard/CustomDashboardView';
 import { CaseManagementView } from './components/case-management';
+import { EngineArchitectureView } from './components/EngineArchitectureView';
 
 // Mock Data
 const ALERT_DATA = [

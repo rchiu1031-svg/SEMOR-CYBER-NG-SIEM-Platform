@@ -30,6 +30,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { EngineArchitectureView } from './EngineArchitectureView';
 import { 
   AreaChart, 
   Area, 
@@ -114,8 +115,8 @@ export function PlatformPerformanceView() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
-  // Tabs: 'overview' | 'analytics'
-  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics'>('overview');
+  // Tabs: 'overview' | 'analytics' | 'engine'
+  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine'>('overview');
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configModalTab, setConfigModalTab] = useState<'thresholds' | 'notifications' | 'overrides' | 'test'>('thresholds');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -399,6 +400,17 @@ export function PlatformPerformanceView() {
             >
               <BarChart3 size={13} />
               {isZh ? '效能分析報表' : 'Analytics & Trends'}
+            </button>
+            <button
+              onClick={() => setActiveViewMode('engine')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeViewMode === 'engine'
+                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <Zap size={13} className="text-amber-400" />
+              {isZh ? '第一階段核心 (Go+Rust)' : 'Core Engine (Go & Rust)'}
             </button>
           </div>
 
@@ -979,6 +991,11 @@ export function PlatformPerformanceView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MAIN VIEW MODE 3: Core Engine (Go Ingest + Rust Storage) */}
+      {activeViewMode === 'engine' && (
+        <EngineArchitectureView />
       )}
 
       {/* METRICS & ALERT THRESHOLDS CONFIG MODAL */}
