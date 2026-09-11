@@ -388,6 +388,7 @@ async function startServer() {
   app.get('/api/engine/source-code', (req, res) => {
     const requestedFile = req.query.file as string;
     const allowedFiles: Record<string, string> = {
+      'go_receiver': 'cmd/receiver/main.go',
       'go_main': 'engine/collector-go/main.go',
       'go_syslog': 'engine/collector-go/receiver/syslog.go',
       'go_http': 'engine/collector-go/receiver/http.go',

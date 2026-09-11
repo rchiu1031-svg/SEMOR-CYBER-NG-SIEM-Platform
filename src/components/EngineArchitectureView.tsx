@@ -83,11 +83,12 @@ export function EngineArchitectureView() {
   const [isTesting, setIsTesting] = useState(false);
 
   // Code viewer state
-  const [selectedFileKey, setSelectedFileKey] = useState<string>('go_main');
+  const [selectedFileKey, setSelectedFileKey] = useState<string>('go_receiver');
   const [fileContent, setFileContent] = useState<string>('');
   const [isLoadingCode, setIsLoadingCode] = useState(false);
 
   const fileList = [
+    { key: 'go_receiver', name: 'Go: 高效能接收器 (cmd/receiver/main.go)', lang: 'go' },
     { key: 'go_main', name: 'Go: 主程序 (main.go)', lang: 'go' },
     { key: 'go_syslog', name: 'Go: Syslog UDP/TCP (syslog.go)', lang: 'go' },
     { key: 'go_http', name: 'Go: HTTP/NDJSON (http.go)', lang: 'go' },
@@ -331,11 +332,12 @@ export function EngineArchitectureView() {
                   </div>
 
                   <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800">
-                    <div className="text-slate-400 font-medium mb-1">記憶體緩衝與管線聚合</div>
-                    <div className="text-slate-300">
-                      <div>• 環形 Channel 容量: <span className="font-mono text-indigo-300">50,000 Entries</span></div>
-                      <div>• 批次打包條件: <span className="font-mono text-indigo-300">2,000 筆 或 250ms</span></div>
-                      <div>• 動態正則解碼: <span className="text-emerald-300 font-medium">支援 UI 熱下發無需重啟</span></div>
+                    <div className="text-slate-400 font-medium mb-1">記憶體緩衝與自適應協程池</div>
+                    <div className="text-slate-300 space-y-0.5 font-mono text-[11px]">
+                      <div>• 分區鎖環形緩衝: <span className="text-indigo-300">16 Shards / 160,000 Entries</span></div>
+                      <div>• 自適應動態協程: <span className="text-emerald-300">Min 8 ~ Max 64 Workers 自動伸縮</span></div>
+                      <div>• 零日誌遺失關機: <span className="text-amber-300">五階段有序排空 (Zero Log Loss)</span></div>
+                      <div>• 向量批次聚合: <span className="text-indigo-300">2,000 筆 或 80ms 刷新</span></div>
                     </div>
                   </div>
                 </div>

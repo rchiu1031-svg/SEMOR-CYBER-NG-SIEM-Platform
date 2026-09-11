@@ -63,7 +63,7 @@ func (r *SyslogReceiver) StartUDP(ctx context.Context, numWorkers int) error {
 					msg := strings.TrimSpace(string(raw))
 					if len(msg) > 0 {
 						r.inboundQueue <- pipeline.LogEntry{
-							Timestamp: time.Now().UnixMilli(),
+							Timestamp: time.Now().UnixNano(),
 							RawMsg:    msg,
 							Fields: map[string]interface{}{
 								"protocol": "syslog-udp",
@@ -156,7 +156,7 @@ func (r *SyslogReceiver) handleTCPConn(ctx context.Context, conn net.Conn) {
 			atomic.AddUint64(&r.bytesReceived, uint64(len(line)))
 
 			r.inboundQueue <- pipeline.LogEntry{
-				Timestamp: time.Now().UnixMilli(),
+				Timestamp: time.Now().UnixNano(),
 				RawMsg:    line,
 				Fields: map[string]interface{}{
 					"protocol": "syslog-tcp",

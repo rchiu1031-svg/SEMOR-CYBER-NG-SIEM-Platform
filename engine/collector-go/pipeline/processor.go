@@ -9,7 +9,7 @@ import (
 
 // LogEntry 代表單筆進線日誌
 type LogEntry struct {
-	Timestamp int64                  `json:"timestamp"` // Unix timestamp in milliseconds
+	Timestamp int64                  `json:"timestamp"` // Unix timestamp in nanoseconds
 	RawMsg    string                 `json:"raw_msg"`
 	Fields    map[string]interface{} `json:"fields,omitempty"`
 }
