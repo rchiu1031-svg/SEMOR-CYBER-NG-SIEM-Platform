@@ -3,9 +3,17 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -22,19 +30,20 @@ import (
 // ============================================================================
 // Architecture Specification:
 // SEMOR High-Concurrency Log Ingestion Receiver (Go Core)
-// Layer: High-Performance Ingress Listener ->
+// Layer: Ingress Listeners (UDP / TCP / TLS RFC-5425 Secure Ingestion) ->
 //        Decoupled Lock-Striped Ingestion Packet Ring Buffer (Cache-Aligned) ->
 //        Traffic-Adaptive Dynamic Worker Pool (Vectorized Batch Drain) ->
 //        Sharded Log Entry Circular Buffer ->
 //        Vectorized Batch Aggregator & Async Rust Storage IPC
-// Feature: Zero-Loss Graceful Shutdown Pipeline
+// Feature: Zero-Loss Graceful Shutdown Pipeline & Configurable TLS from Env
 // ============================================================================
 
 const (
 	ReceiverName           = "SEMOR High-Concurrency Log Receiver"
-	ReceiverVersion        = "v2.3.0-DecoupledIngestionRing"
+	ReceiverVersion        = "v2.4.0-SecureTLS-DecoupledIngestion"
 	DefaultUDPPort         = 5140
 	DefaultTCPPort         = 5140
+	DefaultTLSPort         = 6514   // Standard RFC 5425 Syslog over TLS port
 	DefaultHTTPPort        = 8080
 	DefaultUDSPath         = "/tmp/semor_rust.sock"
 	DefaultTCPAddr         = "127.0.0.1:9527"
@@ -67,7 +76,7 @@ const (
 type InboundLogEntry struct {
 	Timestamp int64             `json:"timestamp"` // Nanosecond precision unix timestamp
 	RawMsg    string            `json:"raw_msg"`   // Raw syslog/event payload
-	Source    string            `json:"source"`    // Protocol source (syslog-udp, syslog-tcp, http)
+	Source    string            `json:"source"`    // Protocol source (syslog-udp, syslog-tcp, syslog-tls, http)
 	RemoteIP  string            `json:"remote_ip,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
 }
@@ -187,7 +196,7 @@ func (s *PacketRingShard) push(pkt RawPacket) bool {
 	if s.size >= s.capacity {
 		s.totalOverflows++
 		if s.strategy == DropOldest {
-			// Overwrite the oldest unread element and recycle its byte slice to bufPool
+			// Overwrite oldest unread element and recycle its buffer
 			oldPkt := s.buf[s.head]
 			if oldPkt.Data != nil && s.bufPool != nil {
 				s.bufPool.Put(&oldPkt.Data)
@@ -199,7 +208,7 @@ func (s *PacketRingShard) push(pkt RawPacket) bool {
 			s.signal()
 			return true
 		}
-		// DropNewest: discard arriving packet and return its buffer
+		// DropNewest
 		s.mu.Unlock()
 		if pkt.Data != nil && s.bufPool != nil {
 			s.bufPool.Put(&pkt.Data)
@@ -247,7 +256,7 @@ func (s *PacketRingShard) popBatch(maxItems int) []RawPacket {
 	batch := make([]RawPacket, n)
 	for i := 0; i < n; i++ {
 		batch[i] = s.buf[s.head]
-		s.buf[s.head] = RawPacket{} // Zero out reference
+		s.buf[s.head] = RawPacket{} // Clear reference
 		s.head = (s.head + 1) & s.mask
 	}
 	s.size -= n
@@ -368,7 +377,7 @@ func (irb *IngestionPacketRingBuffer) PopBatch(shardHint int, maxItems int) []Ra
 		return nil
 	}
 
-	// 1. Try primary affinity shard first
+	// 1. Primary affinity shard
 	primaryIdx := shardHint % irb.numShards
 	batch := irb.shards[primaryIdx].popBatch(maxItems)
 	if len(batch) > 0 {
@@ -502,7 +511,7 @@ func (s *RingShard) push(entry InboundLogEntry) bool {
 	if s.size >= s.capacity {
 		s.totalOverflows++
 		if s.strategy == DropOldest {
-			// Overwrite the oldest unread element and advance both head and tail
+			// Overwrite the oldest unread element
 			s.buf[s.tail] = entry
 			s.tail = (s.tail + 1) % s.capacity
 			s.head = (s.head + 1) % s.capacity
@@ -636,7 +645,6 @@ func NewShardedCircularBuffer(totalCapacity int, numShards int, strategy Overflo
 		globalNotifyCh: make(chan struct{}, 1),
 	}
 
-	// Shard wake-up multiplexer: forward any shard signal to the global notify channel
 	for i := 0; i < numShards; i++ {
 		shard := shards[i]
 		go func(ch <-chan struct{}) {
@@ -673,7 +681,6 @@ func (scb *ShardedCircularBuffer) PopBatch(maxItems int) []InboundLogEntry {
 	batch := make([]InboundLogEntry, 0, maxItems)
 	remaining := maxItems
 
-	// Round-robin pass over all shards
 	for i := 0; i < scb.numShards && remaining > 0; i++ {
 		shardBatch := scb.shards[i].popBatch(remaining)
 		if len(shardBatch) > 0 {
@@ -753,8 +760,6 @@ func (scb *ShardedCircularBuffer) Close() {
 // ============================================================================
 
 // WorkerPool processes raw datagram packets concurrently without blocking socket readers.
-// It drains the IngestionPacketRingBuffer using vectorized batch pops, autoscales dynamically
-// under traffic floods, and drains cleanly during zero-loss graceful shutdown.
 type WorkerPool struct {
 	ingressBuffer *IngestionPacketRingBuffer
 	outputBuffer  *ShardedCircularBuffer
@@ -768,11 +773,9 @@ type WorkerPool struct {
 	scaleDnEvents uint64 // atomic counter
 	idleTimeout   time.Duration
 
-	// Autoscaler lifecycle context
 	scalerCtx    context.Context
 	scalerCancel context.CancelFunc
 
-	// Synchronization for shutdown
 	wg         sync.WaitGroup
 	closeOnce  sync.Once
 	isDraining int32 // atomic boolean flag
@@ -811,21 +814,20 @@ func newWorkerPool(
 		scalerCancel:  sCancel,
 	}
 
-	// 1. Initialize permanent core workers
+	// 1. Permanent core workers
 	for i := 0; i < minWorkers; i++ {
 		wp.wg.Add(1)
 		atomic.AddInt64(&wp.activeWorkers, 1)
 		go wp.workerLoop(i, false)
 	}
 
-	// 2. Start background traffic monitor & autoscaler loop
+	// 2. Background traffic monitor & autoscaler loop
 	wp.wg.Add(1)
 	go wp.autoScaler()
 
 	return wp
 }
 
-// autoScaler continuously evaluates ingestion buffer pressure and scales worker routines dynamically
 func (wp *WorkerPool) autoScaler() {
 	defer wp.wg.Done()
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -844,7 +846,6 @@ func (wp *WorkerPool) autoScaler() {
 			capacity := wp.ingressBuffer.totalCapacity
 			active := atomic.LoadInt64(&wp.activeWorkers)
 
-			// Determine if scale-up is required based on buffer depth and utilization
 			var util float64
 			if capacity > 0 {
 				util = float64(depth) / float64(capacity)
@@ -867,7 +868,6 @@ func (wp *WorkerPool) autoScaler() {
 				}
 			}
 
-			// Update metrics
 			if wp.metrics != nil {
 				wp.metrics.mu.Lock()
 				wp.metrics.ActiveWorkers = active
@@ -878,7 +878,6 @@ func (wp *WorkerPool) autoScaler() {
 	}
 }
 
-// spawnDynamicWorker instantiates an ephemeral worker goroutine that automatically times out when idle
 func (wp *WorkerPool) spawnDynamicWorker() {
 	if atomic.LoadInt32(&wp.isDraining) == 1 {
 		return
@@ -896,7 +895,6 @@ func (wp *WorkerPool) spawnDynamicWorker() {
 	go wp.workerLoop(workerID, true)
 }
 
-// workerLoop drains the ingestion ring buffer using vectorized batch pops, eliminating lock contention
 func (wp *WorkerPool) workerLoop(workerID int, isDynamic bool) {
 	defer wp.wg.Done()
 	primaryShard := workerID % wp.ingressBuffer.numShards
@@ -905,7 +903,6 @@ func (wp *WorkerPool) workerLoop(workerID int, isDynamic bool) {
 	defer idleTimer.Stop()
 
 	for {
-		// Vectorized batch drain from primary shard (with work-stealing fallback)
 		pkts := wp.ingressBuffer.PopBatch(primaryShard, PacketBatchDrainSize)
 		if len(pkts) > 0 {
 			for i := 0; i < len(pkts); i++ {
@@ -924,7 +921,6 @@ func (wp *WorkerPool) workerLoop(workerID int, isDynamic bool) {
 			continue
 		}
 
-		// If shutting down and the ingestion buffer is completely empty, exit cleanly
 		if atomic.LoadInt32(&wp.isDraining) == 1 {
 			if wp.ingressBuffer.TotalDepth() == 0 {
 				atomic.AddInt64(&wp.activeWorkers, -1)
@@ -932,22 +928,18 @@ func (wp *WorkerPool) workerLoop(workerID int, isDynamic bool) {
 			}
 		}
 
-		// Wait for incoming packet notification or idle timeout
 		select {
 		case <-wp.ingressBuffer.NotifyChannel():
-			// Woken up by new packet arrival; loop and pop
 		case <-idleTimer.C:
-			// If shutdown is ongoing, do not exit prematurely
 			if atomic.LoadInt32(&wp.isDraining) == 1 {
 				idleTimer.Reset(50 * time.Millisecond)
 				continue
 			}
 
-			// Idle timeout fired: if excess workers exist beyond minWorkers and buffer is empty, scale down!
 			if isDynamic && atomic.LoadInt64(&wp.activeWorkers) > int64(wp.minWorkers) && wp.ingressBuffer.TotalDepth() == 0 {
 				atomic.AddInt64(&wp.activeWorkers, -1)
 				atomic.AddUint64(&wp.scaleDnEvents, 1)
-				return // Scale down!
+				return
 			}
 
 			idleTimer.Reset(wp.idleTimeout)
@@ -956,10 +948,9 @@ func (wp *WorkerPool) workerLoop(workerID int, isDynamic bool) {
 }
 
 func (wp *WorkerPool) processPacket(workerID int, pkt RawPacket) {
-	// Extract message string from raw byte slice
 	rawMsg := strings.TrimSpace(string(pkt.Data[:pkt.Length]))
 
-	// Immediately recycle byte slice back to sync.Pool
+	// Return byte slice back to sync.Pool
 	wp.bufPool.Put(&pkt.Data)
 
 	if len(rawMsg) == 0 {
@@ -973,21 +964,17 @@ func (wp *WorkerPool) processPacket(workerID int, pkt RawPacket) {
 		RemoteIP:  pkt.RemoteIP,
 	}
 
-	// Push to Sharded Circular Buffer with worker affinity to minimize CPU cache thrashing
 	if !wp.outputBuffer.PushWithAffinity(workerID, entry) {
 		atomic.AddUint64(&wp.metrics.PacketsDropped, 1)
 	}
 }
 
-// Submit accepts an inbound network packet and enqueues it into the decoupled ingestion ring buffer.
-// It features an immediate fast-path autoscaling trigger during sudden flood arrivals.
 func (wp *WorkerPool) Submit(pkt RawPacket) bool {
 	if atomic.LoadInt32(&wp.isDraining) == 1 {
 		wp.bufPool.Put(&pkt.Data)
 		return false
 	}
 
-	// Fast-path autoscaling: if ingress buffer is accumulating depth, immediately add a worker
 	if wp.ingressBuffer.TotalDepth() > 400 && atomic.LoadInt64(&wp.activeWorkers) < int64(wp.maxWorkers) {
 		wp.spawnDynamicWorker()
 	}
@@ -995,7 +982,6 @@ func (wp *WorkerPool) Submit(pkt RawPacket) bool {
 	return wp.ingressBuffer.Push(pkt)
 }
 
-// SubmitWithAffinity places the packet into a designated shard lane
 func (wp *WorkerPool) SubmitWithAffinity(shardHint int, pkt RawPacket) bool {
 	if atomic.LoadInt32(&wp.isDraining) == 1 {
 		wp.bufPool.Put(&pkt.Data)
@@ -1009,13 +995,10 @@ func (wp *WorkerPool) SubmitWithAffinity(shardHint int, pkt RawPacket) bool {
 	return wp.ingressBuffer.PushWithAffinity(shardHint, pkt)
 }
 
-// DrainAndStop marks the ingestion buffer closed and blocks until all pending packets are processed by workers.
 func (wp *WorkerPool) DrainAndStop() {
 	wp.closeOnce.Do(func() {
 		atomic.StoreInt32(&wp.isDraining, 1)
-		// Cancel autoscaler monitor
 		wp.scalerCancel()
-		// Closing the ingress ring buffer wakes up all workers to finish remaining entries
 		wp.ingressBuffer.Close()
 	})
 	wp.wg.Wait()
@@ -1042,12 +1025,15 @@ func (wp *WorkerPool) ScaleEvents() (up uint64, down uint64) {
 // ============================================================================
 
 type ThroughputMetrics struct {
-	UDPPacketsTotal uint64
-	TCPPacketsTotal uint64
-	BytesTotal      uint64
-	PacketsDropped  uint64
-	BatchesSent     uint64
-	BatchesFailed   uint64
+	UDPPacketsTotal     uint64
+	TCPPacketsTotal     uint64
+	TLSPacketsTotal     uint64
+	TLSHandsShakesTotal uint64
+	TLSHandshakeErrors  uint64
+	BytesTotal          uint64
+	PacketsDropped      uint64
+	BatchesSent         uint64
+	BatchesFailed       uint64
 
 	// Dynamic worker telemetry
 	ActiveWorkers    int64
@@ -1056,6 +1042,7 @@ type ThroughputMetrics struct {
 	// Rolling rate calculations
 	LastUDPCount uint64
 	LastTCPCount uint64
+	LastTLSCount uint64
 	LastByteCnt  uint64
 	LastSampleAt time.Time
 	CurrentPPS   float64
@@ -1066,6 +1053,16 @@ type ThroughputMetrics struct {
 type ReceiverConfig struct {
 	UDPPort            int
 	TCPPort            int
+	TLSPort            int
+	TLSEnabled         bool
+	TLSCertPEM         string
+	TLSKeyPEM          string
+	TLSCertFile        string
+	TLSKeyFile         string
+	TLSClientCAPEM     string
+	TLSClientCAFile    string
+	TLSClientAuth      string // "none", "request", "require", "verify"
+	TLSMinVersion      string // "1.2", "1.3"
 	HTTPPort           int
 	SocketBufMB        int
 	MinWorkers         int
@@ -1093,10 +1090,12 @@ type ReceiverEngine struct {
 	startTime     time.Time
 
 	// Network listener handlers for clean unbinding
-	udpConn     *net.UDPConn
-	tcpListener net.Listener
-	httpServer  *http.Server
-	listenersWg sync.WaitGroup
+	udpConn       *net.UDPConn
+	tcpListener   net.Listener
+	tlsListener   net.Listener
+	tlsCertSource string
+	httpServer    *http.Server
+	listenersWg   sync.WaitGroup
 
 	// Rust connection state
 	rustConn   net.Conn
@@ -1123,7 +1122,7 @@ func main() {
 	fmt.Printf("   %s (%s)\n", ReceiverName, ReceiverVersion)
 	fmt.Printf("   Architecture: Decoupled Packet Ring Buffer -> Traffic-Adaptive Dynamic Workers -> Sharded Ring\n")
 	fmt.Printf("   Hardware: %d Logical CPU Cores Detected\n", runtime.NumCPU())
-	fmt.Printf("   Syslog Listener Ports: UDP/%d, TCP/%d\n", cfg.UDPPort, cfg.TCPPort)
+	fmt.Printf("   Syslog Listener Ports: UDP/%d, TCP/%d, TLS/%d (Enabled: %v)\n", cfg.UDPPort, cfg.TCPPort, cfg.TLSPort, cfg.TLSEnabled)
 	fmt.Printf("   Ingestion Decoupling Ring: %d capacity across %d Shards (Strategy: %s)\n",
 		engine.ingressBuffer.totalCapacity, cfg.ShardsCount, cfg.OverflowStrategy)
 	fmt.Printf("   Dynamic Worker Pool: Min=%d, Max=%d, IdleTimeout=%ds, BatchDrain=%d\n",
@@ -1160,13 +1159,22 @@ func main() {
 		fmt.Printf("[FATAL ERROR] TCP Listener initialization failed: %v\n", err)
 	}
 
-	// 6. Start Health & Telemetry HTTP Server
+	// 6. Start Configurable TLS Secure Ingestion Listener
+	if cfg.TLSEnabled {
+		if err := engine.startTLSListener(); err != nil {
+			fmt.Printf("[WARN] TLS Listener initialization failed: %v\n", err)
+		}
+	} else {
+		fmt.Println("[TLS Listener] Disabled via configuration (TLS_ENABLED=false).")
+	}
+
+	// 7. Start Health & Telemetry HTTP Server
 	go engine.startHTTPServer()
 
-	// 7. Start Rolling Throughput Sampler
+	// 8. Start Rolling Throughput Sampler
 	go engine.runMetricsSampler(ctx)
 
-	// 8. Trap OS termination signals for Zero-Loss Graceful Shutdown
+	// 9. Trap OS termination signals for Zero-Loss Graceful Shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
@@ -1230,27 +1238,23 @@ func newReceiverEngine(cfg *ReceiverConfig) *ReceiverEngine {
 // 5. Zero-Loss Graceful Shutdown Pipeline
 // ============================================================================
 
-// GracefulShutdown executes an orchestrated 5-stage shutdown ensuring complete drainage:
-// Step 1: Close UDP/TCP listeners & HTTP server -> Prevents new network packet intake
-// Step 2: Drain ingestion packet ring buffer -> All queued raw packets parsed into log ring
-// Step 3: Stop normal aggregator & drain all log buffer shards -> Packaged into Rust batches
-// Step 4: Close Rust dispatch channel & wait for forwarders -> All batches written to Rust IPC
-// Step 5: Flush & cleanly close Rust IPC connection
 func (e *ReceiverEngine) GracefulShutdown(ctx context.Context) error {
 	shutdownStart := time.Now()
 
-	// --- Step 1: Terminate Ingress Listeners ---
-	fmt.Println("[SHUTDOWN 1/5] Terminating UDP, TCP, and HTTP ingress listeners...")
+	// --- Step 1: Terminate Ingress Listeners (UDP, TCP, TLS, HTTP) ---
+	fmt.Println("[SHUTDOWN 1/5] Terminating UDP, TCP, TLS, and HTTP ingress listeners...")
 	if e.udpConn != nil {
 		_ = e.udpConn.Close()
 	}
 	if e.tcpListener != nil {
 		_ = e.tcpListener.Close()
 	}
+	if e.tlsListener != nil {
+		_ = e.tlsListener.Close()
+	}
 	if e.httpServer != nil {
 		_ = e.httpServer.Shutdown(ctx)
 	}
-	// Wait for listener read loops to exit
 	e.listenersWg.Wait()
 	fmt.Println("[SHUTDOWN 1/5 Completed] Ingress sockets closed. No new incoming packets will be admitted.")
 
@@ -1308,7 +1312,6 @@ func (e *ReceiverEngine) GracefulShutdown(ctx context.Context) error {
 	fmt.Printf("[SHUTDOWN 4/5] Delivering %d queued batches to Rust VictoriaLogs storage engine...\n", pendingBatches)
 	close(e.rustDispatchCh)
 
-	// Await forwarder completion
 	doneCh := make(chan struct{})
 	go func() {
 		e.rustWorkersWg.Wait()
@@ -1340,7 +1343,7 @@ func (e *ReceiverEngine) GracefulShutdown(ctx context.Context) error {
 }
 
 // ============================================================================
-// 6. Ingress Listeners (Decoupled Non-Blocking Enqueue)
+// 6. Ingress Listeners (UDP / TCP / Configurable TLS)
 // ============================================================================
 
 func (e *ReceiverEngine) startUDPListener() error {
@@ -1399,7 +1402,6 @@ func (e *ReceiverEngine) startUDPListener() error {
 				ArrivedAt: arrivedAt,
 			}
 
-			// Decoupled push into the multi-lane ingestion packet ring buffer
 			if !e.workerPool.Submit(pkt) {
 				atomic.AddUint64(&e.metrics.PacketsDropped, 1)
 			}
@@ -1471,11 +1473,238 @@ func (e *ReceiverEngine) handleTCPConnection(conn net.Conn) {
 			RemoteIP:  remoteIP,
 		}
 
-		// Push into sharded circular buffer
 		if !e.ringBuffer.Push(entry) {
 			atomic.AddUint64(&e.metrics.PacketsDropped, 1)
 		}
 	}
+}
+
+// ----------------------------------------------------------------------------
+// Configurable TLS Secure Log Ingestion Listener (RFC 5425)
+// ----------------------------------------------------------------------------
+
+func (e *ReceiverEngine) startTLSListener() error {
+	tlsConfig, certSource, err := buildTLSConfig(e.cfg)
+	if err != nil {
+		return fmt.Errorf("failed to construct TLS configuration: %w", err)
+	}
+
+	e.tlsCertSource = certSource
+	addr := fmt.Sprintf("0.0.0.0:%d", e.cfg.TLSPort)
+
+	listener, err := tls.Listen("tcp", addr, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("failed to bind TLS port %d: %w", e.cfg.TLSPort, err)
+	}
+
+	e.tlsListener = listener
+	fmt.Printf("[TLS Listener] Active on %s (Secure Syslog RFC-5425, Certificate Source: %s, MinVersion: %s, ClientAuth: %s)\n",
+		addr, certSource, e.cfg.TLSMinVersion, e.cfg.TLSClientAuth)
+
+	e.listenersWg.Add(1)
+	go func() {
+		defer e.listenersWg.Done()
+		defer listener.Close()
+
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) || strings.Contains(err.Error(), "use of closed network connection") {
+					return
+				}
+				continue
+			}
+			go e.handleTLSConnection(conn)
+		}
+	}()
+
+	return nil
+}
+
+func (e *ReceiverEngine) handleTLSConnection(conn net.Conn) {
+	defer conn.Close()
+
+	tlsConn, ok := conn.(*tls.Conn)
+	if ok {
+		_ = tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
+		if err := tlsConn.Handshake(); err != nil {
+			atomic.AddUint64(&e.metrics.TLSHandshakeErrors, 1)
+			return
+		}
+		_ = tlsConn.SetDeadline(time.Time{})
+		atomic.AddUint64(&e.metrics.TLSHandsShakesTotal, 1)
+	}
+
+	remoteIP := conn.RemoteAddr().String()
+	scanner := bufio.NewScanner(conn)
+
+	lineBuf := make([]byte, 64*1024)
+	scanner.Buffer(lineBuf, 1024*1024)
+
+	for scanner.Scan() {
+		arrivedAt := time.Now().UnixNano()
+		line := strings.TrimSpace(scanner.Text())
+		if len(line) == 0 {
+			continue
+		}
+
+		atomic.AddUint64(&e.metrics.TLSPacketsTotal, 1)
+		atomic.AddUint64(&e.metrics.BytesTotal, uint64(len(line)))
+
+		// Submit raw line datagram into the decoupled ingestion packet ring buffer
+		bufPtr := e.bufPool.Get().(*[]byte)
+		buf := *bufPtr
+		n := copy(buf, line)
+
+		pkt := RawPacket{
+			Data:      buf,
+			Length:    n,
+			Source:    "syslog-tls",
+			RemoteIP:  remoteIP,
+			ArrivedAt: arrivedAt,
+		}
+
+		if !e.workerPool.Submit(pkt) {
+			atomic.AddUint64(&e.metrics.PacketsDropped, 1)
+		}
+	}
+}
+
+// buildTLSConfig compiles a crypto/tls.Config from environment variables (PEM strings or files),
+// with automatic high-security self-signed certificate generation fallback.
+func buildTLSConfig(cfg *ReceiverConfig) (*tls.Config, string, error) {
+	var cert tls.Certificate
+	var certSource string
+	var err error
+
+	// 1. Check if Certificate & Key PEM are supplied directly via Environment Variables
+	if len(cfg.TLSCertPEM) > 0 && len(cfg.TLSKeyPEM) > 0 {
+		cleanedCert := strings.ReplaceAll(cfg.TLSCertPEM, "\\n", "\n")
+		cleanedKey := strings.ReplaceAll(cfg.TLSKeyPEM, "\\n", "\n")
+		cert, err = tls.X509KeyPair([]byte(cleanedCert), []byte(cleanedKey))
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to parse TLS certificate/key from environment variables: %w", err)
+		}
+		certSource = "env_pem"
+	} else if len(cfg.TLSCertFile) > 0 && len(cfg.TLSKeyFile) > 0 {
+		// 2. Check if Certificate & Key file paths are provided
+		cert, err = tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to load TLS certificate/key from files (%s, %s): %w",
+				cfg.TLSCertFile, cfg.TLSKeyFile, err)
+		}
+		certSource = "cert_file"
+	} else {
+		// 3. Fallback: Generate ephemeral self-signed ECDSA certificate for immediate secure ingestion
+		cert, err = generateEphemeralTLSCert()
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to generate fallback self-signed TLS certificate: %w", err)
+		}
+		certSource = "ephemeral_self_signed"
+	}
+
+	// Determine Minimum TLS Version
+	minVersion := uint16(tls.VersionTLS12)
+	if cfg.TLSMinVersion == "1.3" {
+		minVersion = tls.VersionTLS13
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   minVersion,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+		},
+	}
+
+	// 4. Client CA Certificate for Mutual TLS (mTLS) Authentication
+	var clientCAPool *x509.CertPool
+	if len(cfg.TLSClientCAPEM) > 0 {
+		cleanedCA := strings.ReplaceAll(cfg.TLSClientCAPEM, "\\n", "\n")
+		clientCAPool = x509.NewCertPool()
+		if ok := clientCAPool.AppendCertsFromPEM([]byte(cleanedCA)); !ok {
+			return nil, "", errors.New("failed to append client CA certificate from environment variable")
+		}
+	} else if len(cfg.TLSClientCAFile) > 0 {
+		caBytes, err := os.ReadFile(cfg.TLSClientCAFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to read client CA certificate file: %w", err)
+		}
+		clientCAPool = x509.NewCertPool()
+		if ok := clientCAPool.AppendCertsFromPEM(caBytes); !ok {
+			return nil, "", errors.New("failed to parse client CA certificate file")
+		}
+	}
+
+	if clientCAPool != nil {
+		tlsConfig.ClientCAs = clientCAPool
+	}
+
+	// Configure Client Authentication Mode
+	switch strings.ToLower(cfg.TLSClientAuth) {
+	case "verify", "verify_client", "require_and_verify":
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	case "require", "require_any":
+		tlsConfig.ClientAuth = tls.RequireAnyClientCert
+	case "request":
+		tlsConfig.ClientAuth = tls.RequestClientCert
+	default:
+		if clientCAPool != nil {
+			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		} else {
+			tlsConfig.ClientAuth = tls.NoClientCert
+		}
+	}
+
+	return tlsConfig, certSource, nil
+}
+
+// generateEphemeralTLSCert creates an in-memory ECDSA P-256 self-signed certificate
+func generateEphemeralTLSCert() (tls.Certificate, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"SEMOR Security Log Ingestion Core"},
+			CommonName:   "semor-receiver.internal",
+		},
+		NotBefore:             time.Now().Add(-1 * time.Hour),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"localhost", "semor-receiver", "semor-collector"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1"), net.ParseIP("0.0.0.0")},
+	}
+
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
+	privBytes, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: privBytes})
+
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 // ============================================================================
@@ -1507,11 +1736,9 @@ func (e *ReceiverEngine) startBatchAggregator(ctx context.Context) {
 					Entries: entries,
 				}
 
-				// Queue for non-blocking asynchronous dispatch
 				select {
 				case e.rustDispatchCh <- payload:
 				default:
-					// Rust queue saturated: mark failure
 					atomic.AddUint64(&e.metrics.BatchesFailed, 1)
 				}
 
@@ -1615,7 +1842,6 @@ func (e *ReceiverEngine) runRustIPCManager(ctx context.Context) {
 func (e *ReceiverEngine) startHTTPServer() {
 	mux := http.NewServeMux()
 
-	// 1. Basic Health Check Endpoint (/health & /healthz)
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		e.rustMu.Lock()
 		rustConnected := e.isRustConn
@@ -1640,6 +1866,16 @@ func (e *ReceiverEngine) startHTTPServer() {
 			"version":               ReceiverVersion,
 			"uptime_seconds":        int(time.Since(e.startTime).Seconds()),
 			"rust_engine_connected": rustConnected,
+			"tls_listener": map[string]interface{}{
+				"enabled":                e.cfg.TLSEnabled,
+				"port":                   e.cfg.TLSPort,
+				"cert_source":            e.tlsCertSource,
+				"min_version":            e.cfg.TLSMinVersion,
+				"client_auth":            e.cfg.TLSClientAuth,
+				"packets_total":          atomic.LoadUint64(&e.metrics.TLSPacketsTotal),
+				"handshakes_total":       atomic.LoadUint64(&e.metrics.TLSHandsShakesTotal),
+				"handshake_errors_total": atomic.LoadUint64(&e.metrics.TLSHandshakeErrors),
+			},
 			"ingestion_ring_buffer": map[string]interface{}{
 				"architecture":    ingressStats.Architecture,
 				"shards_count":    ingressStats.ShardsCount,
@@ -1681,7 +1917,6 @@ func (e *ReceiverEngine) startHTTPServer() {
 	mux.HandleFunc("/health", healthHandler)
 	mux.HandleFunc("/healthz", healthHandler)
 
-	// 2. Real-Time Ingestion Throughput Endpoint (/api/v1/throughput)
 	mux.HandleFunc("/api/v1/throughput", func(w http.ResponseWriter, r *http.Request) {
 		e.metrics.mu.RLock()
 		pps := e.metrics.CurrentPPS
@@ -1690,6 +1925,9 @@ func (e *ReceiverEngine) startHTTPServer() {
 
 		udpTotal := atomic.LoadUint64(&e.metrics.UDPPacketsTotal)
 		tcpTotal := atomic.LoadUint64(&e.metrics.TCPPacketsTotal)
+		tlsTotal := atomic.LoadUint64(&e.metrics.TLSPacketsTotal)
+		tlsHandshakes := atomic.LoadUint64(&e.metrics.TLSHandsShakesTotal)
+		tlsErrors := atomic.LoadUint64(&e.metrics.TLSHandshakeErrors)
 		bytesTotal := atomic.LoadUint64(&e.metrics.BytesTotal)
 		dropped := atomic.LoadUint64(&e.metrics.PacketsDropped)
 		batchesSent := atomic.LoadUint64(&e.metrics.BatchesSent)
@@ -1707,76 +1945,88 @@ func (e *ReceiverEngine) startHTTPServer() {
 				"megabytes_received": float64(bytesTotal) / (1024 * 1024),
 			},
 			"counters": map[string]interface{}{
-				"udp_packets_total": udpTotal,
-				"tcp_packets_total": tcpTotal,
-				"all_packets_total": udpTotal + tcpTotal,
-				"bytes_total":       bytesTotal,
-				"packets_dropped":   dropped,
+				"udp_packets_total":           udpTotal,
+				"tcp_packets_total":           tcpTotal,
+				"tls_packets_total":           tlsTotal,
+				"all_packets_total":           udpTotal + tcpTotal + tlsTotal,
+				"tls_handshakes_total":        tlsHandshakes,
+				"tls_handshake_errors_total":  tlsErrors,
+				"bytes_total":                 bytesTotal,
+				"packets_dropped":             dropped,
+			},
+			"tls_configuration": map[string]interface{}{
+				"enabled":     e.cfg.TLSEnabled,
+				"port":        e.cfg.TLSPort,
+				"cert_source": e.tlsCertSource,
+				"min_version": e.cfg.TLSMinVersion,
+				"client_auth": e.cfg.TLSClientAuth,
 			},
 			"worker_pool": map[string]interface{}{
-				"active_workers": e.workerPool.ActiveWorkers(),
-				"min_workers":    e.cfg.MinWorkers,
-				"max_workers":    e.cfg.MaxWorkers,
-				"pending_queue":  e.workerPool.PendingPackets(),
-				"queue_capacity": e.workerPool.QueueCapacity(),
-				"scale_up_count": scaleUp,
-				"scale_dn_count": scaleDown,
+				"active_workers":        e.workerPool.ActiveWorkers(),
+				"min_workers":           e.cfg.MinWorkers,
+				"max_workers":           e.cfg.MaxWorkers,
+				"pending_queue":         e.workerPool.PendingPackets(),
+				"queue_capacity":        e.workerPool.QueueCapacity(),
+				"scale_up_events_count": scaleUp,
+				"scale_dn_events_count": scaleDown,
 			},
 			"ingestion_ring_buffer": map[string]interface{}{
 				"architecture":    ingressStats.Architecture,
 				"shards_count":    ingressStats.ShardsCount,
 				"current_depth":   ingressStats.CurrentDepth,
-				"capacity":        ingressStats.TotalCapacity,
+				"total_capacity":  ingressStats.TotalCapacity,
 				"peak_depth":      ingressStats.PeakDepth,
 				"utilization_pct": ingressStats.UtilizationPct,
 				"total_absorbed":  ingressStats.TotalAbsorbed,
 				"total_overflows": ingressStats.TotalOverflows,
 				"strategy":        ingressStats.Strategy,
 			},
-			"downstream_log_buffer": map[string]interface{}{
+			"sharded_log_buffer": map[string]interface{}{
 				"architecture":    logStats.Architecture,
 				"shards_count":    logStats.ShardsCount,
 				"current_depth":   logStats.CurrentDepth,
-				"capacity":        logStats.TotalCapacity,
+				"total_capacity":  logStats.TotalCapacity,
 				"peak_depth":      logStats.PeakDepth,
 				"utilization_pct": logStats.UtilizationPct,
 				"total_absorbed":  logStats.TotalAbsorbed,
 				"total_overflows": logStats.TotalOverflows,
 				"strategy":        logStats.Strategy,
 			},
-			"rust_forwarder": map[string]interface{}{
+			"rust_pipeline": map[string]interface{}{
 				"batches_sent":   batchesSent,
 				"batches_failed": batchesFailed,
-				"pending_queue":  len(e.rustDispatchCh),
 			},
 		})
 	})
 
-	// 3. Shard Diagnostics Endpoint (/api/v1/buffer/shards)
-	mux.HandleFunc("/api/v1/buffer/shards", func(w http.ResponseWriter, r *http.Request) {
+	// Detailed Ring Shards Diagnostics (/api/v1/shards)
+	mux.HandleFunc("/api/v1/shards", func(w http.ResponseWriter, r *http.Request) {
 		ingressStats := e.ingressBuffer.Stats(true)
 		logStats := e.ringBuffer.Stats(true)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"ingestion_packet_ring": ingressStats,
-			"downstream_log_ring":   logStats,
+			"ingestion_packet_ring_buffer": ingressStats,
+			"downstream_sharded_buffer":    logStats,
 		})
 	})
 
-	// 4. Prometheus Metrics Exposition (/metrics)
+	// Prometheus Metrics Endpoint (/metrics)
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		udpTotal := atomic.LoadUint64(&e.metrics.UDPPacketsTotal)
-		tcpTotal := atomic.LoadUint64(&e.metrics.TCPPacketsTotal)
-		bytesTotal := atomic.LoadUint64(&e.metrics.BytesTotal)
-		dropped := atomic.LoadUint64(&e.metrics.PacketsDropped)
-		batchesSent := atomic.LoadUint64(&e.metrics.BatchesSent)
-		batchesFailed := atomic.LoadUint64(&e.metrics.BatchesFailed)
-
 		e.metrics.mu.RLock()
 		pps := e.metrics.CurrentPPS
 		mbps := e.metrics.CurrentMBps
 		e.metrics.mu.RUnlock()
+
+		udpTotal := atomic.LoadUint64(&e.metrics.UDPPacketsTotal)
+		tcpTotal := atomic.LoadUint64(&e.metrics.TCPPacketsTotal)
+		tlsTotal := atomic.LoadUint64(&e.metrics.TLSPacketsTotal)
+		tlsHandshakes := atomic.LoadUint64(&e.metrics.TLSHandsShakesTotal)
+		tlsErrors := atomic.LoadUint64(&e.metrics.TLSHandshakeErrors)
+		bytesTotal := atomic.LoadUint64(&e.metrics.BytesTotal)
+		dropped := atomic.LoadUint64(&e.metrics.PacketsDropped)
+		batchesSent := atomic.LoadUint64(&e.metrics.BatchesSent)
+		batchesFailed := atomic.LoadUint64(&e.metrics.BatchesFailed)
 
 		ingressStats := e.ingressBuffer.Stats(false)
 		logStats := e.ringBuffer.Stats(false)
@@ -1784,17 +2034,24 @@ func (e *ReceiverEngine) startHTTPServer() {
 
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		output := fmt.Sprintf(
-			"# HELP semor_receiver_packets_total Total log packets received\n"+
+			"# HELP semor_receiver_packets_total Ingested network datagrams by protocol\n"+
 				"# TYPE semor_receiver_packets_total counter\n"+
 				"semor_receiver_packets_total{protocol=\"udp\"} %d\n"+
 				"semor_receiver_packets_total{protocol=\"tcp\"} %d\n"+
-				"# HELP semor_receiver_bytes_total Total raw bytes processed\n"+
+				"semor_receiver_packets_total{protocol=\"tls\"} %d\n"+
+				"# HELP semor_receiver_tls_handshakes_total Total successful TLS handshakes\n"+
+				"# TYPE semor_receiver_tls_handshakes_total counter\n"+
+				"semor_receiver_tls_handshakes_total %d\n"+
+				"# HELP semor_receiver_tls_handshake_errors_total TLS handshake failures\n"+
+				"# TYPE semor_receiver_tls_handshake_errors_total counter\n"+
+				"semor_receiver_tls_handshake_errors_total %d\n"+
+				"# HELP semor_receiver_bytes_total Total received payload bytes\n"+
 				"# TYPE semor_receiver_bytes_total counter\n"+
 				"semor_receiver_bytes_total %d\n"+
-				"# HELP semor_receiver_packets_dropped_total Saturated ring buffer drop count\n"+
+				"# HELP semor_receiver_packets_dropped_total Packets discarded due to overflow\n"+
 				"# TYPE semor_receiver_packets_dropped_total counter\n"+
 				"semor_receiver_packets_dropped_total %d\n"+
-				"# HELP semor_receiver_throughput_pps Current packets per second rate\n"+
+				"# HELP semor_receiver_throughput_pps Current packets per second ingestion rate\n"+
 				"# TYPE semor_receiver_throughput_pps gauge\n"+
 				"semor_receiver_throughput_pps %.2f\n"+
 				"# HELP semor_receiver_throughput_mbps Current megabits per second throughput\n"+
@@ -1853,7 +2110,9 @@ func (e *ReceiverEngine) startHTTPServer() {
 				"# TYPE semor_receiver_rust_batches_total counter\n"+
 				"semor_receiver_rust_batches_total{status=\"success\"} %d\n"+
 				"semor_receiver_rust_batches_total{status=\"failure\"} %d\n",
-			udpTotal, tcpTotal, bytesTotal, dropped, pps, mbps,
+			udpTotal, tcpTotal, tlsTotal,
+			tlsHandshakes, tlsErrors,
+			bytesTotal, dropped, pps, mbps,
 			e.workerPool.ActiveWorkers(), e.cfg.MinWorkers, e.cfg.MaxWorkers, scaleUp, scaleDown,
 			e.workerPool.PendingPackets(), e.workerPool.QueueCapacity(),
 			ingressStats.CurrentDepth, ingressStats.TotalCapacity, ingressStats.PeakDepth, ingressStats.TotalOverflows, ingressStats.TotalAbsorbed,
@@ -1893,6 +2152,7 @@ func (e *ReceiverEngine) runMetricsSampler(ctx context.Context) {
 		case now := <-ticker.C:
 			udpNow := atomic.LoadUint64(&e.metrics.UDPPacketsTotal)
 			tcpNow := atomic.LoadUint64(&e.metrics.TCPPacketsTotal)
+			tlsNow := atomic.LoadUint64(&e.metrics.TLSPacketsTotal)
 			bytesNow := atomic.LoadUint64(&e.metrics.BytesTotal)
 
 			e.metrics.mu.Lock()
@@ -1901,7 +2161,7 @@ func (e *ReceiverEngine) runMetricsSampler(ctx context.Context) {
 				elapsed = 1.0
 			}
 
-			deltaPackets := (udpNow - e.metrics.LastUDPCount) + (tcpNow - e.metrics.LastTCPCount)
+			deltaPackets := (udpNow - e.metrics.LastUDPCount) + (tcpNow - e.metrics.LastTCPCount) + (tlsNow - e.metrics.LastTLSCount)
 			deltaBytes := bytesNow - e.metrics.LastByteCnt
 
 			e.metrics.CurrentPPS = float64(deltaPackets) / elapsed
@@ -1909,6 +2169,7 @@ func (e *ReceiverEngine) runMetricsSampler(ctx context.Context) {
 
 			e.metrics.LastUDPCount = udpNow
 			e.metrics.LastTCPCount = tcpNow
+			e.metrics.LastTLSCount = tlsNow
 			e.metrics.LastByteCnt = bytesNow
 			e.metrics.LastSampleAt = now
 			e.metrics.ActiveWorkers = int64(e.workerPool.ActiveWorkers())
@@ -1954,6 +2215,16 @@ func loadConfig() *ReceiverConfig {
 	return &ReceiverConfig{
 		UDPPort:            getEnvInt("RECEIVER_UDP_PORT", getEnvInt("SYSLOG_UDP_PORT", DefaultUDPPort)),
 		TCPPort:            getEnvInt("RECEIVER_TCP_PORT", getEnvInt("SYSLOG_TCP_PORT", DefaultTCPPort)),
+		TLSPort:            getEnvInt("RECEIVER_TLS_PORT", getEnvInt("SYSLOG_TLS_PORT", DefaultTLSPort)),
+		TLSEnabled:         getEnvBool("TLS_ENABLED", getEnvBool("RECEIVER_TLS_ENABLED", true)),
+		TLSCertPEM:         getEnvStr("TLS_CERT_PEM", getEnvStr("TLS_CERTIFICATE", getEnvStr("TLS_CERT", ""))),
+		TLSKeyPEM:          getEnvStr("TLS_KEY_PEM", getEnvStr("TLS_PRIVATE_KEY", getEnvStr("TLS_KEY", ""))),
+		TLSCertFile:        getEnvStr("TLS_CERT_FILE", getEnvStr("TLS_CERT_PATH", "")),
+		TLSKeyFile:         getEnvStr("TLS_KEY_FILE", getEnvStr("TLS_KEY_PATH", "")),
+		TLSClientCAPEM:     getEnvStr("TLS_CLIENT_CA_PEM", getEnvStr("TLS_CLIENT_CA_CERT", getEnvStr("TLS_CLIENT_CA", ""))),
+		TLSClientCAFile:    getEnvStr("TLS_CLIENT_CA_FILE", getEnvStr("TLS_CLIENT_CA_PATH", "")),
+		TLSClientAuth:      getEnvStr("TLS_CLIENT_AUTH", "none"),
+		TLSMinVersion:      getEnvStr("TLS_MIN_VERSION", "1.2"),
 		HTTPPort:           getEnvInt("RECEIVER_HTTP_PORT", getEnvInt("METRICS_PORT", DefaultHTTPPort)),
 		SocketBufMB:        getEnvInt("UDP_BUFFER_SIZE_MB", DefaultSocketBufMB),
 		MinWorkers:         getEnvInt("MIN_WORKERS", minWorkers),

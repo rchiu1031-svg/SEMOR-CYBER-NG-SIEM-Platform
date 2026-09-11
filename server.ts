@@ -269,7 +269,7 @@ async function startServer() {
         name: "semor-collector (Go Ingestion Engine)",
         status: "online",
         version: "v1.0.0-VictoriaLogs-Architecture",
-        protocolSupport: ["Syslog UDP :5140", "Syslog TCP :5140", "HTTP NDJSON :8080", "REST JSON Batch :8080"],
+        protocolSupport: ["Syslog UDP :5140", "Syslog TCP :5140", "Syslog TLS :6514 (RFC 5425)", "HTTP NDJSON :8080", "REST JSON Batch :8080"],
         queueCapacity: 50000,
         queueCurrent: Math.floor(120 + Math.sin(Date.now() / 10000) * 80),
         currentEps: Math.floor(8200 + Math.random() * 600),
