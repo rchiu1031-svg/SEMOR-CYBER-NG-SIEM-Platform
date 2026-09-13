@@ -268,12 +268,16 @@ async function startServer() {
       collector: {
         name: "semor-collector (Go Ingestion Engine)",
         status: "online",
-        version: "v1.0.0-VictoriaLogs-Architecture",
+        version: "v2.5.0-VectorizedBatching-VictoriaLogs",
         protocolSupport: ["Syslog UDP :5140", "Syslog TCP :5140", "Syslog TLS :6514 (RFC 5425)", "HTTP NDJSON :8080", "REST JSON Batch :8080"],
         queueCapacity: 50000,
         queueCurrent: Math.floor(120 + Math.sin(Date.now() / 10000) * 80),
         currentEps: Math.floor(8200 + Math.random() * 600),
         batchesSent: Math.floor(uptimeSec * 4.2 + 820),
+        batchesCoalescedTotal: Math.floor(uptimeSec * 3.8 + 740),
+        syscallWritesTotal: Math.floor(uptimeSec * 0.4 + 95),
+        batchStrategy: "Adaptive Multi-Constraint Batch Coalescer with Vectorized Socket Streamer",
+        smallPacketMode: true,
         droppedCount: 0,
         activeDecodersCount: activeDecodersRules.length,
         ipcTarget: "Unix Domain Socket (/tmp/semor_rust.sock)"
