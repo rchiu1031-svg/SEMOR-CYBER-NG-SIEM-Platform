@@ -117,15 +117,19 @@ impl IpcServer {
             batch.stream_id.unwrap_or(1001)
         };
 
-        // 構建並壓縮成 VictoriaBlock
-        let mut builder = BlockBuilder::new(stream_id, 4096, 2 * 1024 * 1024);
+        // 構建並壓縮成 VictoriaBlock (以 4096 筆或 2MB 為 Block 封裝邊界)
+        let mut block_seq = 1u32;
+        let active_part_tag = format!("part_active_{}", stream_id);
+        let mut builder = BlockBuilder::new(stream_id, &active_part_tag, block_seq, 4096, 2 * 1024 * 1024);
+
         for entry in batch.entries {
             builder.add_row(entry.timestamp, &entry.raw_msg);
             if builder.is_full() {
                 // 當前 Block 滿載，立即寫入磁碟並開啟新 Block
                 let block = builder.build()?;
                 storage.append_block(&block)?;
-                builder = BlockBuilder::new(stream_id, 4096, 2 * 1024 * 1024);
+                block_seq += 1;
+                builder = BlockBuilder::new(stream_id, &active_part_tag, block_seq, 4096, 2 * 1024 * 1024);
             }
         }
 

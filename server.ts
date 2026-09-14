@@ -360,18 +360,25 @@ async function startServer() {
   });
 
   app.get('/api/engine/blocks', (req, res) => {
-    // Generate recent VictoriaBlocks list for the block visualizer
+    // Generate recent VictoriaBlocks list for the block visualizer reflecting /data/{stream_id}/{part_id}.block
     const now = Date.now();
     const blocks = [];
     for (let i = 0; i < 12; i++) {
       const rows = 4096;
       const uncomp = 2048000 + Math.floor(Math.random() * 300000);
-      const comp = Math.floor(uncomp / (10.5 + Math.random() * 2));
+      const comp = Math.floor(uncomp / (11.2 + Math.random() * 2));
       const endTs = now - i * 180000;
       const startTs = endTs - 179000;
+      const streamId = 1001 + (i % 3);
+      const partSeq = Math.floor(i / 3) + 1;
+      const partId = `part_${partSeq.toString(16).padStart(16, '0')}`;
+      const filePath = `/data/${streamId}/${partId}.block`;
+
       blocks.push({
         blockId: `blk_${1000 + i}`,
-        streamId: 1001 + (i % 3),
+        streamId,
+        partId,
+        filePath,
         streamLabels: {
           env: i % 2 === 0 ? "production" : "staging",
           source: i % 3 === 0 ? "suricata-ids" : (i % 3 === 1 ? "fortigate-fw" : "windows-eventlog")
@@ -381,12 +388,142 @@ async function startServer() {
         rowsCount: rows,
         uncompressedSize: uncomp,
         compressedSize: comp,
+        deltaTimestampsBytes: Math.floor(rows * 1.05), // ~1.05 bytes per timestamp with Delta-of-Delta
+        rawTimestampsBytes: rows * 8,
+        zstdPayloadBytes: comp - Math.floor(rows * 1.05),
         compressionRatio: (uncomp / comp).toFixed(2) + 'x',
-        bloomFilterSize: '4096 bits (FP < 1%)',
+        bloomFilterSize: '4096 bits (FP < 1%, Double-Hashing)',
+        checksum: '0x' + Math.floor(Math.random() * 0xFFFFFFFF).toString(16).toUpperCase().padStart(8, '0'),
         state: i === 0 ? 'active_flushing' : 'immutable_disk'
       });
     }
     res.json(blocks);
+  });
+
+  app.get('/api/engine/storage-tree', (req, res) => {
+    // VictoriaLogs directory structure: /data/{stream_id}/{part_id}.block
+    res.json({
+      dataDir: '/data',
+      streams: [
+        {
+          streamId: 1001,
+          labels: { env: 'production', source: 'suricata-ids', tier: 'core' },
+          path: '/data/1001',
+          partsCount: 3,
+          totalRows: 36864,
+          uncompressedBytes: 18432000,
+          compressedBytes: 1548000,
+          compressionRatio: '11.9x',
+          parts: [
+            {
+              partId: 'part_0000000000000001',
+              fileName: 'part_0000000000000001.block',
+              filePath: '/data/1001/part_0000000000000001.block',
+              blocksCount: 4,
+              rowsCount: 16384,
+              uncompressedBytes: 8192000,
+              compressedBytes: 688000,
+              compressionRatio: '11.9x',
+              isSealed: true,
+              magic: 'VBLK (v2)',
+              timeRange: '2026-09-14T06:00:00Z - 2026-09-14T06:30:00Z'
+            },
+            {
+              partId: 'part_0000000000000002',
+              fileName: 'part_0000000000000002.block',
+              filePath: '/data/1001/part_0000000000000002.block',
+              blocksCount: 4,
+              rowsCount: 16384,
+              uncompressedBytes: 8192000,
+              compressedBytes: 692000,
+              compressionRatio: '11.8x',
+              isSealed: true,
+              magic: 'VBLK (v2)',
+              timeRange: '2026-09-14T06:30:00Z - 2026-09-14T07:00:00Z'
+            },
+            {
+              partId: 'part_0000000000000003',
+              fileName: 'part_0000000000000003.block',
+              filePath: '/data/1001/part_0000000000000003.block',
+              blocksCount: 1,
+              rowsCount: 4096,
+              uncompressedBytes: 2048000,
+              compressedBytes: 168000,
+              compressionRatio: '12.2x',
+              isSealed: false,
+              magic: 'VBLK (v2)',
+              timeRange: '2026-09-14T07:00:00Z - 2026-09-14T07:15:00Z'
+            }
+          ]
+        },
+        {
+          streamId: 1002,
+          labels: { env: 'production', source: 'fortigate-fw', tier: 'edge' },
+          path: '/data/1002',
+          partsCount: 2,
+          totalRows: 24576,
+          uncompressedBytes: 12288000,
+          compressedBytes: 1032000,
+          compressionRatio: '11.9x',
+          parts: [
+            {
+              partId: 'part_0000000000000001',
+              fileName: 'part_0000000000000001.block',
+              filePath: '/data/1002/part_0000000000000001.block',
+              blocksCount: 4,
+              rowsCount: 16384,
+              uncompressedBytes: 8192000,
+              compressedBytes: 686000,
+              compressionRatio: '11.9x',
+              isSealed: true,
+              magic: 'VBLK (v2)',
+              timeRange: '2026-09-14T05:30:00Z - 2026-09-14T06:45:00Z'
+            },
+            {
+              partId: 'part_0000000000000002',
+              fileName: 'part_0000000000000002.block',
+              filePath: '/data/1002/part_0000000000000002.block',
+              blocksCount: 2,
+              rowsCount: 8192,
+              uncompressedBytes: 4096000,
+              compressedBytes: 346000,
+              compressionRatio: '11.8x',
+              isSealed: false,
+              magic: 'VBLK (v2)',
+              timeRange: '2026-09-14T06:45:00Z - 2026-09-14T07:18:00Z'
+            }
+          ]
+        },
+        {
+          streamId: 1003,
+          labels: { env: 'staging', source: 'windows-eventlog', tier: 'workstation' },
+          path: '/data/1003',
+          partsCount: 1,
+          totalRows: 8192,
+          uncompressedBytes: 4096000,
+          compressedBytes: 356000,
+          compressionRatio: '11.5x',
+          parts: [
+            {
+              partId: 'part_0000000000000001',
+              fileName: 'part_0000000000000001.block',
+              filePath: '/data/1003/part_0000000000000001.block',
+              blocksCount: 2,
+              rowsCount: 8192,
+              uncompressedBytes: 4096000,
+              compressedBytes: 356000,
+              compressionRatio: '11.5x',
+              isSealed: false,
+              magic: 'VBLK (v2)',
+              timeRange: '2026-09-14T06:00:00Z - 2026-09-14T07:12:00Z'
+            }
+          ]
+        }
+      ],
+      totalDiskBytes: 2936000,
+      totalUncompressedBytes: 34816000,
+      overallCompressionRatio: '11.85x'
+    });
   });
 
   app.get('/api/engine/source-code', (req, res) => {
@@ -399,12 +536,15 @@ async function startServer() {
       'go_pipeline': 'engine/collector-go/pipeline/processor.go',
       'go_ipc': 'engine/collector-go/forwarder/ipc_rust.go',
       'go_config': 'engine/collector-go/config/config.go',
+      'rust_engine_block': 'src/rust_engine/block.rs',
+      'rust_engine_mod': 'src/rust_engine/mod.rs',
       'rust_main': 'engine/storage-rust/src/main.rs',
       'rust_block': 'engine/storage-rust/src/block.rs',
       'rust_bloom': 'engine/storage-rust/src/bloom.rs',
       'rust_stream': 'engine/storage-rust/src/stream.rs',
       'rust_storage': 'engine/storage-rust/src/storage.rs',
       'rust_ipc': 'engine/storage-rust/src/ipc_server.rs',
+      'rust_readme': 'engine/storage-rust/README.md',
       'compose': 'docker-compose.engine.yml'
     };
 

@@ -28,10 +28,11 @@ async fn main() -> Result<()> {
     println!("========================================================");
     println!("   {}", APP_NAME);
     println!("   壓縮引擎: VictoriaLogs Block + Delta-of-Delta + ZSTD");
+    println!("   儲存分區結構: /data/{{stream_id}}/{{part_id}}.block");
     println!("   版本: {}", APP_VERSION);
     println!("========================================================");
 
-    let data_dir = std::env::var("VLOG_DATA_DIR").unwrap_or_else(|_| "./data/vlog".to_string());
+    let data_dir = std::env::var("VLOG_DATA_DIR").unwrap_or_else(|_| "/data".to_string());
     let uds_path = std::env::var("RUST_UDS_PATH").unwrap_or_else(|_| "/tmp/semor_rust.sock".to_string());
     let tcp_addr = std::env::var("RUST_TCP_ADDR").unwrap_or_else(|_| "127.0.0.1:9527".to_string());
 
@@ -39,7 +40,7 @@ async fn main() -> Result<()> {
     let stream_mgr = Arc::new(StreamManager::new());
     let storage = Arc::new(VictoriaStorageEngine::open(&data_dir, stream_mgr.clone())?);
 
-    info!("儲存引擎目錄已掛載: {}", data_dir);
+    info!("儲存引擎分區結構就緒: {}/{{stream_id}}/{{part_id}}.block", data_dir);
 
     // 3. 建立 IPC 服務實例
     let ipc = Arc::new(IpcServer::new(
@@ -76,8 +77,8 @@ async fn main() -> Result<()> {
             let comp_mb = stats.compressed_bytes as f64 / (1024.0 * 1024.0);
 
             info!(
-                "[儲存核心遙測] 總Block塊數: {} | 總筆數: {} | 原始: {:.2} MB | 壓縮後: {:.2} MB | 壓縮比率: {:.2}x",
-                stats.total_blocks, stats.total_rows, uncomp_mb, comp_mb, stats.compression_ratio
+                "[儲存核心遙測] 串流數: {} | Part分區數: {} | 總Block塊數: {} | 總筆數: {} | 原始: {:.2} MB | 壓縮後: {:.2} MB | 壓縮比率: {:.2}x",
+                stats.total_streams, stats.total_parts, stats.total_blocks, stats.total_rows, uncomp_mb, comp_mb, stats.compression_ratio
             );
         }
     });
