@@ -256,10 +256,117 @@ async function startServer() {
   });
 
   // ==========================================
-  // Phase 1: Go Collector & Rust Storage Engine APIs
+  // Phase 1 & 2: Go Collector & Rust Storage Engine APIs
   // ==========================================
   let activeDecodersRules: any[] = [];
   const engineStartTime = Date.now();
+
+  // Go Ingestion Collector Healthcheck & Telemetry Endpoint (Real-time proxy/direct simulation)
+  app.get('/api/engine/collector/healthz', (req, res) => {
+    const uptimeSec = Math.floor((Date.now() - engineStartTime) / 1000);
+    const capacity = 50000;
+    // Simulate dynamic buffer fluctuation with occasional micro-bursts
+    const baseWave = 1420 + Math.sin(Date.now() / 3500) * 850 + Math.cos(Date.now() / 11000) * 600;
+    const currentDepth = Math.max(80, Math.min(capacity - 500, Math.floor(baseWave + (Math.random() * 200 - 100))));
+    const depthPercentage = Number(((currentDepth / capacity) * 100).toFixed(2));
+    
+    // Worker pool dynamics
+    const totalWorkers = 16;
+    // Active workers dynamically scale with buffer depth
+    const activeWorkers = Math.min(totalWorkers, Math.max(4, Math.ceil((currentDepth / 3000) * totalWorkers)));
+    const workerSaturation = Number((activeWorkers / totalWorkers).toFixed(3));
+    const processedEps = Math.floor(8500 + (currentDepth * 1.8) + Math.random() * 400);
+
+    const isHealthy = depthPercentage < 85;
+
+    // Real-time Buffer Fill-Rate Monitor Evaluation (cmd/receiver/utils/monitor.go)
+    const fillRateEPS = processedEps;
+    const drainRateEPS = Math.floor(processedEps * 0.965);
+    const netRateEPS = fillRateEPS - drainRateEPS;
+    const fillVelocityRatio = Number((fillRateEPS / Math.max(1, drainRateEPS)).toFixed(2));
+    const workerSaturationThreshold = 80.0;
+    const workerSaturationPct = Number((workerSaturation * 100).toFixed(1));
+    const remainingHeadroom = capacity - currentDepth;
+    const timeToSaturationSec = netRateEPS > 0 ? Number((remainingHeadroom / netRateEPS).toFixed(1)) : -1;
+    const isEarlyBottleneck = netRateEPS > 150 && fillVelocityRatio >= 1.03 && workerSaturationPct < workerSaturationThreshold;
+
+    let alertSeverity: 'NORMAL' | 'INFO' | 'WARNING' | 'CRITICAL' = 'NORMAL';
+    let alertRecommendation = 'Pipeline in dynamic equilibrium. Ingestion and drain rates balanced.';
+
+    if (workerSaturationPct >= workerSaturationThreshold && depthPercentage >= 75) {
+      alertSeverity = 'CRITICAL';
+      alertRecommendation = `CRITICAL: Worker pool saturated (${workerSaturationPct}%) and circular buffer depth at ${depthPercentage}%. Backpressure active.`;
+    } else if (isEarlyBottleneck) {
+      if (timeToSaturationSec > 0 && timeToSaturationSec < 10) {
+        alertSeverity = 'CRITICAL';
+        alertRecommendation = `EARLY BOTTLENECK: Buffer fill-rate (${fillRateEPS} EPS) outpaces drain-rate (${drainRateEPS} EPS, ${fillVelocityRatio}x). Overflow in ${timeToSaturationSec}s BEFORE worker saturation (${workerSaturationPct}% < ${workerSaturationThreshold}% threshold)!`;
+      } else {
+        alertSeverity = 'WARNING';
+        alertRecommendation = `PRE-SATURATION BOTTLENECK: Velocity surge (${fillVelocityRatio}x). Buffer fill-rate outpacing worker consumption. Headroom depleting in ${timeToSaturationSec}s while worker pool is only at ${workerSaturationPct}%. Preemptively scaling dynamic workers.`;
+      }
+    }
+
+    res.json({
+      status: isHealthy ? "healthy" : "degraded",
+      service: "semor-collector-go",
+      endpoint: "http://127.0.0.1:8080/healthz",
+      timestamp: Date.now(),
+      uptimeSeconds: uptimeSec,
+      fillRateMonitor: {
+        utility: "cmd/receiver/utils/monitor.go",
+        severity: alertSeverity,
+        fillRateEPS: fillRateEPS,
+        drainRateEPS: drainRateEPS,
+        netAccumulationRate: netRateEPS,
+        fillVelocityRatio: fillVelocityRatio,
+        workerSaturationPct: workerSaturationPct,
+        workerSaturationThreshold: workerSaturationThreshold,
+        timeToSaturationSec: timeToSaturationSec,
+        isEarlyBottleneck: isEarlyBottleneck,
+        headroomSlots: remainingHeadroom,
+        recommendation: alertRecommendation
+      },
+      buffer: {
+        depth: currentDepth,
+        capacity: capacity,
+        depthPercentage: depthPercentage,
+        highWatermark: Math.max(currentDepth + 450, 4850),
+        lowWatermark: 350,
+        drainRatePerSec: Math.floor(processedEps * 0.98),
+        fillRatePerSec: processedEps,
+        backpressureActive: depthPercentage > 75,
+        droppedEvents: 0
+      },
+      workerPool: {
+        totalWorkers: totalWorkers,
+        activeWorkers: activeWorkers,
+        idleWorkers: totalWorkers - activeWorkers,
+        saturationRatio: workerSaturation,
+        saturationPercentage: Number((workerSaturation * 100).toFixed(1)),
+        avgExecutionTimeMs: Number((1.2 + (workerSaturation * 2.8) + Math.random() * 0.4).toFixed(2)),
+        batchSizeCurrent: Math.min(2000, Math.max(200, Math.floor(currentDepth * 0.6))),
+        batchTimeoutMs: 250,
+        workers: Array.from({ length: totalWorkers }, (_, i) => {
+          const isActive = i < activeWorkers;
+          return {
+            workerId: `worker-${String(i + 1).padStart(2, '0')}`,
+            role: i < 8 ? "syslog-udp-unpack" : (i < 12 ? "regex-pipeline-decoder" : "ipc-batch-assembler"),
+            status: isActive ? "busy" : "idle",
+            currentLoad: isActive ? Number((0.45 + (Math.random() * 0.5)).toFixed(2)) : 0.05,
+            tasksProcessed: Math.floor(uptimeSec * (240 + i * 15) + 12000),
+            errorCount: 0
+          };
+        })
+      },
+      network: {
+        syslogUDPPort: 5140,
+        syslogTCPPort: 5140,
+        httpPort: 8080,
+        bytesReceivedTotal: Math.floor(uptimeSec * 2450000 + 450000000),
+        mbpsIngest: Number((processedEps * 0.0038).toFixed(2))
+      }
+    });
+  });
 
   app.get('/api/engine/status', (req, res) => {
     const uptimeSec = Math.floor((Date.now() - engineStartTime) / 1000);
@@ -296,6 +403,156 @@ async function startServer() {
         bloomFilterHitsRate: "99.2%",
         storagePath: "/var/lib/semor/vlog/active.vlog_data"
       }
+    });
+  });
+
+  // Rust Storage Engine Real-time Telemetry (Disk Usage, Rotation Frequency, Compression Ratios)
+  app.get('/api/engine/storage/telemetry', (req, res) => {
+    const uptimeSec = Math.floor((Date.now() - engineStartTime) / 1000);
+    const now = Date.now();
+
+    // Dynamically calculate cumulative metrics
+    const totalRows = Math.floor(1950000 + uptimeSec * 3200);
+    const uncompressedBytes = Math.floor(totalRows * 500); // ~500 bytes per raw row
+    // Current compression ratio fluctuations around 11.8x to 12.3x
+    const ratioWave = 11.8 + Math.sin(now / 15000) * 0.4 + (Math.random() * 0.2 - 0.1);
+    const compressionRatio = Number(ratioWave.toFixed(2));
+    const compressedBytes = Math.floor(uncompressedBytes / compressionRatio);
+
+    // Timestamp & Payload breakdown
+    const deltaTimestampBytes = Math.floor(totalRows * 0.82); // Delta-of-Delta ~0.82 bytes/ts
+    const rawTimestampBytes = totalRows * 8; // standard 64-bit int
+    const timestampSavingsRatio = Number((rawTimestampBytes / deltaTimestampBytes).toFixed(1));
+    const zstdPayloadBytes = compressedBytes - deltaTimestampBytes;
+
+    // Block rotation metrics
+    // Single block = 4,096 rows, single Part = 16,384 rows (4 blocks)
+    const blocksTotal = Math.floor(totalRows / 4096);
+    const partsTotal = Math.floor(totalRows / 16384);
+    // Block rotation frequency: every ~1.28 seconds under 3,200 EPS
+    const blocksPerMinute = Number((3200 * 60 / 4096).toFixed(1)); // ~46.9 blocks/min
+    const partsRotatedPerHour = Number((3200 * 3600 / 16384).toFixed(1)); // ~703 parts/hr
+    const lastRotationTs = now - Math.floor((now % 1280));
+
+    // Disk Volume breakdown
+    const dataDirMb = Number((compressedBytes / (1024 * 1024)).toFixed(2));
+    const walBytes = Math.floor(3200 * 500 * (0.25 + Math.random() * 0.1)); // ~400KB active in WAL buffer
+    const walMb = Number((walBytes / (1024 * 1024)).toFixed(2));
+    const totalDiskMb = Number((dataDirMb + walMb).toFixed(2));
+    const diskCapacityMb = 512000; // 500 GB provisioned volume
+    const diskUsagePercent = Number(((totalDiskMb / diskCapacityMb) * 100).toFixed(3));
+
+    // Real-time Throughput (Go Receiver + Rust Storage Engine)
+    const ingestEps = Math.floor(8200 + (Math.sin(now / 3500) * 1200) + (Math.random() * 300));
+    const commitEps = Math.floor(ingestEps * 0.985);
+    const writeThroughputMbSec = Number(((commitEps * 500) / (1024 * 1024)).toFixed(2));
+    const diskWriteMbSec = Number((writeThroughputMbSec / compressionRatio).toFixed(2));
+
+    // Stream-level partition distribution
+    const streamDistribution = [
+      {
+        streamId: 1001,
+        streamName: "production-suricata-ids",
+        rows: Math.floor(totalRows * 0.52),
+        uncompressedMb: Number(((totalRows * 0.52 * 500) / (1024 * 1024)).toFixed(1)),
+        compressedMb: Number((((totalRows * 0.52 * 500) / compressionRatio) / (1024 * 1024)).toFixed(1)),
+        compressionRatio: `${(compressionRatio + 0.2).toFixed(1)}x`,
+        activePart: "part_0000000000000028.block",
+        sealedPartsCount: Math.floor(partsTotal * 0.52),
+        blocksInFlight: 3,
+        status: "active_writing"
+      },
+      {
+        streamId: 1002,
+        streamName: "production-fortigate-fw",
+        rows: Math.floor(totalRows * 0.33),
+        uncompressedMb: Number(((totalRows * 0.33 * 500) / (1024 * 1024)).toFixed(1)),
+        compressedMb: Number((((totalRows * 0.33 * 500) / (compressionRatio - 0.1)) / (1024 * 1024)).toFixed(1)),
+        compressionRatio: `${(compressionRatio - 0.1).toFixed(1)}x`,
+        activePart: "part_0000000000000019.block",
+        sealedPartsCount: Math.floor(partsTotal * 0.33),
+        blocksInFlight: 2,
+        status: "active_writing"
+      },
+      {
+        streamId: 1003,
+        streamName: "staging-windows-eventlog",
+        rows: Math.floor(totalRows * 0.15),
+        uncompressedMb: Number(((totalRows * 0.15 * 500) / (1024 * 1024)).toFixed(1)),
+        compressedMb: Number((((totalRows * 0.15 * 500) / (compressionRatio - 0.4)) / (1024 * 1024)).toFixed(1)),
+        compressionRatio: `${(compressionRatio - 0.4).toFixed(1)}x`,
+        activePart: "part_0000000000000009.block",
+        sealedPartsCount: Math.floor(partsTotal * 0.15),
+        blocksInFlight: 1,
+        status: "active_writing"
+      }
+    ];
+
+    res.json({
+      status: "healthy",
+      service: "semor-vlog-engine-rust",
+      timestamp: now,
+      uptimeSeconds: uptimeSec,
+      throughput: {
+        ingestEps: ingestEps,
+        commitEps: commitEps,
+        writeThroughputMbSec: writeThroughputMbSec,
+        diskWriteMbSec: diskWriteMbSec,
+        compressionMultiplier: compressionRatio,
+        ipcLatencyMs: Number((0.45 + Math.random() * 0.25).toFixed(2)),
+        pipelineLagEvents: Math.floor(Math.random() * 40),
+        status: "streaming"
+      },
+      diskUsage: {
+        totalDiskBytes: compressedBytes + walBytes,
+        totalDiskMb: totalDiskMb,
+        uncompressedBytes: uncompressedBytes,
+        uncompressedMb: Number((uncompressedBytes / (1024 * 1024)).toFixed(2)),
+        savedDiskMb: Number(((uncompressedBytes - compressedBytes) / (1024 * 1024)).toFixed(2)),
+        capacityMb: diskCapacityMb,
+        usagePercentage: diskUsagePercent,
+        dataPath: "/data",
+        walPath: "/data/{stream_id}/wal_*.wal",
+        walActiveBytes: walBytes,
+        walActiveMb: walMb
+      },
+      compression: {
+        ratio: compressionRatio,
+        ratioFormatted: `${compressionRatio}x`,
+        spaceSavingPercent: Number(((1 - (1 / compressionRatio)) * 100).toFixed(1)),
+        zstdAlgorithm: "Zstandard Level 3 (Dictionary-assisted Chunking)",
+        timestampAlgorithm: "Delta-of-Delta 64-bit Variable Byte",
+        deltaTimestampBytes: deltaTimestampBytes,
+        rawTimestampBytes: rawTimestampBytes,
+        timestampSavingsRatio: `${timestampSavingsRatio}x`,
+        avgBytesPerTimestamp: Number((deltaTimestampBytes / totalRows).toFixed(2)),
+        zstdPayloadBytes: zstdPayloadBytes,
+        bloomFilterBitsTotal: blocksTotal * 4096,
+        bloomFilterFalsePositiveRate: "< 0.8%"
+      },
+      rotation: {
+        blockCapacityRows: 4096,
+        partCapacityRows: 16384,
+        partCapacityBytesLimit: 16777216, // 16 MB limit
+        totalBlocksSealed: blocksTotal,
+        totalPartsSealed: partsTotal,
+        blocksPerMinute: blocksPerMinute,
+        blocksPerSecond: Number((blocksPerMinute / 60).toFixed(2)),
+        partsRotatedPerHour: partsRotatedPerHour,
+        lastRotationTimestamp: lastRotationTs,
+        lastRotationAgoSec: Number(((now - lastRotationTs) / 1000).toFixed(1)),
+        rotationPolicy: "Atomic O_APPEND Zero-Lock Sequence Step"
+      },
+      writeManager: {
+        memoryBufferBytes: Math.floor(1800000 + Math.sin(now / 4000) * 600000),
+        maxMemoryBufferBytes: 33554432, // 32 MB
+        memoryBufferUsagePercent: Number(((1800000 / 33554432) * 100).toFixed(1)),
+        isThrottled: false,
+        activePartsCount: 3,
+        sealedPartsCount: partsTotal,
+        streamsCount: 3
+      },
+      streams: streamDistribution
     });
   });
 
@@ -530,6 +787,7 @@ async function startServer() {
     const requestedFile = req.query.file as string;
     const allowedFiles: Record<string, string> = {
       'go_receiver': 'cmd/receiver/main.go',
+      'go_monitor': 'cmd/receiver/utils/monitor.go',
       'go_main': 'engine/collector-go/main.go',
       'go_syslog': 'engine/collector-go/receiver/syslog.go',
       'go_http': 'engine/collector-go/receiver/http.go',
@@ -537,6 +795,9 @@ async function startServer() {
       'go_ipc': 'engine/collector-go/forwarder/ipc_rust.go',
       'go_config': 'engine/collector-go/config/config.go',
       'rust_engine_block': 'src/rust_engine/block.rs',
+      'rust_engine_part': 'src/rust_engine/part.rs',
+      'rust_engine_storage': 'src/rust_engine/storage.rs',
+      'rust_engine_index': 'src/rust_engine/index.rs',
       'rust_engine_mod': 'src/rust_engine/mod.rs',
       'rust_main': 'engine/storage-rust/src/main.rs',
       'rust_block': 'engine/storage-rust/src/block.rs',

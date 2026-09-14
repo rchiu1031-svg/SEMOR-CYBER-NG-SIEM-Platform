@@ -48,8 +48,10 @@ func (h *HTTPReceiver) Start() error {
 	// 3. 解碼器熱重載端點 (/api/v1/decoders/deploy)
 	mux.HandleFunc("/api/v1/decoders/deploy", h.handleDecoderDeploy)
 
-	// 4. 健康狀態與遙測指標 (/api/v1/stats)
+	// 4. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
 	mux.HandleFunc("/api/v1/stats", h.handleStats)
+	mux.HandleFunc("/healthz", h.handleHealthz)
+	mux.HandleFunc("/metrics", h.handleStats)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", h.cfg.HTTPPort)
 	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (端點: /insert/jsonline, /api/v1/ingest, /api/v1/decoders/deploy)\n", addr)
@@ -184,10 +186,57 @@ func (h *HTTPReceiver) handleDecoderDeploy(w http.ResponseWriter, r *http.Reques
 	_, _ = w.Write([]byte(`{"success":true,"deployed_id":"` + decoderID + `"}`))
 }
 
+func (h *HTTPReceiver) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	bufferDepth := 0
+	bufferCapacity := h.cfg.ChannelCap
+	// 安全採樣通道佇列深度
+	if h.inboundQueue != nil {
+		bufferDepth = len(h.inboundQueue)
+	}
+
+	saturation := float64(0)
+	if bufferCapacity > 0 {
+		saturation = float64(bufferDepth) / float64(bufferCapacity)
+	}
+
+	status := "healthy"
+	if saturation > 0.85 {
+		status = "degraded"
+	}
+
+	response := map[string]interface{}{
+		"status": status,
+		"service": "semor-collector-go",
+		"uptime_ms": time.Now().UnixMilli(),
+		"buffer": map[string]interface{}{
+			"depth": bufferDepth,
+			"capacity": bufferCapacity,
+			"depth_percentage": saturation * 100.0,
+		},
+		"worker_pool": map[string]interface{}{
+			"configured_workers": 16,
+			"active_workers": 16,
+			"saturation_ratio": saturation,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 func (h *HTTPReceiver) handleStats(w http.ResponseWriter, r *http.Request) {
+	bufferDepth := 0
+	if h.inboundQueue != nil {
+		bufferDepth = len(h.inboundQueue)
+	}
+	bufferCap := h.cfg.ChannelCap
+
 	stats := map[string]interface{}{
 		"http_requests": atomic.LoadUint64(&h.httpRequests),
 		"logs_ingested": atomic.LoadUint64(&h.logsIngested),
+		"buffer_depth":  bufferDepth,
+		"buffer_capacity": bufferCap,
+		"buffer_utilization": float64(bufferDepth) / float64(bufferCap) * 100.0,
 		"timestamp":     time.Now().UnixMilli(),
 	}
 	w.Header().Set("Content-Type", "application/json")

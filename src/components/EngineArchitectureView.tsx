@@ -20,9 +20,12 @@ import {
   Database,
   Filter,
   Eye,
-  Send
+  Send,
+  FolderTree
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
+import { StorageEngineTelemetryPanel } from './StorageEngineTelemetryPanel';
 
 interface EngineStatus {
   collector: {
@@ -109,7 +112,7 @@ interface BlockItem {
 }
 
 export function EngineArchitectureView() {
-  const [activeTab, setActiveTab] = useState<'topology' | 'storage' | 'blocks' | 'tester' | 'code'>('topology');
+  const [activeTab, setActiveTab] = useState<'topology' | 'telemetry' | 'storage_telemetry' | 'storage' | 'blocks' | 'tester' | 'code'>('storage_telemetry');
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [blocks, setBlocks] = useState<BlockItem[]>([]);
   const [storageTree, setStorageTree] = useState<StorageTreeData | null>(null);
@@ -130,15 +133,19 @@ export function EngineArchitectureView() {
   const [isLoadingCode, setIsLoadingCode] = useState(false);
 
   const fileList = [
+    { key: 'rust_engine_index', name: 'Rust Engine: BlockHeaderIndex 標頭萃取與高速搜尋 (/src/rust_engine/index.rs)', lang: 'rust' },
+    { key: 'rust_engine_storage', name: 'Rust Engine: WAL 預寫日誌 & WriteManager & StorageEngine (/src/rust_engine/storage.rs)', lang: 'rust' },
+    { key: 'rust_engine_part', name: 'Rust Engine: ActivePartWriter & 零解壓復原 (/src/rust_engine/part.rs)', lang: 'rust' },
     { key: 'rust_engine_block', name: 'Rust Engine: BlockBuilder & ZSTD & Bloom (/src/rust_engine/block.rs)', lang: 'rust' },
-    { key: 'rust_block', name: 'Rust Storage: VictoriaBlock & BlockBuilder (engine/.../block.rs)', lang: 'rust' },
-    { key: 'rust_storage', name: 'Rust: 分區結構 /data/{stream_id}/{part_id}.block (storage.rs)', lang: 'rust' },
+    { key: 'rust_storage', name: 'Rust Storage: /data/{stream_id}/{part_id}.block 結構 (storage.rs)', lang: 'rust' },
+    { key: 'rust_block', name: 'Rust Storage: VictoriaBlock & 二進位 Frame (block.rs)', lang: 'rust' },
     { key: 'rust_bloom', name: 'Rust: 雙重散列 Bloom Filter 剪枝 (bloom.rs)', lang: 'rust' },
     { key: 'rust_stream', name: 'Rust: Stream 標籤管理 (stream.rs)', lang: 'rust' },
     { key: 'rust_ipc', name: 'Rust: IPC 接收器 (ipc_server.rs)', lang: 'rust' },
     { key: 'rust_main', name: 'Rust: 核心守護進程 (main.rs)', lang: 'rust' },
     { key: 'rust_readme', name: 'Rust: 第二階段設計規格書 (README.md)', lang: 'md' },
     { key: 'go_receiver', name: 'Go: 高效能接收器 (cmd/receiver/main.go)', lang: 'go' },
+    { key: 'go_monitor', name: 'Go: 緩衝區即時填充率與瓶頸預測 (cmd/receiver/utils/monitor.go)', lang: 'go' },
     { key: 'go_main', name: 'Go: 主程序 (main.go)', lang: 'go' },
     { key: 'go_syslog', name: 'Go: Syslog UDP/TCP (syslog.go)', lang: 'go' },
     { key: 'go_pipeline', name: 'Go: 規則解碼器 (processor.go)', lang: 'go' },
@@ -258,8 +265,10 @@ export function EngineArchitectureView() {
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-800 mt-6 -mb-2 gap-2 overflow-x-auto">
           {[
+            { id: 'storage_telemetry', label: '儲存引擎吞吐與磁碟遙測 (Throughput & Disk Usage)', icon: HardDrive },
+            { id: 'telemetry', label: 'Go 收集器即時遙測看板 (Buffer & Worker Pool)', icon: Activity },
             { id: 'topology', label: '架構運作拓撲 (Architecture)', icon: Layers },
-            { id: 'storage', label: '分區目錄結構 (/data/{stream_id}/{part_id}.block)', icon: HardDrive },
+            { id: 'storage', label: '分區目錄結構 (/data/{stream_id}/{part_id}.block)', icon: FolderTree },
             { id: 'blocks', label: 'VictoriaBlock 二進位 Frame 檢視', icon: Database },
             { id: 'tester', label: '即時日誌注入測試台 (Test Bench)', icon: Play },
             { id: 'code', label: 'Go / Rust 程式碼模組庫 (Source Code)', icon: FileCode2 },
@@ -283,6 +292,16 @@ export function EngineArchitectureView() {
           })}
         </div>
       </div>
+
+      {/* TAB: RUST STORAGE ENGINE TELEMETRY PANEL */}
+      {activeTab === 'storage_telemetry' && (
+        <StorageEngineTelemetryPanel />
+      )}
+
+      {/* TAB 0: GO COLLECTOR TELEMETRY DASHBOARD */}
+      {activeTab === 'telemetry' && (
+        <CollectorTelemetryDashboard />
+      )}
 
       {/* TAB 1: TOPOLOGY & TELEMETRY */}
       {activeTab === 'topology' && (

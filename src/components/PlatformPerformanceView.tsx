@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EngineArchitectureView } from './EngineArchitectureView';
+import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
 import { 
   AreaChart, 
   Area, 
@@ -115,8 +116,8 @@ export function PlatformPerformanceView() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
-  // Tabs: 'overview' | 'analytics' | 'engine'
-  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine'>('overview');
+  // Tabs: 'overview' | 'analytics' | 'engine' | 'telemetry'
+  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine' | 'telemetry'>('overview');
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configModalTab, setConfigModalTab] = useState<'thresholds' | 'notifications' | 'overrides' | 'test'>('thresholds');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -402,6 +403,17 @@ export function PlatformPerformanceView() {
               {isZh ? '效能分析報表' : 'Analytics & Trends'}
             </button>
             <button
+              onClick={() => setActiveViewMode('telemetry')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeViewMode === 'telemetry'
+                  ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <Activity size={13} className="text-cyan-400" />
+              {isZh ? 'Go 收集器即時遙測' : 'Collector Telemetry (Go)'}
+            </button>
+            <button
               onClick={() => setActiveViewMode('engine')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
                 activeViewMode === 'engine'
@@ -410,7 +422,7 @@ export function PlatformPerformanceView() {
               }`}
             >
               <Zap size={13} className="text-amber-400" />
-              {isZh ? '第一階段核心 (Go+Rust)' : 'Core Engine (Go & Rust)'}
+              {isZh ? '底層核心架構 (Go+Rust)' : 'Core Engine (Go & Rust)'}
             </button>
           </div>
 
@@ -991,6 +1003,11 @@ export function PlatformPerformanceView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MAIN VIEW MODE: Go Collector Telemetry Dashboard */}
+      {activeViewMode === 'telemetry' && (
+        <CollectorTelemetryDashboard />
       )}
 
       {/* MAIN VIEW MODE 3: Core Engine (Go Ingest + Rust Storage) */}
