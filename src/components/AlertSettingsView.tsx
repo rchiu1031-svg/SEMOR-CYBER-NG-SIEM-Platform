@@ -47,7 +47,9 @@ import {
   CheckCheck,
   Eye,
   Hash,
-  Shield
+  Shield,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
@@ -1301,6 +1303,129 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
   const activeCount = rules.filter(r => r.enabled).length;
   const firingCount = rules.filter(r => r.status === 'critical' || r.status === 'warning').length;
 
+  // 24-Hour Alert Frequency Sparkline State & Derivations
+  const [hoveredSparklineIndex, setHoveredSparklineIndex] = useState<number | null>(null);
+
+  interface HourlySparklineBucket {
+    index: number;
+    startTime: Date;
+    endTime: Date;
+    hourStr: string;
+    utcHourStr: string;
+    relativeLabel: string;
+    count: number;
+    criticalCount: number;
+    highCount: number;
+    warningCount: number;
+    infoCount: number;
+    records: AlertHistoryRecord[];
+  }
+
+  const last24HoursData = useMemo(() => {
+    const now = new Date();
+    // Align to the end of the current hour so the ongoing hour is cleanly covered
+    const currentHourEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1, 0, 0, 0);
+
+    const buckets: HourlySparklineBucket[] = [];
+
+    for (let i = 23; i >= 0; i--) {
+      const bucketEnd = new Date(currentHourEnd.getTime() - i * 3600 * 1000);
+      const bucketStart = new Date(bucketEnd.getTime() - 3600 * 1000);
+      const startTimeMs = bucketStart.getTime();
+      const endTimeMs = bucketEnd.getTime();
+
+      const matchingRecords = historyRecords.filter(r => {
+        const t = new Date(r.triggerTime).getTime();
+        return t >= startTimeMs && t < endTimeMs;
+      });
+
+      const criticalCount = matchingRecords.filter(r => r.severity === 'Critical').length;
+      const highCount = matchingRecords.filter(r => r.severity === 'High').length;
+      const warningCount = matchingRecords.filter(r => r.severity === 'Warning').length;
+      const infoCount = matchingRecords.filter(r => r.severity === 'Info').length;
+
+      const hourNum = bucketStart.getHours();
+      const hourStr = `${String(hourNum).padStart(2, '0')}:00`;
+      const utcHourStr = `${String(bucketStart.getUTCHours()).padStart(2, '0')}:00 UTC`;
+      const relativeLabel = i === 0 
+        ? (isZh ? '現在' : 'Now') 
+        : `-${i}h`;
+
+      buckets.push({
+        index: 23 - i,
+        startTime: bucketStart,
+        endTime: bucketEnd,
+        hourStr,
+        utcHourStr,
+        relativeLabel,
+        count: matchingRecords.length,
+        criticalCount,
+        highCount,
+        warningCount,
+        infoCount,
+        records: matchingRecords
+      });
+    }
+
+    const total24hTriggers = buckets.reduce((sum, b) => sum + b.count, 0);
+    const totalCritical = buckets.reduce((sum, b) => sum + b.criticalCount, 0);
+    const totalHigh = buckets.reduce((sum, b) => sum + b.highCount, 0);
+    const totalWarning = buckets.reduce((sum, b) => sum + b.warningCount, 0);
+    const maxCount = Math.max(...buckets.map(b => b.count), 0);
+    const peakBucket = buckets.reduce((max, b) => b.count > max.count ? b : max, buckets[0]);
+
+    return {
+      buckets,
+      total24hTriggers,
+      totalCritical,
+      totalHigh,
+      totalWarning,
+      maxCount,
+      peakBucket
+    };
+  }, [historyRecords, isZh]);
+
+  // Sparkline Coordinates & Geometry Calculations
+  const svgWidth = 800;
+  const svgHeight = 76;
+  const paddingX = 24;
+  const paddingTop = 12;
+  const paddingBottom = 16;
+  const plotWidth = svgWidth - paddingX * 2;
+  const plotHeight = svgHeight - paddingTop - paddingBottom;
+  const maxScale = Math.max(last24HoursData.maxCount, 3);
+
+  const sparklinePoints = useMemo(() => {
+    return last24HoursData.buckets.map((b, idx) => {
+      const x = paddingX + (idx / 23) * plotWidth;
+      const y = paddingTop + plotHeight - (b.count / maxScale) * plotHeight;
+      return { x, y, bucket: b, idx };
+    });
+  }, [last24HoursData, plotWidth, plotHeight, maxScale]);
+
+  const sparklineLinePath = useMemo(() => {
+    if (sparklinePoints.length === 0) return '';
+    let path = `M ${sparklinePoints[0].x},${sparklinePoints[0].y}`;
+    for (let i = 1; i < sparklinePoints.length; i++) {
+      const prev = sparklinePoints[i - 1];
+      const curr = sparklinePoints[i];
+      const cp1x = prev.x + (curr.x - prev.x) / 2;
+      const cp1y = prev.y;
+      const cp2x = prev.x + (curr.x - prev.x) / 2;
+      const cp2y = curr.y;
+      path += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${curr.x},${curr.y}`;
+    }
+    return path;
+  }, [sparklinePoints]);
+
+  const sparklineAreaPath = useMemo(() => {
+    if (!sparklineLinePath || sparklinePoints.length === 0) return '';
+    const lastPt = sparklinePoints[sparklinePoints.length - 1];
+    const firstPt = sparklinePoints[0];
+    const baselineY = paddingTop + plotHeight;
+    return `${sparklineLinePath} L ${lastPt.x},${baselineY} L ${firstPt.x},${baselineY} Z`;
+  }, [sparklineLinePath, sparklinePoints, plotHeight]);
+
   return (
     <div className="space-y-6 text-gray-200">
       {/* Toast Notification */}
@@ -1372,6 +1497,375 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
                 </button>
               </>
             )}
+          </div>
+        </div>
+
+        {/* 24-HOUR ALERT TRIGGER FREQUENCY SPARKLINE */}
+        <div className="mt-6 pt-5 border-t border-gray-800/80 relative z-10">
+          <div className="bg-[#121219]/90 border border-gray-800/90 hover:border-gray-700/80 transition-all rounded-xl p-4 sm:p-5 shadow-lg relative">
+            {/* Sparkline Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 shrink-0">
+                  <Activity size={16} className={last24HoursData.total24hTriggers > 0 ? "animate-pulse" : ""} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5">
+                      {isZh ? '過去 24 小時告警觸發頻率分佈' : '24-Hour Alert Trigger Frequency & Velocity'}
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-extrabold uppercase bg-rose-950/80 text-rose-300 border border-rose-800/60 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                      24H SPARKLINE
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {isZh 
+                      ? '視覺化呈現主機硬體指標（CPU/RAM/磁碟）與管線日誌吞吐量（EPS暴增/斷流）每小時違規告警密度' 
+                      : 'Hourly breach velocity across host health metrics (CPU/RAM/Disk) and log volume pipelines'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Metrics summary pills & jump button */}
+              <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+                <div className="px-2.5 py-1 rounded-lg bg-[#181822] border border-gray-800 font-mono text-[11px] flex items-center gap-1.5 text-gray-300">
+                  <span className="text-gray-400 text-[10px] uppercase font-bold">{isZh ? '24h 累計:' : '24h Total:'}</span>
+                  <span className="font-extrabold text-white text-xs">{last24HoursData.total24hTriggers}</span>
+                  <span className="text-[10px] text-gray-400">{isZh ? '件' : 'events'}</span>
+                </div>
+
+                {last24HoursData.totalCritical > 0 && (
+                  <div className="px-2 py-1 rounded-lg bg-red-950/60 border border-red-800/60 font-mono text-[10px] font-bold text-red-300 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                    <span>{last24HoursData.totalCritical} Critical</span>
+                  </div>
+                )}
+
+                {last24HoursData.peakBucket.count > 0 && (
+                  <div className="px-2.5 py-1 rounded-lg bg-[#181822] border border-gray-800 font-mono text-[11px] text-gray-300 hidden md:flex items-center gap-1.5">
+                    <span className="text-gray-400 text-[10px] uppercase font-bold">{isZh ? '最高尖峰:' : 'Peak:'}</span>
+                    <span className="text-amber-400 font-extrabold">{last24HoursData.peakBucket.count} /h</span>
+                    <span className="text-gray-400 text-[10px]">({last24HoursData.peakBucket.hourStr})</span>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => {
+                    setActiveTab('history');
+                    showToast(isZh ? '已導覽至歷史告警審計帳本' : 'Navigated to Alert History Ledger');
+                  }}
+                  className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ml-auto sm:ml-0"
+                  title={isZh ? "前往歷史告警帳本檢視完整明細" : "View full history ledger"}
+                >
+                  <History size={12} className="text-rose-400" />
+                  <span className="text-[11px]">{isZh ? '檢視帳本' : 'View Ledger'}</span>
+                  <ChevronRight size={11} />
+                </button>
+              </div>
+            </div>
+
+            {/* Sparkline Canvas Container */}
+            <div className="relative pt-1">
+              {/* Floating Interactive Tooltip */}
+              {hoveredSparklineIndex !== null && (
+                <div
+                  className="absolute z-30 pointer-events-none transition-all duration-75"
+                  style={{
+                    left: `${(sparklinePoints[hoveredSparklineIndex].x / svgWidth) * 100}%`,
+                    top: '-6px',
+                    transform: hoveredSparklineIndex < 4 
+                      ? 'translate(0%, -100%)' 
+                      : hoveredSparklineIndex > 19 
+                      ? 'translate(-100%, -100%)' 
+                      : 'translate(-50%, -100%)'
+                  }}
+                >
+                  <div className="bg-[#181824] border border-gray-700/90 rounded-xl p-3 shadow-2xl backdrop-blur-md min-w-[220px] max-w-[310px]">
+                    <div className="flex items-center justify-between gap-2 border-b border-gray-800 pb-1.5 mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={11} className="text-gray-400" />
+                        <span className="font-mono text-xs font-bold text-white">
+                          {sparklinePoints[hoveredSparklineIndex].bucket.hourStr}
+                        </span>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          ({sparklinePoints[hoveredSparklineIndex].bucket.relativeLabel})
+                        </span>
+                      </div>
+                      <span className={cn(
+                        "px-1.5 py-0.2 rounded text-[10px] font-mono font-extrabold",
+                        sparklinePoints[hoveredSparklineIndex].bucket.count > 0 
+                          ? "bg-rose-950 text-rose-300 border border-rose-800" 
+                          : "bg-gray-800 text-gray-400"
+                      )}>
+                        {sparklinePoints[hoveredSparklineIndex].bucket.count} {isZh ? '告警' : 'alerts'}
+                      </span>
+                    </div>
+
+                    {sparklinePoints[hoveredSparklineIndex].bucket.count > 0 ? (
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                          {sparklinePoints[hoveredSparklineIndex].bucket.criticalCount > 0 && (
+                            <span className="px-1.5 py-0.2 rounded bg-red-950 text-red-300 border border-red-800/80 font-bold">
+                              {sparklinePoints[hoveredSparklineIndex].bucket.criticalCount} Critical
+                            </span>
+                          )}
+                          {sparklinePoints[hoveredSparklineIndex].bucket.highCount > 0 && (
+                            <span className="px-1.5 py-0.2 rounded bg-orange-950 text-orange-300 border border-orange-800/80 font-bold">
+                              {sparklinePoints[hoveredSparklineIndex].bucket.highCount} High
+                            </span>
+                          )}
+                          {sparklinePoints[hoveredSparklineIndex].bucket.warningCount > 0 && (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-800/80 font-bold">
+                              {sparklinePoints[hoveredSparklineIndex].bucket.warningCount} Warning
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1 mt-1">
+                          {sparklinePoints[hoveredSparklineIndex].bucket.records.slice(0, 2).map(r => (
+                            <div key={r.id} className="text-[11px] text-gray-300 truncate font-sans">
+                              <span className="text-gray-400 font-mono text-[10px] mr-1">[{r.id.split('-').pop()}]</span>
+                              <span>{r.ruleName}</span>
+                            </div>
+                          ))}
+                          {sparklinePoints[hoveredSparklineIndex].bucket.records.length > 2 && (
+                            <div className="text-[10px] text-gray-500 italic">
+                              +{sparklinePoints[hoveredSparklineIndex].bucket.records.length - 2} {isZh ? '則更多告警' : 'more alerts'}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-[9px] text-rose-400 font-mono pt-1 border-t border-gray-800/60 flex items-center gap-1">
+                          <span>{isZh ? '點擊快速過濾審計帳本' : 'Click to inspect in Ledger'}</span>
+                          <ChevronRight size={10} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-gray-500 py-0.5 flex items-center gap-1">
+                        <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
+                        <span>{isZh ? '此時段無閥值違規告警 (指標平穩)' : 'Zero breaches during this window'}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Responsive SVG Sparkline */}
+              <svg
+                viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+                className="w-full h-16 sm:h-20 overflow-visible select-none"
+              >
+                <defs>
+                  {/* Area Fill Gradient */}
+                  <linearGradient id="headerSparklineArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity="0.45" />
+                    <stop offset="60%" stopColor="#f43f5e" stopOpacity="0.12" />
+                    <stop offset="100%" stopColor="#f43f5e" stopOpacity="0.0" />
+                  </linearGradient>
+
+                  {/* Line Stroke Gradient */}
+                  <linearGradient id="headerSparklineStroke" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#fb7185" />
+                    <stop offset="60%" stopColor="#f43f5e" />
+                    <stop offset="100%" stopColor="#e11d48" />
+                  </linearGradient>
+
+                  {/* Glow Filter */}
+                  <filter id="headerSparklineGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="2.5" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                  </filter>
+                </defs>
+
+                {/* Background Horizontal Guidelines */}
+                <line
+                  x1={paddingX}
+                  y1={paddingTop + plotHeight}
+                  x2={paddingX + plotWidth}
+                  y2={paddingTop + plotHeight}
+                  stroke="#262633"
+                  strokeWidth="1"
+                />
+                <line
+                  x1={paddingX}
+                  y1={paddingTop + plotHeight / 2}
+                  x2={paddingX + plotWidth}
+                  y2={paddingTop + plotHeight / 2}
+                  stroke="#1f1f2a"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                />
+                <line
+                  x1={paddingX}
+                  y1={paddingTop}
+                  x2={paddingX + plotWidth}
+                  y2={paddingTop}
+                  stroke="#1a1a24"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                />
+
+                {/* Area Gradient Fill */}
+                <path
+                  d={sparklineAreaPath}
+                  fill="url(#headerSparklineArea)"
+                />
+
+                {/* Spline Stroke Curve */}
+                <path
+                  d={sparklineLinePath}
+                  fill="none"
+                  stroke="url(#headerSparklineStroke)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  filter="url(#headerSparklineGlow)"
+                />
+
+                {/* Hover Vertical Cursor Guideline */}
+                {hoveredSparklineIndex !== null && (
+                  <line
+                    x1={sparklinePoints[hoveredSparklineIndex].x}
+                    y1={paddingTop - 4}
+                    x2={sparklinePoints[hoveredSparklineIndex].x}
+                    y2={paddingTop + plotHeight}
+                    stroke="#f43f5e"
+                    strokeWidth="1.5"
+                    strokeDasharray="2 2"
+                    className="animate-pulse"
+                  />
+                )}
+
+                {/* Data Points on Nodes */}
+                {sparklinePoints.map((p, idx) => {
+                  const hasAlerts = p.bucket.count > 0;
+                  const isHovered = hoveredSparklineIndex === idx;
+
+                  let pointStroke = '#eab308';
+                  let pointFill = '#eab308';
+                  if (p.bucket.criticalCount > 0) {
+                    pointStroke = '#ef4444';
+                    pointFill = '#ef4444';
+                  } else if (p.bucket.highCount > 0) {
+                    pointStroke = '#f97316';
+                    pointFill = '#f97316';
+                  } else if (p.bucket.warningCount > 0) {
+                    pointStroke = '#eab308';
+                    pointFill = '#eab308';
+                  }
+
+                  if (!hasAlerts && !isHovered) {
+                    return (
+                      <circle
+                        key={idx}
+                        cx={p.x}
+                        cy={p.y}
+                        r={1.5}
+                        fill="#404052"
+                        className="transition-all"
+                      />
+                    );
+                  }
+
+                  return (
+                    <g key={idx} className="transition-all">
+                      {/* Pulsing outer halo for Critical points */}
+                      {p.bucket.criticalCount > 0 && (
+                        <circle
+                          cx={p.x}
+                          cy={p.y}
+                          r={isHovered ? 10 : 7}
+                          fill="#ef4444"
+                          fillOpacity={0.2}
+                          className="animate-ping origin-center"
+                        />
+                      )}
+
+                      {/* Outer Ring */}
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={isHovered ? 6 : (hasAlerts ? 4.5 : 3)}
+                        fill="#121218"
+                        stroke={isHovered ? '#ffffff' : pointStroke}
+                        strokeWidth={isHovered ? 2.5 : 2}
+                      />
+
+                      {/* Inner Solid Core */}
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={isHovered ? 3 : (hasAlerts ? 2.2 : 1.5)}
+                        fill={isHovered ? '#ffffff' : pointFill}
+                      />
+
+                      {/* Count number label above highest points if > 1 */}
+                      {p.bucket.count > 1 && !isHovered && (
+                        <text
+                          x={p.x}
+                          y={p.y - 7}
+                          textAnchor="middle"
+                          fontSize="9"
+                          fontWeight="bold"
+                          fill="#fca5a5"
+                          fontFamily="monospace"
+                        >
+                          {p.bucket.count}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+
+                {/* Invisible interactive columns for smooth hover & click detection */}
+                {sparklinePoints.map((p, idx) => {
+                  const colWidth = plotWidth / 23;
+                  return (
+                    <rect
+                      key={`hover-col-${idx}`}
+                      x={p.x - colWidth / 2}
+                      y={0}
+                      width={colWidth}
+                      height={svgHeight}
+                      fill="transparent"
+                      className="cursor-pointer"
+                      onMouseEnter={() => setHoveredSparklineIndex(idx)}
+                      onMouseLeave={() => setHoveredSparklineIndex(null)}
+                      onClick={() => {
+                        setActiveTab('history');
+                        if (p.bucket.records.length > 0) {
+                          setHistorySearchQuery(p.bucket.records[0].id);
+                          showToast(isZh 
+                            ? `已篩選時段 ${p.bucket.hourStr} 之告警事件: ${p.bucket.records[0].id}` 
+                            : `Filtered alert for ${p.bucket.hourStr}: ${p.bucket.records[0].id}`);
+                        } else {
+                          showToast(isZh ? '切換至歷史帳本' : 'Navigated to History Ledger');
+                        }
+                      }}
+                    />
+                  );
+                })}
+              </svg>
+
+              {/* 24-Hour Time Axis Labels */}
+              <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 pt-1.5 px-3 border-t border-gray-800/40">
+                {[0, 4, 8, 12, 16, 20, 23].map(idx => {
+                  const b = last24HoursData.buckets[idx];
+                  if (!b) return null;
+                  const isCurrent = idx === 23;
+                  return (
+                    <div key={idx} className="flex flex-col items-center">
+                      <span className={cn("font-bold", isCurrent ? "text-rose-400" : "text-gray-400")}>
+                        {b.hourStr}
+                      </span>
+                      <span className="text-[9px] text-gray-600">
+                        {b.relativeLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
