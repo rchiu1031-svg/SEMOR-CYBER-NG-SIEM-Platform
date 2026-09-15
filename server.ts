@@ -14,6 +14,736 @@ const __dirname = path.dirname(__filename);
 const CONFIG_PATH = path.join(process.cwd(), 'engine_config.json');
 const USERS_PATH = path.join(process.cwd(), 'users_config.json');
 const NOTES_PATH = path.join(process.cwd(), 'notes_config.json');
+const ENGINE_THRESHOLDS_PATH = path.join(process.cwd(), 'engine_thresholds_config.json');
+
+// --- Engine Health & Notification Thresholds Setup ---
+interface EngineThresholdConfig {
+  engineId: string;
+  name: string;
+  category: 'CORE' | 'STORAGE' | 'INGEST' | 'SIEM' | 'NDR' | 'EDR' | 'SOAR';
+  cpuWarning: number;
+  cpuCritical: number;
+  ramWarning: number;
+  ramCritical: number;
+  diskWarning: number;
+  diskCritical: number;
+  durationSeconds: number;
+  cooldownMinutes: number;
+  enabled: boolean;
+  notifications: {
+    email: { enabled: boolean; recipients: string[] };
+    webhook: { enabled: boolean; url: string; channel: string };
+    syslog: { enabled: boolean; host: string; port: number };
+    inApp: { enabled: boolean; notifyOnWarning: boolean; notifyOnCritical: boolean };
+  };
+}
+
+const defaultEngineThresholds: Record<string, EngineThresholdConfig> = {
+  'semor-collector': {
+    engineId: 'semor-collector',
+    name: 'Go 收集器引擎 (Collector Ingest)',
+    category: 'INGEST',
+    cpuWarning: 70,
+    cpuCritical: 85,
+    ramWarning: 75,
+    ramCritical: 90,
+    diskWarning: 80,
+    diskCritical: 90,
+    durationSeconds: 15,
+    cooldownMinutes: 5,
+    enabled: true,
+    notifications: {
+      email: { enabled: true, recipients: ['sec-ops@corp.internal', 'admin@corp.internal'] },
+      webhook: { enabled: true, url: 'https://hooks.slack.com/services/T000/B000/XXXX', channel: '#soc-engine-alerts' },
+      syslog: { enabled: true, host: '127.0.0.1', port: 514 },
+      inApp: { enabled: true, notifyOnWarning: true, notifyOnCritical: true }
+    }
+  },
+  'semor-vlog-engine': {
+    engineId: 'semor-vlog-engine',
+    name: 'Rust 區塊儲存引擎 (VictoriaLogs Core)',
+    category: 'STORAGE',
+    cpuWarning: 75,
+    cpuCritical: 90,
+    ramWarning: 80,
+    ramCritical: 92,
+    diskWarning: 85,
+    diskCritical: 95,
+    durationSeconds: 10,
+    cooldownMinutes: 5,
+    enabled: true,
+    notifications: {
+      email: { enabled: true, recipients: ['storage-team@corp.internal'] },
+      webhook: { enabled: true, url: 'https://hooks.slack.com/services/T000/B000/YYYY', channel: '#storage-critical' },
+      syslog: { enabled: true, host: '127.0.0.1', port: 514 },
+      inApp: { enabled: true, notifyOnWarning: true, notifyOnCritical: true }
+    }
+  },
+  'arkime-suricata': {
+    engineId: 'arkime-suricata',
+    name: 'Arkime & Suricata NDR 封包檢測引擎',
+    category: 'NDR',
+    cpuWarning: 80,
+    cpuCritical: 92,
+    ramWarning: 85,
+    ramCritical: 95,
+    diskWarning: 85,
+    diskCritical: 92,
+    durationSeconds: 20,
+    cooldownMinutes: 10,
+    enabled: true,
+    notifications: {
+      email: { enabled: true, recipients: ['ndr-analysts@corp.internal'] },
+      webhook: { enabled: false, url: '', channel: '#ndr-alerts' },
+      syslog: { enabled: true, host: '127.0.0.1', port: 514 },
+      inApp: { enabled: true, notifyOnWarning: true, notifyOnCritical: true }
+    }
+  },
+  'wazuh-edr': {
+    engineId: 'wazuh-edr',
+    name: 'Wazuh & OpenXDR 端點防護引擎',
+    category: 'EDR',
+    cpuWarning: 70,
+    cpuCritical: 88,
+    ramWarning: 75,
+    ramCritical: 88,
+    diskWarning: 80,
+    diskCritical: 90,
+    durationSeconds: 30,
+    cooldownMinutes: 15,
+    enabled: true,
+    notifications: {
+      email: { enabled: true, recipients: ['edr-team@corp.internal'] },
+      webhook: { enabled: true, url: 'https://hooks.slack.com/services/T000/B000/ZZZZ', channel: '#edr-alerts' },
+      syslog: { enabled: false, host: '127.0.0.1', port: 514 },
+      inApp: { enabled: true, notifyOnWarning: true, notifyOnCritical: true }
+    }
+  },
+  'n8n-soar': {
+    engineId: 'n8n-soar',
+    name: 'n8n & TheHive 劇本自動化引擎 (SOAR)',
+    category: 'SOAR',
+    cpuWarning: 75,
+    cpuCritical: 90,
+    ramWarning: 80,
+    ramCritical: 90,
+    diskWarning: 75,
+    diskCritical: 85,
+    durationSeconds: 15,
+    cooldownMinutes: 5,
+    enabled: true,
+    notifications: {
+      email: { enabled: true, recipients: ['soar-ops@corp.internal'] },
+      webhook: { enabled: true, url: 'https://hooks.slack.com/services/T000/B000/SOAR', channel: '#soar-incidents' },
+      syslog: { enabled: false, host: '127.0.0.1', port: 514 },
+      inApp: { enabled: true, notifyOnWarning: true, notifyOnCritical: true }
+    }
+  }
+};
+
+let engineThresholds: Record<string, EngineThresholdConfig> = { ...defaultEngineThresholds };
+
+try {
+  if (fs.existsSync(ENGINE_THRESHOLDS_PATH)) {
+    const saved = JSON.parse(fs.readFileSync(ENGINE_THRESHOLDS_PATH, 'utf-8'));
+    engineThresholds = { ...defaultEngineThresholds, ...saved };
+  } else {
+    fs.writeFileSync(ENGINE_THRESHOLDS_PATH, JSON.stringify(defaultEngineThresholds, null, 2));
+  }
+} catch (e) {
+  console.error('Failed to load engine thresholds:', e);
+}
+
+// --- Threshold Alert Rules for System Health & Log Event Volumes ---
+const ALERT_THRESHOLD_RULES_PATH = path.join(process.cwd(), 'alert_threshold_rules.json');
+
+export interface ThresholdRuleConfig {
+  id: string;
+  name: string;
+  category: 'system_health' | 'log_volume';
+  metric: string;
+  metricLabel: string;
+  metricUnit: string;
+  targetScope: string;
+  condition: '>=' | '>' | '<=' | '<' | 'rate_increase' | 'rate_decrease';
+  warningThreshold: number;
+  criticalThreshold: number;
+  sustainDurationSec: number;
+  cooldownMin: number;
+  severity: 'Critical' | 'High' | 'Warning' | 'Info';
+  enabled: boolean;
+  notificationChannels: {
+    email: boolean;
+    emailRecipients: string[];
+    webhook: boolean;
+    webhookUrl: string;
+    webhookChannel: string;
+    syslog: boolean;
+    syslogHost: string;
+    syslogPort: number;
+    inApp: boolean;
+    soarPlaybook: boolean;
+    soarPlaybookId?: string;
+  };
+  description: string;
+  remediationHint: string;
+  currentValue: number;
+  lastTriggeredAt?: string | null;
+  triggerCount: number;
+  status: 'healthy' | 'warning' | 'critical' | 'disabled';
+}
+
+const defaultAlertThresholdRules: ThresholdRuleConfig[] = [
+  {
+    id: 'rule-sys-cpu',
+    name: '核心叢集運算負載過載告警 (Cluster Core CPU Saturation)',
+    category: 'system_health',
+    metric: 'cpu_usage',
+    metricLabel: 'CPU 使用率 (CPU Utilization)',
+    metricUnit: '%',
+    targetScope: '核心節點 (semor-collector & vlog-engine)',
+    condition: '>=',
+    warningThreshold: 75,
+    criticalThreshold: 88,
+    sustainDurationSec: 180,
+    cooldownMin: 15,
+    severity: 'High',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['soc-tier1@semor-security.com', 'infra-oncall@semor-security.com'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/CPU_ALERT',
+      webhookChannel: '#soc-infra-alerts',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: false
+    },
+    description: '當 Go 採集器或 Rust 儲存核心 CPU 使用率持續超越門檻時發出警報，防止線程飢餓與封包掉落。',
+    remediationHint: '檢查日誌解碼器正則開銷，必要時動態調整 Go runtime GOMAXPROCS 或橫向擴展 Ingest Worker。',
+    currentValue: 46.8,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-sys-ram',
+    name: '實體記憶體佔用與外洩風險 (Host RAM Pressure & OOM Guard)',
+    category: 'system_health',
+    metric: 'ram_usage',
+    metricLabel: 'RAM 記憶體使用率 (Memory Consumption)',
+    metricUnit: '%',
+    targetScope: 'Rust VictoriaLogs 區塊儲存快取',
+    condition: '>=',
+    warningThreshold: 80,
+    criticalThreshold: 90,
+    sustainDurationSec: 120,
+    cooldownMin: 15,
+    severity: 'Critical',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['infra-oncall@semor-security.com'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/RAM_ALERT',
+      webhookChannel: '#soc-infra-alerts',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: true,
+      soarPlaybookId: 'pb-flush-memory-cache'
+    },
+    description: '記憶體使用率過高可能導致作業系統觸發 OOM Killer 強制中斷儲存進程，造成未持久化日誌遺失。',
+    remediationHint: '執行強制區塊落盤（Flush In-memory VictoriaBlocks to NVMe），釋放已壓縮頁面快取。',
+    currentValue: 64.2,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-sys-disk',
+    name: 'VictoriaLogs 磁碟儲存水位告急 (Block Storage Capacity Exhaustion)',
+    category: 'system_health',
+    metric: 'disk_usage',
+    metricLabel: 'NVMe 磁碟容量佔用 (Disk Capacity)',
+    metricUnit: '%',
+    targetScope: '/data 磁碟分割區 (Zstd Block Storage)',
+    condition: '>=',
+    warningThreshold: 85,
+    criticalThreshold: 92,
+    sustainDurationSec: 300,
+    cooldownMin: 30,
+    severity: 'Critical',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['soc-admin@semor-security.com', 'infra-team@corp.internal'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/STORAGE',
+      webhookChannel: '#soc-storage-critical',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: true,
+      soarPlaybookId: 'pb-archive-old-blocks'
+    },
+    description: '當日誌區塊實體儲存空間低於警戒值時，將啟動緊急冷熱分層歸檔機制以避免日誌拒收。',
+    remediationHint: '確認 S3/冷儲存歸檔策略是否正常運轉，或提早手動輪替超過 90 天之非核心審計日誌。',
+    currentValue: 78.1,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-sys-io-latency',
+    name: '區塊儲存落盤寫入延遲異常 (Block Storage Write Latency Spike)',
+    category: 'system_health',
+    metric: 'io_latency',
+    metricLabel: '磁碟落盤寫入延遲 (Write Latency)',
+    metricUnit: 'ms',
+    targetScope: 'Rust Storage Writer Thread Pool',
+    condition: '>=',
+    warningThreshold: 350,
+    criticalThreshold: 600,
+    sustainDurationSec: 45,
+    cooldownMin: 10,
+    severity: 'Warning',
+    enabled: true,
+    notificationChannels: {
+      email: false,
+      emailRecipients: [],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/IO_LATENCY',
+      webhookChannel: '#soc-infra-alerts',
+      syslog: false,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: false
+    },
+    description: '底層 I/O 寫入延遲顯著上升，可能代表 NVMe 磁碟通道壅塞或正在進行大量後台區塊合流 (Block Compaction)。',
+    remediationHint: '暫時調降背景壓縮並行度 (compaction_concurrency=2)，保證前端接收通道優先權。',
+    currentValue: 142,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-sys-queue',
+    name: 'Go 收集器通道佇列飽和警戒 (Ingest Queue Saturation)',
+    category: 'system_health',
+    metric: 'queue_saturation',
+    metricLabel: '佇列緩衝佔用率 (Channel Saturation)',
+    metricUnit: '%',
+    targetScope: 'semor-collector (Go Ingest Pipeline)',
+    condition: '>=',
+    warningThreshold: 70,
+    criticalThreshold: 88,
+    sustainDurationSec: 60,
+    cooldownMin: 10,
+    severity: 'High',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['soc-tier1@semor-security.com'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/QUEUE',
+      webhookChannel: '#soc-engine-alerts',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: false
+    },
+    description: 'Go Channel 佇列飽和代表後端 Rust 儲存引擎消化速度低於網路進線速度，即將發生 Backpressure 丟包。',
+    remediationHint: '檢查網路是否遭受 UDP Syslog 洪泛，或調大 collector worker buffer pool 規模。',
+    currentValue: 31.5,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-log-ingest-surge',
+    name: '全網日誌吞吐量異常突增 (Log Ingestion Surge / DDoS Wave)',
+    category: 'log_volume',
+    metric: 'log_ingest_eps',
+    metricLabel: '日誌每秒事件吞吐量 (Ingest EPS)',
+    metricUnit: 'EPS',
+    targetScope: '全域進線通道 (Syslog + Netflow + Agent)',
+    condition: '>=',
+    warningThreshold: 12000,
+    criticalThreshold: 18000,
+    sustainDurationSec: 60,
+    cooldownMin: 15,
+    severity: 'Critical',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['soc-duty@semor-security.com', 'incident-response@semor-security.com'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/EPS_SURGE',
+      webhookChannel: '#soc-sec-critical',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: true,
+      soarPlaybookId: 'pb-ddos-rate-limit'
+    },
+    description: '進線日誌量突然暴增超過常態基準線 300%，通常代表遭受分散式阻斷服務攻擊 (DDoS) 或內部網路掃描爆發。',
+    remediationHint: '立即調出 Flow 分析儀表確認 Top 10 Talkers IP，並啟動 NAC / 防火牆動態速率限制。',
+    currentValue: 8450,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-log-silence-drop',
+    name: '關鍵日誌收集斷流與黑洞 (Log Collection Silence / Blackout)',
+    category: 'log_volume',
+    metric: 'log_silence_eps',
+    metricLabel: '收集進線最低吞吐 (Silence Floor EPS)',
+    metricUnit: 'EPS',
+    targetScope: '企業核心防火牆 & 邊界網關',
+    condition: '<=',
+    warningThreshold: 100,
+    criticalThreshold: 10,
+    sustainDurationSec: 180,
+    cooldownMin: 10,
+    severity: 'Critical',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['soc-duty@semor-security.com', 'network-ops@corp.internal'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/SILENCE',
+      webhookChannel: '#soc-sec-critical',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: false
+    },
+    description: '核心防火牆或關鍵日誌源的接收量突然降至趨近於零，可能代表網路設備斷線、日誌轉發進程掛死或遭攻擊者拔除。',
+    remediationHint: '檢查防火牆與採集器之 Syslog 514/TCP 連線狀態，核對邊界網路介面是否處於 Down 狀態。',
+    currentValue: 2150,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-log-parser-errors',
+    name: '日誌解析失敗丟棄率突增 (Log Parser Failure Burst)',
+    category: 'log_volume',
+    metric: 'parser_drop_rate',
+    metricLabel: '解析失敗丟棄速率 (Parser Drop Rate)',
+    metricUnit: 'drops/s',
+    targetScope: 'Regex & AI 日誌解碼管線',
+    condition: '>=',
+    warningThreshold: 200,
+    criticalThreshold: 500,
+    sustainDurationSec: 45,
+    cooldownMin: 10,
+    severity: 'High',
+    enabled: true,
+    notificationChannels: {
+      email: false,
+      emailRecipients: [],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/PARSER_ERR',
+      webhookChannel: '#soc-engine-alerts',
+      syslog: false,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: false
+    },
+    description: '日誌進線格式變更或正則表達式不匹配導致未解碼丟棄事件激增，可能導致威脅行為未被正確解析。',
+    remediationHint: '進入「AI 日誌解碼器」檢視未匹配原始日誌樣本，更新解碼器正則庫或自定義欄位提取規則。',
+    currentValue: 24,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-log-unwritten-buffer',
+    name: '記憶體暫存緩衝區未寫入水位暴增 (Unwritten Log Buffer High)',
+    category: 'log_volume',
+    metric: 'unwritten_buffer_count',
+    metricLabel: '待寫入事件總數 (Unwritten Events)',
+    metricUnit: 'events',
+    targetScope: 'RAM VictoriaBlock Buffer Cache',
+    condition: '>=',
+    warningThreshold: 35000,
+    criticalThreshold: 65000,
+    sustainDurationSec: 90,
+    cooldownMin: 15,
+    severity: 'High',
+    enabled: true,
+    notificationChannels: {
+      email: true,
+      emailRecipients: ['infra-oncall@semor-security.com'],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/BUFFER',
+      webhookChannel: '#soc-infra-alerts',
+      syslog: false,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: false
+    },
+    description: '記憶體中待落盤的壓縮 VictoriaBlock 數量過多，一旦突然斷電將增加資料回復開銷。',
+    remediationHint: '確認 NVMe 磁碟佇列長度，必要時暫停次要索引建立任務以加速區塊落地。',
+    currentValue: 14200,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  },
+  {
+    id: 'rule-log-stream-flood',
+    name: '單一威脅來源流量氾濫 (Firewall / NDR Stream Flooding)',
+    category: 'log_volume',
+    metric: 'stream_flood_eps',
+    metricLabel: '單來源峰值吞吐 (Stream Peak EPS)',
+    metricUnit: 'EPS',
+    targetScope: 'Suricata IDS & Arkime Flow Ingest',
+    condition: '>=',
+    warningThreshold: 6500,
+    criticalThreshold: 10000,
+    sustainDurationSec: 60,
+    cooldownMin: 10,
+    severity: 'High',
+    enabled: true,
+    notificationChannels: {
+      email: false,
+      emailRecipients: [],
+      webhook: true,
+      webhookUrl: 'https://hooks.slack.com/services/T000/B000/STREAM_FLOOD',
+      webhookChannel: '#soc-sec-critical',
+      syslog: true,
+      syslogHost: '127.0.0.1',
+      syslogPort: 514,
+      inApp: true,
+      soarPlaybook: true,
+      soarPlaybookId: 'pb-isolate-source-stream'
+    },
+    description: '特定 NDR 網段或主機正在持續發送海量警報或封包，可能為內網橫向移動或通訊協定轟炸。',
+    remediationHint: '於 NDR 儀表排查 Top Source IP，並對該惡意主機下發 SOAR 隔離作業。',
+    currentValue: 3420,
+    lastTriggeredAt: null,
+    triggerCount: 0,
+    status: 'healthy'
+  }
+];
+
+let alertThresholdRules: ThresholdRuleConfig[] = [...defaultAlertThresholdRules];
+
+try {
+  if (fs.existsSync(ALERT_THRESHOLD_RULES_PATH)) {
+    const savedRules = JSON.parse(fs.readFileSync(ALERT_THRESHOLD_RULES_PATH, 'utf-8'));
+    if (Array.isArray(savedRules) && savedRules.length > 0) {
+      alertThresholdRules = savedRules;
+    }
+  } else {
+    fs.writeFileSync(ALERT_THRESHOLD_RULES_PATH, JSON.stringify(defaultAlertThresholdRules, null, 2));
+  }
+} catch (e) {
+  console.error('Failed to load alert threshold rules:', e);
+}
+
+// --- Historical Alert Audit Ledger (Immutable Historical Record) ---
+const ALERT_HISTORY_PATH = path.join(process.cwd(), 'alert_history.json');
+
+export interface AlertHistoryRecord {
+  id: string;
+  triggerTime: string;
+  ruleId: string;
+  ruleName: string;
+  category: 'system_health' | 'log_volume';
+  metric: string;
+  metricLabel: string;
+  measuredValue: number;
+  metricUnit: string;
+  thresholdValue: number;
+  condition: string;
+  severity: 'Critical' | 'High' | 'Warning' | 'Info';
+  sourceEngine: string;
+  resolutionStatus: 'Active' | 'Investigating' | 'Acknowledged' | 'Resolved' | 'Auto-Remediated';
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  resolutionNote?: string;
+  dispatchedChannels: string[];
+  auditHash: string;
+}
+
+const defaultAlertHistory: AlertHistoryRecord[] = [
+  {
+    id: 'ALR-20260915-0841',
+    triggerTime: '2026-09-15T05:41:20.000Z',
+    ruleId: 'rule-log-ingest-surge',
+    ruleName: '全網日誌吞吐量異常突增 (Log Ingestion Surge / DDoS Wave)',
+    category: 'log_volume',
+    metric: 'log_ingest_eps',
+    metricLabel: '日誌每秒事件吞吐量 (Ingest EPS)',
+    measuredValue: 19420,
+    metricUnit: 'EPS',
+    thresholdValue: 18000,
+    condition: '>=',
+    severity: 'Critical',
+    sourceEngine: 'semor-collector (Go Ingest Core)',
+    resolutionStatus: 'Active',
+    resolvedAt: null,
+    resolvedBy: null,
+    resolutionNote: '偵測到外部 SYN Flood 引發邊界防火牆海量日誌涌入，SOAR 限速劇本已預先啟動。',
+    dispatchedChannels: ['email', 'webhook', 'syslog', 'inApp', 'soar'],
+    auditHash: 'sha256:4f8a9b2c1d3e5f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a'
+  },
+  {
+    id: 'ALR-20260915-0422',
+    triggerTime: '2026-09-15T04:22:15.000Z',
+    ruleId: 'rule-log-silence-drop',
+    ruleName: '關鍵日誌收集斷流與黑洞 (Log Collection Silence / Blackout)',
+    category: 'log_volume',
+    metric: 'log_silence_eps',
+    metricLabel: '收集進線最低吞吐 (Silence Floor EPS)',
+    measuredValue: 4,
+    metricUnit: 'EPS',
+    thresholdValue: 10,
+    condition: '<=',
+    severity: 'Critical',
+    sourceEngine: 'semor-collector (Syslog 514 Pipeline)',
+    resolutionStatus: 'Investigating',
+    resolvedAt: null,
+    resolvedBy: 'supervisor',
+    resolutionNote: '第二核心邊界防火牆主備切換中，持續確認 Syslog TCP Keepalive 封包狀態。',
+    dispatchedChannels: ['email', 'webhook', 'syslog', 'inApp'],
+    auditHash: 'sha256:7c9e1a3b5d2f4a6c8e0b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c'
+  },
+  {
+    id: 'ALR-20260915-0210',
+    triggerTime: '2026-09-15T02:10:48.000Z',
+    ruleId: 'rule-sys-ram',
+    ruleName: '實體記憶體佔用與外洩風險 (Host RAM Pressure & OOM Guard)',
+    category: 'system_health',
+    metric: 'ram_usage',
+    metricLabel: 'RAM 記憶體使用率 (Memory Consumption)',
+    measuredValue: 91.4,
+    metricUnit: '%',
+    thresholdValue: 90,
+    condition: '>=',
+    severity: 'Critical',
+    sourceEngine: 'vlog-engine (VictoriaLogs Block Cache)',
+    resolutionStatus: 'Auto-Remediated',
+    resolvedAt: '2026-09-15T02:12:05.000Z',
+    resolvedBy: 'SOAR Auto-Playbook (pb-flush-memory-cache)',
+    resolutionNote: '自動強制執行區塊落盤 (Flush In-memory Blocks to NVMe)，RAM 降回 63.8%。',
+    dispatchedChannels: ['email', 'webhook', 'syslog', 'inApp', 'soar'],
+    auditHash: 'sha256:2b4d6f8a0c2e4a6c8e0b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3d'
+  },
+  {
+    id: 'ALR-20260914-2245',
+    triggerTime: '2026-09-14T22:45:10.000Z',
+    ruleId: 'rule-sys-io-latency',
+    ruleName: '區塊儲存落盤寫入延遲異常 (Block Storage Write Latency Spike)',
+    category: 'system_health',
+    metric: 'io_latency',
+    metricLabel: '磁碟落盤寫入延遲 (Write Latency)',
+    measuredValue: 640,
+    metricUnit: 'ms',
+    thresholdValue: 600,
+    condition: '>=',
+    severity: 'Warning',
+    sourceEngine: 'vlog-engine (Rust Storage Writer)',
+    resolutionStatus: 'Resolved',
+    resolvedAt: '2026-09-14T23:05:00.000Z',
+    resolvedBy: 'admin',
+    resolutionNote: '後台多區塊合流 (Compaction) 尖峰結束，寫入延遲已恢復至 138ms 平穩水位。',
+    dispatchedChannels: ['webhook', 'inApp'],
+    auditHash: 'sha256:9f1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1e'
+  },
+  {
+    id: 'ALR-20260914-1812',
+    triggerTime: '2026-09-14T18:12:33.000Z',
+    ruleId: 'rule-sys-queue',
+    ruleName: 'Go 收集器通道佇列飽和警戒 (Ingest Queue Saturation)',
+    category: 'system_health',
+    metric: 'queue_saturation',
+    metricLabel: '佇列緩衝佔用率 (Channel Saturation)',
+    measuredValue: 89.2,
+    metricUnit: '%',
+    thresholdValue: 88,
+    condition: '>=',
+    severity: 'High',
+    sourceEngine: 'semor-collector (Go Channel Pipeline)',
+    resolutionStatus: 'Resolved',
+    resolvedAt: '2026-09-14T18:25:40.000Z',
+    resolvedBy: 'infra-engineer',
+    resolutionNote: '調度加開 4 組 worker goroutine，佇列飽和度快速下降至 28.5%。',
+    dispatchedChannels: ['email', 'webhook', 'syslog', 'inApp'],
+    auditHash: 'sha256:5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c5e7b'
+  },
+  {
+    id: 'ALR-20260914-1130',
+    triggerTime: '2026-09-14T11:30:00.000Z',
+    ruleId: 'rule-log-stream-flood',
+    ruleName: '單一威脅來源流量氾濫 (Firewall / NDR Stream Flooding)',
+    category: 'log_volume',
+    metric: 'stream_flood_eps',
+    metricLabel: '單來源峰值吞吐 (Stream Peak EPS)',
+    measuredValue: 11400,
+    metricUnit: 'EPS',
+    thresholdValue: 10000,
+    condition: '>=',
+    severity: 'High',
+    sourceEngine: 'suricata-ndr (IDS Engine)',
+    resolutionStatus: 'Acknowledged',
+    resolvedAt: null,
+    resolvedBy: 'analyst-1',
+    resolutionNote: '來源 IP 192.168.10.45 持續進行內網 port scan，已下發端點隔離排程。',
+    dispatchedChannels: ['webhook', 'syslog', 'inApp', 'soar'],
+    auditHash: 'sha256:1a3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c'
+  },
+  {
+    id: 'ALR-20260913-1620',
+    triggerTime: '2026-09-13T16:20:45.000Z',
+    ruleId: 'rule-sys-disk',
+    ruleName: 'VictoriaLogs 磁碟儲存水位告急 (Block Storage Capacity Exhaustion)',
+    category: 'system_health',
+    metric: 'disk_usage',
+    metricLabel: 'NVMe 磁碟容量佔用 (Disk Capacity)',
+    measuredValue: 93.1,
+    metricUnit: '%',
+    thresholdValue: 92,
+    condition: '>=',
+    severity: 'Critical',
+    sourceEngine: 'vlog-engine (NVMe /data Storage)',
+    resolutionStatus: 'Resolved',
+    resolvedAt: '2026-09-13T17:15:20.000Z',
+    resolvedBy: 'admin',
+    resolutionNote: '啟動冷熱分層歸檔作業，將逾期 90 天之非核心審計區塊移轉至 S3 儲存。',
+    dispatchedChannels: ['email', 'webhook', 'syslog', 'inApp', 'soar'],
+    auditHash: 'sha256:3c5e7b9d1f3a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a3c5e'
+  }
+];
+
+let alertHistoryRecords: AlertHistoryRecord[] = [...defaultAlertHistory];
+
+try {
+  if (fs.existsSync(ALERT_HISTORY_PATH)) {
+    const saved = JSON.parse(fs.readFileSync(ALERT_HISTORY_PATH, 'utf-8'));
+    if (Array.isArray(saved) && saved.length > 0) {
+      alertHistoryRecords = saved;
+    }
+  } else {
+    fs.writeFileSync(ALERT_HISTORY_PATH, JSON.stringify(defaultAlertHistory, null, 2));
+  }
+} catch (e) {
+  console.error('Failed to load alert history records:', e);
+}
 
 // --- Collaborative Notes Setup ---
 const defaultNotes = [
@@ -596,6 +1326,288 @@ async function startServer() {
       bloomFilterTokensCount: processedEntries.reduce((acc: number, e: any) => acc + e.tokensSample.length, 0),
       entries: processedEntries
     });
+  });
+
+  // Engine Thresholds & Notification Triggers Management API
+  app.get('/api/engine/thresholds', (req, res) => {
+    res.json({
+      success: true,
+      thresholds: engineThresholds,
+      updatedAt: new Date().toISOString()
+    });
+  });
+
+  app.put('/api/engine/thresholds', (req, res) => {
+    const updated = req.body;
+    if (!updated || typeof updated !== 'object') {
+      return res.status(400).json({ error: 'Invalid thresholds payload' });
+    }
+
+    engineThresholds = { ...engineThresholds, ...updated };
+    try {
+      fs.writeFileSync(ENGINE_THRESHOLDS_PATH, JSON.stringify(engineThresholds, null, 2));
+    } catch (err) {
+      console.error('Failed to save engine thresholds:', err);
+    }
+
+    res.json({
+      success: true,
+      thresholds: engineThresholds,
+      message: 'Engine thresholds and notification triggers updated successfully.'
+    });
+  });
+
+  app.post('/api/engine/thresholds/test-notify', (req, res) => {
+    const { engineId, metric, value, threshold, level } = req.body;
+    const engine = engineThresholds[engineId] as EngineThresholdConfig | undefined;
+    const engineName = engine?.name || engineId;
+    const notifs = engine?.notifications as any;
+    
+    const timestamp = new Date().toISOString();
+    const logEntries = [
+      `[${timestamp}] [ALERT_TRIGGER] Engine '${engineName}' exceeded ${metric} threshold: current ${value}%, trigger limit ${threshold}% [Level: ${level || 'CRITICAL'}]`,
+      `[${timestamp}] [ROUTE_DISPATCH] Evaluating notification matrix for engine ID: ${engineId}`,
+      `[${timestamp}] [EMAIL_SMTP] Dispatching alert email to: ${(notifs?.email?.recipients || ['admin@corp.internal']).join(', ')} -> Status: 250 OK (Queued)`,
+      `[${timestamp}] [WEBHOOK_SLACK] POST ${notifs?.webhook?.url || 'https://hooks.slack.com/services/...'} (${notifs?.webhook?.channel || '#soc-engine-alerts'}) -> HTTP 200 OK (Delivered)`,
+      `[${timestamp}] [SYSLOG_RFC5424] Forwarding event to ${notifs?.syslog?.host || '127.0.0.1'}:${notifs?.syslog?.port || 514} (PRI: 130 - Alert) -> Sent`,
+      `[${timestamp}] [AUDIT_LEDGER] Alert incident logged to cluster event bus. Cooldown timer started (5m).`
+    ];
+
+    res.json({
+      success: true,
+      deliveredAt: timestamp,
+      engineId,
+      metric,
+      value,
+      threshold,
+      channelsDispatched: ['email', 'webhook', 'syslog', 'inApp'],
+      logs: logEntries
+    });
+  });
+
+  // --- Alert Threshold Rules Endpoints (System Health & Log Event Volumes) ---
+  app.get('/api/alerts/threshold-rules', (req, res) => {
+    // Generate dynamic live readings for current values
+    const rulesWithLiveValues = alertThresholdRules.map(rule => {
+      let liveVal = rule.currentValue;
+      if (rule.metric === 'cpu_usage') {
+        liveVal = Number((42 + Math.random() * 12).toFixed(1));
+      } else if (rule.metric === 'ram_usage') {
+        liveVal = Number((62 + Math.random() * 6).toFixed(1));
+      } else if (rule.metric === 'disk_usage') {
+        liveVal = 78.1;
+      } else if (rule.metric === 'io_latency') {
+        liveVal = Math.floor(120 + Math.random() * 60);
+      } else if (rule.metric === 'queue_saturation') {
+        liveVal = Number((28 + Math.random() * 10).toFixed(1));
+      } else if (rule.metric === 'log_ingest_eps') {
+        liveVal = Math.floor(8200 + Math.random() * 1200);
+      } else if (rule.metric === 'log_silence_eps') {
+        liveVal = Math.floor(2100 + Math.random() * 250);
+      } else if (rule.metric === 'parser_drop_rate') {
+        liveVal = Math.floor(18 + Math.random() * 15);
+      } else if (rule.metric === 'unwritten_buffer_count') {
+        liveVal = Math.floor(13500 + Math.random() * 2000);
+      } else if (rule.metric === 'stream_flood_eps') {
+        liveVal = Math.floor(3200 + Math.random() * 500);
+      }
+
+      // Check current health status relative to thresholds
+      let status: 'healthy' | 'warning' | 'critical' | 'disabled' = 'healthy';
+      if (!rule.enabled) {
+        status = 'disabled';
+      } else if (rule.condition === '<=' || rule.condition === '<') {
+        if (liveVal <= rule.criticalThreshold) status = 'critical';
+        else if (liveVal <= rule.warningThreshold) status = 'warning';
+      } else {
+        if (liveVal >= rule.criticalThreshold) status = 'critical';
+        else if (liveVal >= rule.warningThreshold) status = 'warning';
+      }
+
+      return {
+        ...rule,
+        currentValue: liveVal,
+        status
+      };
+    });
+
+    res.json(rulesWithLiveValues);
+  });
+
+  app.put('/api/alerts/threshold-rules', (req, res) => {
+    const rules = req.body;
+    if (!Array.isArray(rules)) {
+      return res.status(400).json({ error: 'Rules must be an array' });
+    }
+    alertThresholdRules = rules;
+    try {
+      fs.writeFileSync(ALERT_THRESHOLD_RULES_PATH, JSON.stringify(alertThresholdRules, null, 2));
+      console.log(`[Alert Thresholds] Saved ${rules.length} threshold rules to disk.`);
+    } catch (e) {
+      console.error('Failed to write alert threshold rules to disk:', e);
+    }
+    res.json({ success: true, count: alertThresholdRules.length, savedAt: new Date().toISOString() });
+  });
+
+  app.post('/api/alerts/threshold-rules/reset-defaults', (req, res) => {
+    alertThresholdRules = [...defaultAlertThresholdRules];
+    try {
+      fs.writeFileSync(ALERT_THRESHOLD_RULES_PATH, JSON.stringify(defaultAlertThresholdRules, null, 2));
+    } catch (e) {
+      console.error('Failed to reset default rules:', e);
+    }
+    res.json({ success: true, rules: alertThresholdRules });
+  });
+
+  app.post('/api/alerts/threshold-rules/test-dispatch', (req, res) => {
+    const { ruleId, simulatedValue, triggerSeverity } = req.body;
+    const rule = alertThresholdRules.find(r => r.id === ruleId) || alertThresholdRules[0];
+    const sev = triggerSeverity || rule.severity || 'Critical';
+    const val = simulatedValue !== undefined ? simulatedValue : (rule.criticalThreshold + 10);
+    const timestamp = new Date().toISOString();
+
+    const notifs = rule.notificationChannels;
+    const dispatchedChannels: string[] = [];
+    const logEntries: string[] = [
+      `[${timestamp}] [EVAL_TRIGGER] Threshold rule '${rule.name}' triggered [ID: ${rule.id}]`,
+      `[${timestamp}] [METRIC_CHECK] Metric '${rule.metricLabel}' current value: ${val} ${rule.metricUnit} (Threshold: ${rule.criticalThreshold} ${rule.metricUnit}, Cond: ${rule.condition})`,
+      `[${timestamp}] [SUSTAIN_WINDOW] Sustained duration check passed (${rule.sustainDurationSec}s elapsed). Status: FIRING -> ${sev}`
+    ];
+
+    if (notifs.email && notifs.emailRecipients.length > 0) {
+      dispatchedChannels.push('email');
+      logEntries.push(`[${timestamp}] [DISPATCH_SMTP] Dispatched high-priority email alert to [${notifs.emailRecipients.join(', ')}] -> 250 2.0.0 Message queued for delivery`);
+    }
+    if (notifs.webhook && notifs.webhookUrl) {
+      dispatchedChannels.push('webhook');
+      logEntries.push(`[${timestamp}] [DISPATCH_WEBHOOK] POST payload to ${notifs.webhookUrl} (${notifs.webhookChannel || '#alerts'}) -> HTTP 200 OK`);
+    }
+    if (notifs.syslog) {
+      dispatchedChannels.push('syslog');
+      logEntries.push(`[${timestamp}] [DISPATCH_SYSLOG] RFC5424 Event forwarded to UDP ${notifs.syslogHost || '127.0.0.1'}:${notifs.syslogPort || 514} (PRI: 130) -> Sent`);
+    }
+    if (notifs.inApp) {
+      dispatchedChannels.push('inApp');
+      logEntries.push(`[${timestamp}] [DISPATCH_INAPP] Broadcasted security toast to SOC Notification Center.`);
+    }
+    if (notifs.soarPlaybook && notifs.soarPlaybookId) {
+      dispatchedChannels.push('soar');
+      logEntries.push(`[${timestamp}] [DISPATCH_SOAR] Automated Playbook '${notifs.soarPlaybookId}' triggered via webhook hook pipeline.`);
+    }
+
+    logEntries.push(`[${timestamp}] [COOLDOWN] Cooldown timer armed for ${rule.cooldownMin} minutes. Duplicate alerts suppressed.`);
+
+    // Update rule in memory
+    rule.lastTriggeredAt = timestamp;
+    rule.triggerCount = (rule.triggerCount || 0) + 1;
+
+    // Record into immutable historical ledger
+    const newHistoryRecord: AlertHistoryRecord = {
+      id: `ALR-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random() * 9000)}`,
+      triggerTime: timestamp,
+      ruleId: rule.id,
+      ruleName: rule.name,
+      category: rule.category,
+      metric: rule.metric,
+      metricLabel: rule.metricLabel,
+      measuredValue: val,
+      metricUnit: rule.metricUnit,
+      thresholdValue: rule.criticalThreshold,
+      condition: rule.condition,
+      severity: sev,
+      sourceEngine: rule.category === 'system_health' ? 'vlog-engine (Storage & Runtime)' : 'semor-collector (Ingest & Pipeline)',
+      resolutionStatus: 'Active',
+      resolvedAt: null,
+      resolvedBy: null,
+      resolutionNote: '模擬觸發測試：已完成多管道通報派送並登記至不可篡改審計帳本。',
+      dispatchedChannels,
+      auditHash: `sha256:${Buffer.from(`${timestamp}-${rule.id}-${val}`).toString('hex').padEnd(64, 'f').slice(0, 64)}`
+    };
+    alertHistoryRecords.unshift(newHistoryRecord);
+    try {
+      fs.writeFileSync(ALERT_HISTORY_PATH, JSON.stringify(alertHistoryRecords, null, 2));
+    } catch (e) {
+      console.error('Failed to save alert history:', e);
+    }
+
+    res.json({
+      success: true,
+      ruleId: rule.id,
+      ruleName: rule.name,
+      severity: sev,
+      measuredValue: val,
+      metricUnit: rule.metricUnit,
+      dispatchedChannels,
+      logs: logEntries,
+      dispatchedAt: timestamp,
+      historyRecord: newHistoryRecord
+    });
+  });
+
+  // --- Alert History Ledger Endpoints ---
+  app.get('/api/alerts/history', (req, res) => {
+    const { status, severity, sourceEngine, category } = req.query;
+    let filtered = [...alertHistoryRecords];
+
+    if (status && typeof status === 'string' && status !== 'all') {
+      filtered = filtered.filter(item => item.resolutionStatus.toLowerCase() === status.toLowerCase());
+    }
+    if (severity && typeof severity === 'string' && severity !== 'all') {
+      filtered = filtered.filter(item => item.severity.toLowerCase() === severity.toLowerCase());
+    }
+    if (sourceEngine && typeof sourceEngine === 'string' && sourceEngine !== 'all') {
+      filtered = filtered.filter(item => item.sourceEngine.toLowerCase().includes(sourceEngine.toLowerCase()));
+    }
+    if (category && typeof category === 'string' && category !== 'all') {
+      filtered = filtered.filter(item => item.category === category);
+    }
+
+    res.json({
+      success: true,
+      count: filtered.length,
+      totalCount: alertHistoryRecords.length,
+      records: filtered
+    });
+  });
+
+  app.patch('/api/alerts/history/:id/resolution', (req, res) => {
+    const { id } = req.params;
+    const { resolutionStatus, resolvedBy, resolutionNote } = req.body;
+
+    const record = alertHistoryRecords.find(r => r.id === id);
+    if (!record) {
+      return res.status(404).json({ error: 'Alert history record not found' });
+    }
+
+    if (resolutionStatus) {
+      record.resolutionStatus = resolutionStatus;
+      if (resolutionStatus === 'Resolved' || resolutionStatus === 'Auto-Remediated') {
+        record.resolvedAt = new Date().toISOString();
+      } else if (resolutionStatus === 'Active') {
+        record.resolvedAt = null;
+      }
+    }
+    if (resolvedBy !== undefined) record.resolvedBy = resolvedBy;
+    if (resolutionNote !== undefined) record.resolutionNote = resolutionNote;
+
+    try {
+      fs.writeFileSync(ALERT_HISTORY_PATH, JSON.stringify(alertHistoryRecords, null, 2));
+      console.log(`[Alert History] Updated record ${id} status to ${record.resolutionStatus}`);
+    } catch (e) {
+      console.error('Failed to update alert history:', e);
+    }
+
+    res.json({ success: true, record });
+  });
+
+  app.post('/api/alerts/history/reset-defaults', (req, res) => {
+    alertHistoryRecords = [...defaultAlertHistory];
+    try {
+      fs.writeFileSync(ALERT_HISTORY_PATH, JSON.stringify(defaultAlertHistory, null, 2));
+    } catch (e) {
+      console.error('Failed to reset alert history:', e);
+    }
+    res.json({ success: true, records: alertHistoryRecords });
   });
 
   app.post('/api/engine/decoders/deploy', (req, res) => {

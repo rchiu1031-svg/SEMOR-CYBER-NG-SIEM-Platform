@@ -32,6 +32,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { EngineArchitectureView } from './EngineArchitectureView';
 import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
+import { EngineThresholdConfigView } from './EngineThresholdConfigView';
 import { 
   AreaChart, 
   Area, 
@@ -116,10 +117,10 @@ export function PlatformPerformanceView() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
-  // Tabs: 'overview' | 'analytics' | 'engine' | 'telemetry'
-  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine' | 'telemetry'>('overview');
+  // Tabs: 'overview' | 'analytics' | 'engine' | 'telemetry' | 'engine_thresholds'
+  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine' | 'telemetry' | 'engine_thresholds'>('overview');
   const [showConfigModal, setShowConfigModal] = useState(false);
-  const [configModalTab, setConfigModalTab] = useState<'thresholds' | 'notifications' | 'overrides' | 'test'>('thresholds');
+  const [configModalTab, setConfigModalTab] = useState<'thresholds' | 'engine_thresholds' | 'notifications' | 'overrides' | 'test'>('thresholds');
   const [isSyncing, setIsSyncing] = useState(false);
   const [testAlertSent, setTestAlertSent] = useState(false);
   const [testAlertLog, setTestAlertLog] = useState<string[]>([]);
@@ -423,6 +424,17 @@ export function PlatformPerformanceView() {
             >
               <Zap size={13} className="text-amber-400" />
               {isZh ? '底層核心架構 (Go+Rust)' : 'Core Engine (Go & Rust)'}
+            </button>
+            <button
+              onClick={() => setActiveViewMode('engine_thresholds')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeViewMode === 'engine_thresholds'
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <Sliders size={13} className="text-pink-400" />
+              {isZh ? '引擎門檻觸發與推播' : 'Engine Triggers & Delivery'}
             </button>
           </div>
 
@@ -1015,6 +1027,11 @@ export function PlatformPerformanceView() {
         <EngineArchitectureView />
       )}
 
+      {/* MAIN VIEW MODE 4: Engine Thresholds & Triggers Delivery View */}
+      {activeViewMode === 'engine_thresholds' && (
+        <EngineThresholdConfigView />
+      )}
+
       {/* METRICS & ALERT THRESHOLDS CONFIG MODAL */}
       <AnimatePresence>
         {showConfigModal && (
@@ -1060,6 +1077,17 @@ export function PlatformPerformanceView() {
                 >
                   <Cpu size={14} />
                   {isZh ? '資源告警閥值' : 'Resource Thresholds'}
+                </button>
+                <button
+                  onClick={() => setConfigModalTab('engine_thresholds')}
+                  className={`pb-3 px-3 text-xs font-black uppercase tracking-wider border-b-2 transition-all flex items-center gap-1.5 ${
+                    configModalTab === 'engine_thresholds'
+                      ? 'border-purple-500 text-purple-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  <Zap size={14} className="text-amber-400" />
+                  {isZh ? '各核心引擎獨立門檻 (Engine Triggers)' : 'Engine Triggers'}
                 </button>
                 <button
                   onClick={() => setConfigModalTab('notifications')}
@@ -1248,6 +1276,13 @@ export function PlatformPerformanceView() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* TAB: Engine Specific Thresholds & Delivery (Go, Rust, NDR, EDR, SOAR) */}
+                {configModalTab === 'engine_thresholds' && (
+                  <div className="space-y-4">
+                    <EngineThresholdConfigView />
                   </div>
                 )}
 

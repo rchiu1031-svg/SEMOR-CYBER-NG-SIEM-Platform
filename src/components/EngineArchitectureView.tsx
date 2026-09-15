@@ -21,11 +21,14 @@ import {
   Filter,
   Eye,
   Send,
-  FolderTree
+  FolderTree,
+  Sliders,
+  Bell
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
 import { StorageEngineTelemetryPanel } from './StorageEngineTelemetryPanel';
+import { EngineThresholdConfigView } from './EngineThresholdConfigView';
 
 interface EngineStatus {
   collector: {
@@ -112,7 +115,7 @@ interface BlockItem {
 }
 
 export function EngineArchitectureView() {
-  const [activeTab, setActiveTab] = useState<'topology' | 'telemetry' | 'storage_telemetry' | 'storage' | 'blocks' | 'tester' | 'code'>('storage_telemetry');
+  const [activeTab, setActiveTab] = useState<'storage_telemetry' | 'thresholds' | 'telemetry' | 'topology' | 'storage' | 'blocks' | 'tester' | 'code'>('storage_telemetry');
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [blocks, setBlocks] = useState<BlockItem[]>([]);
   const [storageTree, setStorageTree] = useState<StorageTreeData | null>(null);
@@ -266,6 +269,7 @@ export function EngineArchitectureView() {
         <div className="flex border-b border-slate-800 mt-6 -mb-2 gap-2 overflow-x-auto">
           {[
             { id: 'storage_telemetry', label: '儲存引擎吞吐與磁碟遙測 (Throughput & Disk Usage)', icon: HardDrive },
+            { id: 'thresholds', label: '引擎門檻觸發器與推播設定 (Threshold Triggers & Delivery)', icon: Sliders },
             { id: 'telemetry', label: 'Go 收集器即時遙測看板 (Buffer & Worker Pool)', icon: Activity },
             { id: 'topology', label: '架構運作拓撲 (Architecture)', icon: Layers },
             { id: 'storage', label: '分區目錄結構 (/data/{stream_id}/{part_id}.block)', icon: FolderTree },
@@ -296,6 +300,11 @@ export function EngineArchitectureView() {
       {/* TAB: RUST STORAGE ENGINE TELEMETRY PANEL */}
       {activeTab === 'storage_telemetry' && (
         <StorageEngineTelemetryPanel />
+      )}
+
+      {/* TAB: ENGINE THRESHOLD TRIGGERS & NOTIFICATION DELIVERY SETTINGS */}
+      {activeTab === 'thresholds' && (
+        <EngineThresholdConfigView />
       )}
 
       {/* TAB 0: GO COLLECTOR TELEMETRY DASHBOARD */}
