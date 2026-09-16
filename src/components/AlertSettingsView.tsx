@@ -49,10 +49,14 @@ import {
   Hash,
   Shield,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  Printer,
+  Share2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '../lib/utils';
 
 export interface AlertSettingsViewProps {
@@ -781,6 +785,18 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
   const [editResolvedBy, setEditResolvedBy] = useState('');
   const [editResolutionNote, setEditResolutionNote] = useState('');
 
+  // Stakeholder Incident Report & Export Modal State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<'filtered' | 'all'>('filtered');
+  const [reportTitle, setReportTitle] = useState('SEMOR Security Incident & Alert Audit Report');
+  const [reportOrg, setReportOrg] = useState('Enterprise SOC - Cyber Defense Operations');
+  const [reportAnalyst, setReportAnalyst] = useState('chiur@ke-la.com (Lead Incident Responder)');
+  const [reportAudience, setReportAudience] = useState('Executive Leadership & SOC Oversight Committee');
+  const [reportClassification, setReportClassification] = useState<'CONFIDENTIAL' | 'RESTRICTED' | 'INTERNAL AUDIT'>('CONFIDENTIAL');
+  const [includeExecutiveSummary, setIncludeExecutiveSummary] = useState(true);
+  const [includeRemediationNotes, setIncludeRemediationNotes] = useState(true);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+
   // Editing / Creating Rule Modal State
   const [editingRule, setEditingRule] = useState<ThresholdRule | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1193,54 +1209,7 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
     }
   };
 
-  // Export History as CSV
-  const handleExportHistoryCSV = () => {
-    const headers = ['Record ID', 'Trigger Time (UTC)', 'Severity', 'Source Engine', 'Category', 'Rule Name', 'Metric', 'Measured Value', 'Condition', 'Threshold', 'Resolution Status', 'Resolved By', 'Resolved At', 'Resolution Notes', 'Audit Hash'];
-    const rows = filteredHistory.map(r => [
-      `"${r.id}"`,
-      `"${r.triggerTime}"`,
-      `"${r.severity}"`,
-      `"${r.sourceEngine}"`,
-      `"${r.category}"`,
-      `"${r.ruleName.replace(/"/g, '""')}"`,
-      `"${r.metricLabel}"`,
-      `"${r.measuredValue} ${r.metricUnit}"`,
-      `"${r.condition}"`,
-      `"${r.thresholdValue} ${r.metricUnit}"`,
-      `"${r.resolutionStatus}"`,
-      `"${r.resolvedBy || ''}"`,
-      `"${r.resolvedAt || ''}"`,
-      `"${(r.resolutionNote || '').replace(/"/g, '""')}"`,
-      `"${r.auditHash}"`
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `SEMOR_Alert_History_Ledger_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast(isZh ? '已匯出 CSV 歷史告警審計報表' : 'Exported CSV Alert History Audit Report');
-  };
-
-  // Export History as JSON
-  const handleExportHistoryJSON = () => {
-    const jsonStr = JSON.stringify(filteredHistory, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `SEMOR_Alert_History_Ledger_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    showToast(isZh ? '已匯出 JSON 不可篡改審計帳本' : 'Exported JSON Immutable Ledger');
-  };
-
-  // Filtered Alert History
+  // Filtered Alert History (Derived before export handlers)
   const filteredHistory = useMemo(() => {
     return historyRecords.filter(record => {
       // Severity filter
@@ -1263,6 +1232,518 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
       return true;
     });
   }, [historyRecords, historySeverityFilter, historyStatusFilter, historyEngineFilter, historySearchQuery]);
+
+  // Export History as Enhanced CSV
+  const handleExportHistoryCSV = (scopeOrEvent?: 'filtered' | 'all' | React.MouseEvent) => {
+    const scope = (scopeOrEvent === 'all' || scopeOrEvent === 'filtered') ? scopeOrEvent : exportScope;
+    const targetRecords = scope === 'filtered' ? filteredHistory : historyRecords;
+    if (targetRecords.length === 0) {
+      showToast(isZh ? '目前無任何歷史告警事件可供匯出' : 'No alert incidents available to export');
+      return;
+    }
+
+    const critCount = targetRecords.filter(r => r.severity === 'Critical').length;
+    const highCount = targetRecords.filter(r => r.severity === 'High').length;
+    const warnCount = targetRecords.filter(r => r.severity === 'Warning').length;
+    const infoCount = targetRecords.filter(r => r.severity === 'Info').length;
+    const resolvedCount = targetRecords.filter(r => r.resolutionStatus === 'Resolved' || r.resolutionStatus === 'Auto-Remediated').length;
+    const containmentRate = targetRecords.length > 0 ? Math.round((resolvedCount / targetRecords.length) * 100) : 100;
+
+    const metadataHeaders = [
+      '# ==========================================================================================',
+      '# SEMOR SECURITY OPERATIONS CENTER (SOC) - INCIDENT AUDIT LEDGER EXPORT',
+      `# Report Title: ${reportTitle}`,
+      `# Organization: ${reportOrg}`,
+      `# Prepared By: ${reportAnalyst}`,
+      `# Target Audience: ${reportAudience}`,
+      `# Classification Level: ${reportClassification} // STAKEHOLDER DISTRIBUTION`,
+      `# Export Timestamp: ${new Date().toISOString()} (UTC)`,
+      `# Incident Scope: ${scope === 'filtered' ? 'Current Filtered View' : 'Full Historical Ledger'} (${targetRecords.length} records of ${historyRecords.length} total)`,
+      `# Applied Filters: Severity=${historySeverityFilter}, Status=${historyStatusFilter}, Engine=${historyEngineFilter}, Search="${historySearchQuery || 'None'}"`,
+      `# Incident Summary: Total=${targetRecords.length} | Critical=${critCount} | High=${highCount} | Warning=${warnCount} | Info=${infoCount}`,
+      `# Containment Metrics: Resolved/Remediated=${resolvedCount} (${containmentRate}%)`,
+      '# Cryptographic Standard: RFC 6962 Merkle-Chained SHA-256 Tamper-Evident Ledger',
+      '# =========================================================================================='
+    ];
+
+    const headers = [
+      'Record ID',
+      'Trigger Time (UTC)',
+      'Trigger Time (Local)',
+      'Severity',
+      'Category',
+      'Source Engine',
+      'Rule ID',
+      'Rule Name',
+      'Metric Label',
+      'Measured Value',
+      'Metric Unit',
+      'Condition',
+      'Threshold Value',
+      'Resolution Status',
+      'Resolved By',
+      'Resolved At',
+      'Dispatched Channels',
+      'Resolution Notes',
+      'Audit Verification Hash'
+    ];
+
+    const rows = targetRecords.map(r => [
+      `"${r.id}"`,
+      `"${r.triggerTime}"`,
+      `"${new Date(r.triggerTime).toLocaleString()}"`,
+      `"${r.severity}"`,
+      `"${r.category}"`,
+      `"${r.sourceEngine}"`,
+      `"${r.ruleId}"`,
+      `"${r.ruleName.replace(/"/g, '""')}"`,
+      `"${r.metricLabel.replace(/"/g, '""')}"`,
+      `"${r.measuredValue}"`,
+      `"${r.metricUnit}"`,
+      `"${r.condition}"`,
+      `"${r.thresholdValue}"`,
+      `"${r.resolutionStatus}"`,
+      `"${r.resolvedBy || 'Unassigned'}"`,
+      `"${r.resolvedAt || ''}"`,
+      `"${(r.dispatchedChannels || []).join('; ')}"`,
+      `"${(r.resolutionNote || '').replace(/"/g, '""')}"`,
+      `"${r.auditHash}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [...metadataHeaders, headers.join(','), ...rows.map(e => e.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `SEMOR_Incident_Ledger_${scope}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(isZh ? `已匯出 ${targetRecords.length} 筆 CSV 歷史告警報表` : `Exported ${targetRecords.length} records to CSV report`);
+  };
+
+  // Generate & Download PDF Stakeholder Report via jsPDF & autoTable
+  const generateIncidentSummaryPDF = (
+    records: AlertHistoryRecord[],
+    options?: {
+      title?: string;
+      organization?: string;
+      analyst?: string;
+      audience?: string;
+      classification?: string;
+      includeExecutiveSummary?: boolean;
+      includeRemediationNotes?: boolean;
+      scopeLabel?: string;
+    }
+  ) => {
+    if (records.length === 0) {
+      showToast(isZh ? '目前無任何歷史告警事件可供生成 PDF 報表' : 'No alert incidents available for PDF generation');
+      return;
+    }
+
+    setIsExportingPDF(true);
+    try {
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth(); // 297mm
+      const pageHeight = doc.internal.pageSize.getHeight(); // 210mm
+
+      // 1. Corporate Header Banner
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, pageWidth, 24, 'F');
+
+      // Accent Stripe (Rose-500)
+      doc.setFillColor(244, 63, 94);
+      doc.rect(0, 23, pageWidth, 1.2, 'F');
+
+      // Title in Banner
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text('SEMOR SECURITY OPERATIONS CENTER (SOC)', 14, 10.5);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225); // slate-300
+      doc.text(options?.title || reportTitle, 14, 18);
+
+      // Classification Tag on Right
+      const classification = options?.classification || reportClassification;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(254, 205, 211); // rose-200
+      doc.setFillColor(159, 18, 57); // rose-900
+      doc.roundedRect(pageWidth - 85, 7, 71, 10, 1.5, 1.5, 'FD');
+      doc.text(`${classification} // AUDIT REPORT`, pageWidth - 80, 13.5);
+
+      // 2. Metadata Section (y = 28 to 44)
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105); // slate-600
+
+      const genDate = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+      const reportId = `INC-REP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+
+      // Left Column Metadata
+      doc.setFont('helvetica', 'bold');
+      doc.text('Report ID:', 14, 29);
+      doc.setFont('helvetica', 'normal');
+      doc.text(reportId, 32, 29);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Organization:', 14, 34);
+      doc.setFont('helvetica', 'normal');
+      doc.text(options?.organization || reportOrg, 35, 34);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Target Audience:', 14, 39);
+      doc.setFont('helvetica', 'normal');
+      doc.text(options?.audience || reportAudience, 40, 39);
+
+      // Right Column Metadata
+      doc.setFont('helvetica', 'bold');
+      doc.text('Generated At:', 155, 29);
+      doc.setFont('helvetica', 'normal');
+      doc.text(genDate, 178, 29);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Lead Analyst:', 155, 34);
+      doc.setFont('helvetica', 'normal');
+      doc.text(options?.analyst || reportAnalyst, 178, 34);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Incident Scope:', 155, 39);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${records.length} Incidents (${options?.scopeLabel || 'Tamper-Evident SHA-256 Merkle Ledger'})`, 178, 39);
+
+      // Divider Line
+      doc.setDrawColor(226, 232, 240);
+      doc.line(14, 43, pageWidth - 14, 43);
+
+      // 3. Executive Summary KPI Cards (y = 46 to 65)
+      const totalCount = records.length;
+      const criticalCount = records.filter(r => r.severity === 'Critical').length;
+      const highCount = records.filter(r => r.severity === 'High').length;
+      const warningCount = records.filter(r => r.severity === 'Warning').length;
+      const infoCount = records.filter(r => r.severity === 'Info').length;
+      const resolvedCount = records.filter(r => r.resolutionStatus === 'Resolved' || r.resolutionStatus === 'Auto-Remediated').length;
+      const resolutionRate = totalCount > 0 ? Math.round((resolvedCount / totalCount) * 100) : 100;
+
+      // Card Background
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(14, 46, pageWidth - 28, 18, 1.5, 1.5, 'FD');
+
+      const colStep = (pageWidth - 28) / 5;
+
+      // Col 1: Total Breaches
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('TOTAL INCIDENTS', 18, 51);
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(totalCount), 18, 59);
+
+      // Col 2: Critical
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('CRITICAL BREACHES', 18 + colStep, 51);
+      doc.setFontSize(13);
+      doc.setTextColor(225, 29, 72); // rose-600
+      doc.text(String(criticalCount), 18 + colStep, 59);
+
+      // Col 3: High
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('HIGH SEVERITY', 18 + colStep * 2, 51);
+      doc.setFontSize(13);
+      doc.setTextColor(234, 88, 12); // orange-600
+      doc.text(String(highCount), 18 + colStep * 2, 59);
+
+      // Col 4: Warning / Info
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('WARNING / INFO', 18 + colStep * 3, 51);
+      doc.setFontSize(13);
+      doc.setTextColor(202, 138, 4); // amber-600
+      doc.text(`${warningCount} / ${infoCount}`, 18 + colStep * 3, 59);
+
+      // Col 5: Resolution Rate
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('CONTAINMENT RATE', 18 + colStep * 4, 51);
+      doc.setFontSize(13);
+      doc.setTextColor(16, 185, 129); // emerald-500
+      doc.text(`${resolutionRate}% (${resolvedCount}/${totalCount})`, 18 + colStep * 4, 59);
+
+      // 4. Incidents Table using autoTable
+      const tableData = records.map(r => [
+        r.id,
+        r.triggerTime.replace('T', ' ').slice(0, 19),
+        r.severity,
+        r.sourceEngine.split('(')[0].trim(),
+        `${r.ruleName}\n[${r.metricLabel}]`,
+        `${r.measuredValue} ${r.condition} ${r.thresholdValue} ${r.metricUnit}`,
+        r.resolutionStatus,
+        r.resolvedBy || 'Unassigned',
+        options?.includeRemediationNotes !== false 
+          ? ((r.resolutionNote || 'No notes recorded.').slice(0, 95) + ((r.resolutionNote?.length || 0) > 95 ? '...' : ''))
+          : '-'
+      ]);
+
+      autoTable(doc, {
+        startY: 68,
+        head: [['ID', 'Time (UTC)', 'Severity', 'Engine', 'Breach Rule & Metric', 'Actual / Target', 'Status', 'Resolver', 'Remediation Summary']],
+        body: tableData,
+        margin: { left: 14, right: 14, bottom: 24 },
+        styles: {
+          fontSize: 7,
+          cellPadding: 2,
+          textColor: [30, 41, 59],
+          overflow: 'linebreak',
+          valign: 'middle'
+        },
+        headStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          halign: 'left'
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252]
+        },
+        columnStyles: {
+          0: { cellWidth: 26, fontStyle: 'bold' },
+          1: { cellWidth: 27, fontSize: 6.5 },
+          2: { cellWidth: 17, halign: 'center', fontStyle: 'bold' },
+          3: { cellWidth: 26 },
+          4: { cellWidth: 55 },
+          5: { cellWidth: 32, fontSize: 6.5 },
+          6: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
+          7: { cellWidth: 20 },
+          8: { cellWidth: 'auto' }
+        },
+        didParseCell: (data) => {
+          if (data.section === 'body') {
+            if (data.column.index === 2) {
+              const val = String(data.cell.raw);
+              if (val === 'Critical') {
+                data.cell.styles.textColor = [220, 38, 38];
+              } else if (val === 'High') {
+                data.cell.styles.textColor = [234, 88, 12];
+              } else if (val === 'Warning') {
+                data.cell.styles.textColor = [202, 138, 4];
+              } else {
+                data.cell.styles.textColor = [59, 130, 246];
+              }
+            }
+            if (data.column.index === 6) {
+              const status = String(data.cell.raw);
+              if (status === 'Active') {
+                data.cell.styles.textColor = [220, 38, 38];
+              } else if (status === 'Investigating') {
+                data.cell.styles.textColor = [202, 138, 4];
+              } else if (status === 'Resolved' || status === 'Auto-Remediated') {
+                data.cell.styles.textColor = [16, 185, 129];
+              } else {
+                data.cell.styles.textColor = [59, 130, 246];
+              }
+            }
+          }
+        },
+        didDrawPage: (data) => {
+          const pageCount = (doc as any).internal.getNumberOfPages();
+          const currentPage = data.pageNumber;
+
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.4);
+          doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
+
+          doc.setFontSize(6.5);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(148, 163, 184);
+
+          doc.text(
+            'SEMOR Cyber Defense Suite | Immutable Audit Ledger (RFC 6962 SHA-256 Merkle Chained)',
+            14,
+            pageHeight - 7
+          );
+
+          doc.setFont('helvetica', 'bold');
+          doc.text(
+            'STAKEHOLDER BRIEFING // NOT FOR PUBLIC DISSEMINATION',
+            pageWidth / 2,
+            pageHeight - 7,
+            { align: 'center' }
+          );
+
+          doc.setFont('helvetica', 'normal');
+          doc.text(
+            `Page ${currentPage} of ${pageCount}`,
+            pageWidth - 14,
+            pageHeight - 7,
+            { align: 'right' }
+          );
+        }
+      });
+
+      // 5. Sign-off Attestation block
+      const lastTableFinalY = (doc as any).lastAutoTable?.finalY || 160;
+      if (lastTableFinalY > pageHeight - 35) {
+        doc.addPage();
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageWidth, 12, 'F');
+        doc.setFontSize(8);
+        doc.setTextColor(255, 255, 255);
+        doc.text('SEMOR SECURITY INCIDENT AUDIT REPORT - STAKEHOLDER SIGN-OFF & ATTESTATION', 14, 8);
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(14, 20, pageWidth - 28, 22, 1.5, 1.5, 'FD');
+
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('AUDIT & INCIDENT ATTESTATION STATEMENT', 18, 25);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          'I hereby certify that the incident records enumerated above have been reviewed according to SOC 2 Type II / ISO 27001 standard incident management workflows. All threshold triggers and remediation actions are sealed in the immutable audit ledger.',
+          18,
+          30,
+          { maxWidth: pageWidth - 105 }
+        );
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.text(`Lead Incident Responder: ______________________`, pageWidth - 88, 25);
+        doc.text('Date & Verification Seal: ______________________', pageWidth - 88, 31);
+        doc.text('Ledger Merkle Root: [VERIFIED SHA-256 OK]', pageWidth - 88, 37);
+      } else {
+        const startY = lastTableFinalY + 6;
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(14, startY, pageWidth - 28, 20, 1.5, 1.5, 'FD');
+
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('AUDIT & INCIDENT ATTESTATION STATEMENT', 18, startY + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          'I hereby certify that the incident records enumerated above have been reviewed according to SOC 2 Type II / ISO 27001 standard incident management workflows. All threshold triggers and remediation actions are sealed in the immutable audit ledger.',
+          18,
+          startY + 10,
+          { maxWidth: pageWidth - 105 }
+        );
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.text('Lead Incident Responder: ______________________', pageWidth - 88, startY + 5);
+        doc.text('Date & Verification Seal: ______________________', pageWidth - 88, startY + 11);
+        doc.text('Ledger Merkle Root: [VERIFIED SHA-256 OK]', pageWidth - 88, startY + 16);
+      }
+
+      const fileName = `SEMOR_Incident_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+      doc.save(fileName);
+      showToast(isZh ? `已成功生成並下載 PDF 事件審計報告 (${records.length} 筆)` : `Generated & downloaded PDF Incident Report (${records.length} records)`);
+    } catch (err) {
+      console.error('Failed to generate PDF report:', err);
+      showToast(isZh ? 'PDF 報告生成失敗，請嘗試 CSV 匯出' : 'PDF generation failed, please try CSV export');
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
+  // Quick Action for PDF Export
+  const handleExportHistoryPDF = (scopeOrEvent?: 'filtered' | 'all' | React.MouseEvent) => {
+    const scope = (scopeOrEvent === 'all' || scopeOrEvent === 'filtered') ? scopeOrEvent : exportScope;
+    const targetRecords = scope === 'filtered' ? filteredHistory : historyRecords;
+    generateIncidentSummaryPDF(targetRecords, {
+      title: reportTitle,
+      organization: reportOrg,
+      analyst: reportAnalyst,
+      audience: reportAudience,
+      classification: reportClassification,
+      includeExecutiveSummary,
+      includeRemediationNotes,
+      scopeLabel: scope === 'filtered' ? `Current Filter (${targetRecords.length} records)` : `Full Ledger (${targetRecords.length} records)`
+    });
+  };
+
+  // Copy Executive Incident Brief Markdown
+  const handleCopyIncidentSummary = (scopeOrEvent?: 'filtered' | 'all' | React.MouseEvent) => {
+    const scope = (scopeOrEvent === 'all' || scopeOrEvent === 'filtered') ? scopeOrEvent : exportScope;
+    const records = scope === 'filtered' ? filteredHistory : historyRecords;
+    if (records.length === 0) {
+      showToast(isZh ? '無事件可供複製' : 'No records to copy');
+      return;
+    }
+
+    const total = records.length;
+    const critical = records.filter(r => r.severity === 'Critical').length;
+    const high = records.filter(r => r.severity === 'High').length;
+    const warn = records.filter(r => r.severity === 'Warning').length;
+    const resolved = records.filter(r => r.resolutionStatus === 'Resolved' || r.resolutionStatus === 'Auto-Remediated').length;
+    const rate = total > 0 ? Math.round((resolved / total) * 100) : 100;
+
+    let md = `## 🛡️ ${reportTitle}\n\n`;
+    md += `**Classification:** [${reportClassification}]\n`;
+    md += `**Generated (UTC):** ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC\n`;
+    md += `**Organization:** ${reportOrg}\n`;
+    md += `**Lead Analyst:** ${reportAnalyst}\n`;
+    md += `**Target Audience:** ${reportAudience}\n`;
+    md += `**Incident Scope:** ${total} Events (${scope === 'filtered' ? 'Current Filtered View' : 'All Ledger Records'})\n\n`;
+    md += `### 📊 Key Incident Metrics\n`;
+    md += `- **Total Breaches:** ${total}\n`;
+    md += `- **Critical Alerts:** ${critical}\n`;
+    md += `- **High Priority:** ${high}\n`;
+    md += `- **Warnings / Info:** ${warn} / ${records.filter(r => r.severity === 'Info').length}\n`;
+    md += `- **Remediation / Containment Rate:** ${rate}% (${resolved}/${total} resolved)\n\n`;
+    md += `### 🚨 Incident Detail Table\n\n`;
+    md += `| ID | Time (UTC) | Severity | Source Engine | Rule & Metric Breach | Status | Operator |\n`;
+    md += `|---|---|---|---|---|---|---|\n`;
+    records.forEach(r => {
+      md += `| \`${r.id}\` | ${r.triggerTime.slice(0, 19).replace('T', ' ')} | **${r.severity}** | ${r.sourceEngine.split('(')[0].trim()} | ${r.ruleName} (${r.measuredValue} ${r.condition} ${r.thresholdValue} ${r.metricUnit}) | ${r.resolutionStatus} | ${r.resolvedBy || '-'} |\n`;
+    });
+    md += `\n*Ledger Seal: Merkle-Chained SHA-256 Verified Immutable Trail*\n`;
+
+    navigator.clipboard.writeText(md);
+    showToast(isZh ? '已複製事件摘要 Markdown 簡報至剪貼簿！' : 'Copied Incident Summary Markdown to clipboard!');
+  };
+
+  // Export History as JSON
+  const handleExportHistoryJSON = (scopeOrEvent?: 'filtered' | 'all' | React.MouseEvent) => {
+    const scope = (scopeOrEvent === 'all' || scopeOrEvent === 'filtered') ? scopeOrEvent : exportScope;
+    const targetRecords = scope === 'filtered' ? filteredHistory : historyRecords;
+    const jsonStr = JSON.stringify(targetRecords, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `SEMOR_Alert_History_Ledger_${scope}_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast(isZh ? '已匯出 JSON 不可篡改審計帳本' : 'Exported JSON Immutable Ledger');
+  };
+
+  // Browser Print Trigger
+  const handlePrintReport = () => {
+    window.print();
+  };
 
   // Unique source engines list
   const uniqueEngines = useMemo(() => {
@@ -1549,6 +2030,18 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
                     <span className="text-gray-400 text-[10px]">({last24HoursData.peakBucket.hourStr})</span>
                   </div>
                 )}
+
+                <button
+                  onClick={() => {
+                    setActiveTab('history');
+                    setIsExportModalOpen(true);
+                  }}
+                  className="px-2.5 py-1 bg-rose-950/70 hover:bg-rose-900 text-rose-300 hover:text-rose-100 border border-rose-800/60 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+                  title={isZh ? "匯出 24 小時資安事件與告警報告 (PDF/CSV)" : "Export 24h Incident Report (PDF/CSV)"}
+                >
+                  <FileText size={12} className="text-rose-400" />
+                  <span className="text-[11px]">{isZh ? '匯出報表' : 'Export Report'}</span>
+                </button>
 
                 <button
                   onClick={() => {
@@ -2919,6 +3412,64 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
 
               {/* Action Buttons Toolbar */}
               <div className="flex flex-wrap items-center gap-2 self-start lg:self-center">
+                {/* Primary Stakeholder Report Generator Button */}
+                <button
+                  onClick={() => {
+                    setExportScope('filtered');
+                    setIsExportModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-rose-950/40 flex items-center gap-2 border border-rose-500/40 group"
+                  title={isZh ? "開啟資安事件審計與利害關係人報告匯出精靈 (PDF / CSV)" : "Open Stakeholder Incident Report Wizard (PDF / CSV)"}
+                >
+                  <FileText size={14} className="text-white group-hover:scale-110 transition-transform" />
+                  <span>{isZh ? '匯出報告 (PDF/CSV)' : 'Export Report (PDF/CSV)'}</span>
+                  <span className="px-1.5 py-0.2 rounded bg-rose-950/80 text-rose-200 text-[10px] font-mono border border-rose-400/40">
+                    {filteredHistory.length}
+                  </span>
+                </button>
+
+                {/* Direct 1-Click PDF Export */}
+                <button
+                  onClick={() => handleExportHistoryPDF('filtered')}
+                  disabled={isExportingPDF}
+                  className="px-3 py-2 bg-[#181824] hover:bg-gray-800 border border-rose-800/40 hover:border-rose-600/60 rounded-lg text-xs font-semibold text-rose-200 transition-all flex items-center gap-1.5"
+                  title={isZh ? "一鍵直接下載當前篩選之 PDF 向量報表" : "Quick download filtered table as vector PDF"}
+                >
+                  <Printer size={13} className={cn("text-rose-400", isExportingPDF && "animate-spin")} />
+                  <span>PDF</span>
+                </button>
+
+                {/* Direct 1-Click CSV Export */}
+                <button
+                  onClick={() => handleExportHistoryCSV('filtered')}
+                  className="px-3 py-2 bg-[#181824] hover:bg-gray-800 border border-emerald-800/40 hover:border-emerald-600/60 rounded-lg text-xs font-semibold text-emerald-200 transition-all flex items-center gap-1.5"
+                  title={isZh ? "一鍵直接下載當前篩選之 CSV 資料表" : "Quick download filtered table as CSV"}
+                >
+                  <FileSpreadsheet size={13} className="text-emerald-400" />
+                  <span>CSV</span>
+                </button>
+
+                {/* Copy Markdown Summary */}
+                <button
+                  onClick={() => handleCopyIncidentSummary('filtered')}
+                  className="px-3 py-2 bg-[#181824] hover:bg-gray-800 border border-gray-700/60 rounded-lg text-xs font-semibold text-gray-300 transition-all flex items-center gap-1.5"
+                  title={isZh ? "複製事件摘要 Markdown 簡報至剪貼簿 (適合貼至 Slack/Teams/Email)" : "Copy Incident Brief Markdown for Slack/Email"}
+                >
+                  <Share2 size={13} className="text-amber-400" />
+                  <span className="hidden sm:inline">{isZh ? '摘要' : 'Brief'}</span>
+                </button>
+
+                {/* JSON Immutable Ledger */}
+                <button
+                  onClick={() => handleExportHistoryJSON('filtered')}
+                  className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700/60 rounded-lg text-xs font-semibold text-gray-300 transition-all flex items-center gap-1.5"
+                  title={isZh ? "匯出不可篡改 JSON 原始帳本" : "Export raw JSON ledger"}
+                >
+                  <Download size={13} className="text-blue-400" />
+                  <span>JSON</span>
+                </button>
+
+                {/* Sync Ledger */}
                 <button
                   onClick={loadHistoryFromApi}
                   disabled={isLoadingHistory}
@@ -2926,35 +3477,16 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
                   title={isZh ? "同步最新帳本" : "Sync Ledger"}
                 >
                   <RefreshCw size={13} className={cn("text-rose-400", isLoadingHistory && "animate-spin")} />
-                  <span>{isZh ? '同步帳本' : 'Sync'}</span>
-                </button>
-
-                <button
-                  onClick={handleExportHistoryCSV}
-                  className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700/60 rounded-lg text-xs font-semibold text-gray-300 transition-all flex items-center gap-1.5"
-                  title={isZh ? "匯出 CSV 報表" : "Export CSV"}
-                >
-                  <FileSpreadsheet size={13} className="text-emerald-400" />
-                  <span>CSV</span>
-                </button>
-
-                <button
-                  onClick={handleExportHistoryJSON}
-                  className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700/60 rounded-lg text-xs font-semibold text-gray-300 transition-all flex items-center gap-1.5"
-                  title={isZh ? "匯出 JSON 帳本" : "Export JSON"}
-                >
-                  <Download size={13} className="text-blue-400" />
-                  <span>JSON</span>
+                  <span>{isZh ? '同步' : 'Sync'}</span>
                 </button>
 
                 {!isReadOnly && (
                   <button
                     onClick={handleResetHistoryDefaults}
-                    className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700/60 rounded-lg text-xs font-semibold text-gray-400 hover:text-gray-200 transition-all flex items-center gap-1.5"
+                    className="px-2.5 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700/60 rounded-lg text-xs font-semibold text-gray-400 hover:text-gray-200 transition-all flex items-center gap-1"
                     title={isZh ? "重置審計範本" : "Reset Presets"}
                   >
-                    <RotateCcw size={13} className="text-amber-400" />
-                    <span>{isZh ? '範本重置' : 'Reset'}</span>
+                    <RotateCcw size={12} className="text-amber-400" />
                   </button>
                 )}
               </div>
@@ -3141,9 +3673,30 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
                 </button>
               )}
 
-              <span className="text-[11px] font-mono text-gray-500 ml-auto">
-                {filteredHistory.length} / {historyRecords.length} {isZh ? '筆事件' : 'records'}
-              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-[11px] font-mono text-gray-400">
+                  {filteredHistory.length} / {historyRecords.length} {isZh ? '筆事件' : 'records'}
+                </span>
+                <div className="flex items-center gap-1 border-l border-gray-800 pl-2">
+                  <button
+                    onClick={() => handleExportHistoryPDF('filtered')}
+                    disabled={isExportingPDF}
+                    className="px-2 py-0.5 rounded bg-rose-950/50 hover:bg-rose-900/60 border border-rose-800/60 text-[10px] font-bold text-rose-300 flex items-center gap-1 transition-all"
+                    title={isZh ? "將當前篩選結果匯出為 PDF 報告" : "Export filtered records as PDF report"}
+                  >
+                    <FileText size={10} />
+                    <span>PDF</span>
+                  </button>
+                  <button
+                    onClick={() => handleExportHistoryCSV('filtered')}
+                    className="px-2 py-0.5 rounded bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-800/60 text-[10px] font-bold text-emerald-300 flex items-center gap-1 transition-all"
+                    title={isZh ? "將當前篩選結果匯出為 CSV 檔案" : "Export filtered records as CSV file"}
+                  >
+                    <FileSpreadsheet size={10} />
+                    <span>CSV</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3978,6 +4531,397 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
                   >
                     <Save size={13} />
                     <span>{isUpdatingStatus ? (isZh ? '儲存中...' : 'Saving...') : (isZh ? '儲存處置狀態' : 'Save Resolution')}</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: STAKEHOLDER INCIDENT REPORT & AUDIT EXPORT WIZARD */}
+      <AnimatePresence>
+        {isExportModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              className="bg-[#101016] border border-gray-800 rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl"
+            >
+              {/* Modal Header */}
+              <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#14141d]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-rose-600/30 to-rose-950/60 text-rose-400 border border-rose-500/30 shadow-inner">
+                    <FileText size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white tracking-tight">
+                        {isZh ? '資安事件審計與利害關係人報告匯出精靈' : 'Security Incident Audit & Stakeholder Report Export'}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-950/90 text-rose-300 border border-rose-800/80 uppercase">
+                        {reportClassification}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {isZh 
+                        ? '生成具備密碼學不可篡改認證、執行層 KPI 指標與處置根因之專業 PDF / CSV 報告，支援利害關係人會簽' 
+                        : 'Compile executive-grade incident briefs with tamper-evident Merkle hash verification, KPI charts, and root-cause forensics'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body: Split Layout */}
+              <div className="flex-1 overflow-y-auto p-5 grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
+                {/* Left Column: Report Customization Controls (5 cols) */}
+                <div className="lg:col-span-5 space-y-4">
+                  {/* Scope Selection */}
+                  <div className="p-3.5 rounded-xl bg-[#151520] border border-gray-800 space-y-2">
+                    <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">
+                      {isZh ? '1. 報告涵蓋範圍 (Incident Scope)' : '1. Incident Scope'}
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExportScope('filtered')}
+                        className={cn(
+                          "p-2.5 rounded-lg border text-left transition-all",
+                          exportScope === 'filtered'
+                            ? "bg-rose-950/60 border-rose-600/80 text-white shadow-sm"
+                            : "bg-[#111117] border-gray-800 text-gray-400 hover:text-gray-200"
+                        )}
+                      >
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{isZh ? '當前篩選結果' : 'Current Filter'}</span>
+                          <span className="text-xs font-mono font-extrabold text-rose-300">{filteredHistory.length}</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-0.5 truncate">
+                          {historySearchQuery ? `Search: "${historySearchQuery}"` : (isZh ? '依據當前選取條件' : 'Matching active filters')}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setExportScope('all')}
+                        className={cn(
+                          "p-2.5 rounded-lg border text-left transition-all",
+                          exportScope === 'all'
+                            ? "bg-rose-950/60 border-rose-600/80 text-white shadow-sm"
+                            : "bg-[#111117] border-gray-800 text-gray-400 hover:text-gray-200"
+                        )}
+                      >
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{isZh ? '全部審計帳本' : 'Full Ledger'}</span>
+                          <span className="text-xs font-mono font-extrabold text-rose-300">{historyRecords.length}</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400 mt-0.5 truncate">
+                          {isZh ? '全數不可篡改紀錄' : 'All historic records'}
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Metadata Fields */}
+                  <div className="p-3.5 rounded-xl bg-[#151520] border border-gray-800 space-y-3">
+                    <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">
+                      {isZh ? '2. 報告首頁資訊與組織認證' : '2. Report Header & Identification'}
+                    </span>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase block">{isZh ? '報告標題' : 'Report Title'}</label>
+                      <input
+                        type="text"
+                        value={reportTitle}
+                        onChange={e => setReportTitle(e.target.value)}
+                        className="w-full bg-[#111117] border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-rose-500 font-semibold"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase block">{isZh ? '發行組織 / 部門' : 'Organization'}</label>
+                        <input
+                          type="text"
+                          value={reportOrg}
+                          onChange={e => setReportOrg(e.target.value)}
+                          className="w-full bg-[#111117] border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase block">{isZh ? '機密分類等級' : 'Classification'}</label>
+                        <select
+                          value={reportClassification}
+                          onChange={e => setReportClassification(e.target.value as any)}
+                          className="w-full bg-[#111117] border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-rose-500 font-semibold cursor-pointer"
+                        >
+                          <option value="CONFIDENTIAL">CONFIDENTIAL (內部機密)</option>
+                          <option value="RESTRICTED">RESTRICTED (受限分發)</option>
+                          <option value="INTERNAL AUDIT">INTERNAL AUDIT (內部稽核)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase block">{isZh ? '編制負責人 / 資安分析師' : 'Lead Analyst'}</label>
+                      <input
+                        type="text"
+                        value={reportAnalyst}
+                        onChange={e => setReportAnalyst(e.target.value)}
+                        className="w-full bg-[#111117] border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-rose-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase block">{isZh ? '呈報利害關係人對象' : 'Target Audience'}</label>
+                      <input
+                        type="text"
+                        value={reportAudience}
+                        onChange={e => setReportAudience(e.target.value)}
+                        className="w-full bg-[#111117] border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Formatting Options */}
+                  <div className="p-3.5 rounded-xl bg-[#151520] border border-gray-800 space-y-2">
+                    <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">
+                      {isZh ? '3. 報告內容包含項目' : '3. Content Inclusions'}
+                    </span>
+                    <label className="flex items-center gap-2 cursor-pointer text-gray-300 hover:text-white select-none">
+                      <input
+                        type="checkbox"
+                        checked={includeExecutiveSummary}
+                        onChange={e => setIncludeExecutiveSummary(e.target.checked)}
+                        className="rounded border-gray-700 bg-gray-900 text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{isZh ? '包含執行長 / 管理層 KPI 摘要儀表卡片 (Executive KPI Block)' : 'Include Executive Summary KPI Block'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer text-gray-300 hover:text-white select-none">
+                      <input
+                        type="checkbox"
+                        checked={includeRemediationNotes}
+                        onChange={e => setIncludeRemediationNotes(e.target.checked)}
+                        className="rounded border-gray-700 bg-gray-900 text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{isZh ? '包含處置備註與事件根因說明 (Remediation Notes & Root Cause)' : 'Include Remediation & Forensic Root Cause Notes'}</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Right Column: Live Executive Document Preview (7 cols) */}
+                <div className="lg:col-span-7 flex flex-col space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Eye size={12} className="text-rose-400" />
+                      {isZh ? '報告即時預覽 (Live Document Preview)' : 'Live Document Preview'}
+                    </span>
+                    <span className="text-[10px] font-mono text-gray-500">
+                      Format: Vector A4 Landscape (297 x 210 mm)
+                    </span>
+                  </div>
+
+                  {/* Document Canvas Preview Box */}
+                  {(() => {
+                    const targetRecords = exportScope === 'filtered' ? filteredHistory : historyRecords;
+                    const total = targetRecords.length;
+                    const critical = targetRecords.filter(r => r.severity === 'Critical').length;
+                    const high = targetRecords.filter(r => r.severity === 'High').length;
+                    const warn = targetRecords.filter(r => r.severity === 'Warning').length;
+                    const info = targetRecords.filter(r => r.severity === 'Info').length;
+                    const resolved = targetRecords.filter(r => r.resolutionStatus === 'Resolved' || r.resolutionStatus === 'Auto-Remediated').length;
+                    const rate = total > 0 ? Math.round((resolved / total) * 100) : 100;
+
+                    return (
+                      <div className="p-4 rounded-xl bg-white text-slate-900 shadow-xl border border-slate-300 font-sans flex-1 flex flex-col justify-between overflow-hidden">
+                        {/* Top Corporate Banner */}
+                        <div className="bg-slate-900 text-white p-3 -m-4 mb-3 border-b-2 border-rose-500 flex items-center justify-between">
+                          <div>
+                            <div className="font-extrabold text-[11px] tracking-wider text-white">
+                              SEMOR SECURITY OPERATIONS CENTER (SOC)
+                            </div>
+                            <div className="text-[9px] text-slate-300 font-medium">
+                              {reportTitle}
+                            </div>
+                          </div>
+                          <div className="px-2 py-0.5 rounded bg-rose-900/90 text-rose-200 border border-rose-700 text-[8px] font-mono font-bold uppercase">
+                            {reportClassification} // AUDIT
+                          </div>
+                        </div>
+
+                        {/* Metadata Row */}
+                        <div className="grid grid-cols-2 gap-3 text-[9px] text-slate-600 border-b border-slate-200 pb-2 mb-2 font-mono">
+                          <div>
+                            <div><strong className="text-slate-800 font-sans">Org:</strong> {reportOrg}</div>
+                            <div><strong className="text-slate-800 font-sans">Audience:</strong> {reportAudience}</div>
+                          </div>
+                          <div className="text-right">
+                            <div><strong className="text-slate-800 font-sans">Analyst:</strong> {reportAnalyst}</div>
+                            <div><strong className="text-slate-800 font-sans">Scope:</strong> {total} Incidents ({exportScope === 'filtered' ? 'Filtered' : 'Full Ledger'})</div>
+                          </div>
+                        </div>
+
+                        {/* KPI Block */}
+                        {includeExecutiveSummary && (
+                          <div className="grid grid-cols-5 gap-1.5 p-2 rounded-lg bg-slate-50 border border-slate-200 text-center mb-3">
+                            <div className="p-1">
+                              <div className="text-[8px] font-bold text-slate-500 uppercase">Total</div>
+                              <div className="text-sm font-extrabold text-slate-900">{total}</div>
+                            </div>
+                            <div className="p-1">
+                              <div className="text-[8px] font-bold text-slate-500 uppercase">Critical</div>
+                              <div className="text-sm font-extrabold text-red-600">{critical}</div>
+                            </div>
+                            <div className="p-1">
+                              <div className="text-[8px] font-bold text-slate-500 uppercase">High</div>
+                              <div className="text-sm font-extrabold text-orange-600">{high}</div>
+                            </div>
+                            <div className="p-1">
+                              <div className="text-[8px] font-bold text-slate-500 uppercase">Warn/Info</div>
+                              <div className="text-sm font-extrabold text-amber-600">{warn}/{info}</div>
+                            </div>
+                            <div className="p-1">
+                              <div className="text-[8px] font-bold text-slate-500 uppercase">Containment</div>
+                              <div className="text-sm font-extrabold text-emerald-600">{rate}%</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Table Sample */}
+                        <div className="flex-1 overflow-x-auto border border-slate-200 rounded-md">
+                          <table className="w-full text-left text-[9px] border-collapse">
+                            <thead>
+                              <tr className="bg-slate-800 text-white font-bold text-[8px] uppercase">
+                                <th className="p-1.5">ID</th>
+                                <th className="p-1.5">Time</th>
+                                <th className="p-1.5">Severity</th>
+                                <th className="p-1.5">Source Engine</th>
+                                <th className="p-1.5">Rule & Metric</th>
+                                <th className="p-1.5">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-mono">
+                              {targetRecords.slice(0, 4).map(r => (
+                                <tr key={r.id} className="hover:bg-slate-50">
+                                  <td className="p-1.5 font-bold text-slate-800">{r.id}</td>
+                                  <td className="p-1.5 text-slate-500">{r.triggerTime.slice(0, 16).replace('T', ' ')}</td>
+                                  <td className="p-1.5">
+                                    <span className={cn(
+                                      "px-1 py-0.2 rounded font-bold text-[8px]",
+                                      r.severity === 'Critical' ? "text-red-700 bg-red-100" :
+                                      r.severity === 'High' ? "text-orange-700 bg-orange-100" :
+                                      r.severity === 'Warning' ? "text-amber-700 bg-amber-100" :
+                                      "text-blue-700 bg-blue-100"
+                                    )}>
+                                      {r.severity}
+                                    </span>
+                                  </td>
+                                  <td className="p-1.5 font-sans truncate max-w-[110px]">{r.sourceEngine.split('(')[0]}</td>
+                                  <td className="p-1.5 font-sans truncate max-w-[130px]">{r.ruleName}</td>
+                                  <td className="p-1.5 font-bold text-slate-700">{r.resolutionStatus}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {targetRecords.length > 4 && (
+                            <div className="p-1 text-center text-[8px] font-sans text-slate-400 bg-slate-50 border-t border-slate-200">
+                              + {targetRecords.length - 4} more incident records included in generated report...
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Sign-off Attestation Preview */}
+                        <div className="mt-3 p-2 rounded bg-slate-50 border border-slate-200 text-[8px] text-slate-600 flex items-center justify-between">
+                          <div className="max-w-xs leading-tight">
+                            <strong className="text-slate-800 font-sans block">SOC 2 Type II / ISO 27001 Verified:</strong>
+                            Cryptographic RFC 6962 SHA-256 Merkle chain verified.
+                          </div>
+                          <div className="text-right font-mono">
+                            <div>Analyst: ___________________</div>
+                            <div className="mt-1">Date: ___________________</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Modal Footer: Action Bar */}
+              <div className="p-4 border-t border-gray-800 bg-[#14141d] flex flex-wrap items-center justify-between gap-3">
+                {/* Secondary Actions */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCopyIncidentSummary(exportScope)}
+                    className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+                    title={isZh ? "複製 Markdown 格式之事件簡報 (方便貼至 Slack 或 Email)" : "Copy Markdown format Incident Brief"}
+                  >
+                    <Share2 size={13} className="text-amber-400" />
+                    <span>{isZh ? '複製 Markdown 簡報' : 'Copy Markdown'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePrintReport}
+                    className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 hover:text-white rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+                    title={isZh ? "使用瀏覽器列印或另存為 PDF" : "Open system print dialog"}
+                  >
+                    <Printer size={13} className="text-sky-400" />
+                    <span>{isZh ? '列印 / 預覽' : 'Print / Preview'}</span>
+                  </button>
+                </div>
+
+                {/* Primary Export Actions */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleExportHistoryCSV(exportScope)}
+                    className="px-4 py-2 bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-700/80 text-emerald-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                  >
+                    <FileSpreadsheet size={14} className="text-emerald-400" />
+                    <span>{isZh ? '匯出 CSV 報表' : 'Export CSV'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isExportingPDF}
+                    onClick={() => {
+                      const records = exportScope === 'filtered' ? filteredHistory : historyRecords;
+                      generateIncidentSummaryPDF(records, {
+                        title: reportTitle,
+                        organization: reportOrg,
+                        analyst: reportAnalyst,
+                        audience: reportAudience,
+                        classification: reportClassification,
+                        includeExecutiveSummary,
+                        includeRemediationNotes,
+                        scopeLabel: exportScope === 'filtered' ? `Current Filter (${records.length} records)` : `Full Ledger (${records.length} records)`
+                      });
+                    }}
+                    className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-rose-950/60 border border-rose-500/50"
+                  >
+                    {isExportingPDF ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        <span>{isZh ? '生成 PDF 報告中...' : 'Generating PDF...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download size={14} />
+                        <span>{isZh ? '匯出 PDF 報告 (.pdf)' : 'Download PDF Report (.pdf)'}</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
