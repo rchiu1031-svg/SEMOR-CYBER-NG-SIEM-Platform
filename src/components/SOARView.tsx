@@ -64,6 +64,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { SOARFIMView } from './soar/fim/SOARFIMView';
+import Correlation24hHeatmap from './Correlation24hHeatmap';
 
 // --- DATA DEFINITIONS & TYPES ---
 
@@ -1413,6 +1414,11 @@ export default function SOARView() {
                   <text y="56" textAnchor="middle" fill="#00FF66" fontSize="8">SOAR 守衛隔離</text>
                 </g>
               </svg>
+            </div>
+
+            {/* D3-Based 24-Hour Incident Intensity Heatmap */}
+            <div className="bg-[#0e1422] rounded-2xl border border-gray-800 p-6 shadow-2xl">
+              <Correlation24hHeatmap isZh={isZh} />
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import LogSearchDiscoveryView from './LogSearchDiscoveryView';
+import AssetDiscoveryView from './AssetDiscoveryView';
 import { 
   Search, Clock, ChevronDown, ChevronRight, X, Filter, Plus, Minus, Download, Share2, 
   Terminal, Shield, Zap, Globe, Brain, ShieldAlert, Cpu, HardDrive, Database, Monitor,
@@ -43,11 +44,12 @@ export interface HostAsset {
 export default function DiscoveryView() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
-  const [activeSubTab, setActiveSubTab] = useState<'raw_logs' | 'soc_dashboard' | 'sql_hunting' | 'fim' | 'active_mitigation' | 'vector_pipeline' | 'victoria_rules'>('raw_logs');
+  const [activeSubTab, setActiveSubTab] = useState<'raw_logs' | 'asset_discovery' | 'soc_dashboard' | 'sql_hunting' | 'fim' | 'active_mitigation' | 'vector_pipeline' | 'victoria_rules'>('raw_logs');
 
   // Multi-Mode Layout Header Navbar
   const tabs = [
     { id: 'raw_logs', label: '日誌檢索分析', icon: Search },
+    { id: 'asset_discovery', label: '資產與弱點發現', icon: Database },
     { id: 'soc_dashboard', label: 'SOC 戰情總覽', icon: Activity },
     { id: 'sql_hunting', label: '即時 SQL 獵捕', icon: Terminal },
     { id: 'fim', label: '檔案監控 (FIM)', icon: FileCode },
@@ -123,13 +125,14 @@ export default function DiscoveryView() {
             transition={{ duration: 0.15 }}
             className="h-full"
           >
+            {activeSubTab === 'raw_logs' && <LogSearchDiscoveryView />}
+            {activeSubTab === 'asset_discovery' && <AssetDiscoveryView />}
             {activeSubTab === 'soc_dashboard' && <SOCDashboard />}
             {activeSubTab === 'sql_hunting' && <SQLHuntingConsole />}
             {activeSubTab === 'fim' && <FIMCenter />}
             {activeSubTab === 'active_mitigation' && <ActiveMitigationCenter />}
             {activeSubTab === 'vector_pipeline' && <VectorPipelineSandbox />}
             {activeSubTab === 'victoria_rules' && <VictoriaLogsRules />}
-            {activeSubTab === 'raw_logs' && <LogSearchDiscoveryView />}
           </motion.div>
         </AnimatePresence>
       </div>
