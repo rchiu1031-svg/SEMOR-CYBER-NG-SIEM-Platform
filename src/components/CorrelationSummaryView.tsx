@@ -66,6 +66,7 @@ import {
 import * as d3 from 'd3';
 import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps';
 import { cn } from '../lib/utils';
+import Correlation24hHeatmap from './Correlation24hHeatmap';
 
 // Multi-Source Attack Graph Node Data
 const CORRELATION_GRAPH_DATA = {
@@ -276,7 +277,7 @@ export default function CorrelationSummaryView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation Sub-tab Modes
-  const [activeMode, setActiveMode] = useState<'overview' | 'timeline' | 'topology' | 'telemetry' | 'rules'>('overview');
+  const [activeMode, setActiveMode] = useState<'overview' | 'heatmap' | 'timeline' | 'topology' | 'telemetry' | 'rules'>('overview');
   const [selectedNode, setSelectedNode] = useState<any | null>(null);
   const [selectedIncidentStage, setSelectedIncidentStage] = useState<number | null>(0);
   const [showFullGraphModal, setShowFullGraphModal] = useState(false);
@@ -501,6 +502,19 @@ export default function CorrelationSummaryView() {
             </div>
 
             <button
+              onClick={() => setActiveMode('heatmap')}
+              className={cn(
+                "px-4 py-2.5 border rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                activeMode === 'heatmap'
+                  ? "bg-rose-600 text-white border-rose-500 shadow-md shadow-rose-950/40"
+                  : "bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700"
+              )}
+            >
+              <Flame size={14} className="text-rose-400" />
+              {isZh ? '24H 熱力圖' : '24h Heatmap'}
+            </button>
+
+            <button
               onClick={() => setActiveMode('topology')}
               className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
             >
@@ -566,6 +580,7 @@ export default function CorrelationSummaryView() {
       <div className="flex bg-gray-900 p-1.5 rounded-2xl border border-gray-800 overflow-x-auto custom-scrollbar gap-1">
         {[
           { id: 'overview', label: isZh ? '多維度攻擊鏈時序 (Storyline)' : 'Multi-Stage Attack Storyline', icon: <Workflow size={15} /> },
+          { id: 'heatmap', label: isZh ? '24小時事件頻率熱力圖 (Heatmap)' : '24h Incident Intensity Heatmap', icon: <Flame size={15} /> },
           { id: 'topology', label: isZh ? '動態關聯攻擊拓撲圖 (Graph)' : 'Interactive Attack Graph', icon: <GitBranch size={15} /> },
           { id: 'rules', label: isZh ? '關聯規則命中率排行榜 (Rules)' : 'Rule Firing & Detection Trends', icon: <BarChart3 size={15} /> },
           { id: 'telemetry', label: isZh ? '全球情報源與地理分佈 (Geo)' : 'Global Geo Intelligence & Telemetry', icon: <Globe size={15} /> }
@@ -741,6 +756,89 @@ export default function CorrelationSummaryView() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Embedded 24-Hour Incident Intensity Heatmap Section in Storyline Overview */}
+          <div className="bg-[#111116] border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-800">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-black text-white flex items-center gap-2">
+                    <Flame className="text-rose-500" size={16} />
+                    {isZh ? '24 小時攻擊強度時序熱力分佈 (D3 Frequency Heatmap)' : '24-Hour Correlated Attack Frequency Heatmap (D3)'}
+                  </h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-rose-950/60 text-rose-300 border border-rose-800/60 rounded">
+                    D3 Continuous Intensity
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {isZh
+                    ? '視覺化每小時跨資料源聚合之事件頻率與風險指標，即時洞悉暗夜外洩與尖峰爆發點。'
+                    : 'Visualizing hourly incident frequency and risk index across stages to spot off-hours exfiltration.'}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setActiveMode('heatmap')}
+                className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                <Maximize2 size={13} />
+                <span>{isZh ? '開啟熱力圖專用工作台' : 'Open Heatmap Workbench'}</span>
+              </button>
+            </div>
+
+            <Correlation24hHeatmap
+              isZh={isZh}
+              compact={false}
+              onSelectIncident={() => {
+                setSelectedIncidentStage(0);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* MODE 2: DEDICATED 24-HOUR INCIDENT INTENSITY HEATMAP (D3) */}
+      {activeMode === 'heatmap' && (
+        <div className="space-y-6">
+          <div className="bg-[#111116] border border-gray-800 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-mono font-bold uppercase">
+                    D3 Continuous Intensity Density
+                  </span>
+                  <span className="text-xs text-gray-400 font-mono">24-Hour Rolling Window</span>
+                </div>
+                <h3 className="text-base font-black text-white flex items-center gap-2 mt-1">
+                  <Flame className="text-rose-500" size={18} />
+                  {isZh ? '24 小時事件頻率與攻擊強度熱力分析' : '24-Hour Incident Frequency & Intensity Heatmap'}
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {isZh
+                    ? '視覺化每小時全網關聯事件的發生頻率與風險強度，橫向串聯 MITRE ATT&CK 攻擊戰術、嚴重度層級與資產目標，即時揪出暗夜異常外洩與尖峰爆發點。'
+                    : 'Visualizing hourly correlated security incident frequency and risk intensity across MITRE ATT&CK tactics, severity levels, and asset tiers to spot off-hours exfiltration and attack spikes.'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => setActiveMode('overview')}
+                  className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <Workflow size={14} className="text-blue-400" />
+                  <span>{isZh ? '返回攻擊鏈時序' : 'Back to Storyline'}</span>
+                </button>
+              </div>
+            </div>
+
+            <Correlation24hHeatmap
+              isZh={isZh}
+              onSelectIncident={() => {
+                setActiveMode('overview');
+                setSelectedIncidentStage(0);
+              }}
+            />
           </div>
         </div>
       )}

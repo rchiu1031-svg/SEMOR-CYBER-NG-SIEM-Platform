@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
-  Activity, Search, Shield, Filter, Download, Share2, Terminal, ChevronRight, 
+  Activity, Search, Shield, Filter, Download, FileDown, Share2, Terminal, ChevronRight, 
   ChevronDown, Play, Pause, RotateCcw, AlertTriangle, CheckCircle2, ShieldAlert,
   ArrowRight, ArrowLeft, ArrowUpRight, ArrowDownRight, Network, Maximize2, 
   RefreshCw, Cpu, HardDrive, Database, Globe, Layers, Eye, FileText, Code, 
@@ -16,6 +16,10 @@ import {
 import * as d3 from 'd3';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { 
+  exportSessionsToPcap, 
+  RawSessionInput 
+} from '../utils/pcapExporter';
 
 export interface TrafficSession {
   id: number;
@@ -25,7 +29,7 @@ export interface TrafficSession {
   src_port: number;
   dst_ip: string;
   dst_port: number;
-  proto: 'HTTPS' | 'HTTP' | 'DNS' | 'SSH' | 'SMB' | 'TLS' | 'PostgreSQL' | 'TCP';
+  proto: 'HTTPS' | 'HTTP' | 'DNS' | 'SSH' | 'SMB' | 'TLS' | 'PostgreSQL' | 'TCP' | 'UDP';
   app_proto?: string;
   bytes_in: string;
   bytes_out: string;
@@ -450,6 +454,73 @@ export default function TrafficAnalysisNDRView() {
     });
   }, [pcapFilterQuery, selectedProtoFilter, selectedThreatFilter]);
 
+  // PCAP / PCAPNG Export Modal & Scope State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'pcap' | 'pcapng'>('pcapng');
+  const [exportScope, setExportScope] = useState<'filtered' | 'selected' | 'all'>('filtered');
+  const [customExportFilename, setCustomExportFilename] = useState('');
+  const [copiedWiresharkCmd, setCopiedWiresharkCmd] = useState(false);
+
+  // Target sessions based on user selected scope
+  const targetExportSessions = useMemo(() => {
+    if (exportScope === 'selected' && expandedSessionId !== null) {
+      const found = SAMPLE_SESSIONS.find(s => s.id === expandedSessionId);
+      if (found) return [found];
+    }
+    if (exportScope === 'all') {
+      return SAMPLE_SESSIONS;
+    }
+    return filteredSessions;
+  }, [exportScope, expandedSessionId, filteredSessions]);
+
+  // Compute estimated packet count for export preview
+  const estimatedPackets = useMemo(() => {
+    return targetExportSessions.reduce((acc, s) => {
+      const isUdp = s.proto === 'DNS' || s.proto === 'UDP';
+      const handshake = isUdp ? 0 : 3;
+      const teardown = isUdp ? 0 : 2;
+      const msgs = (s.messages && s.messages.length > 0) 
+        ? s.messages.length 
+        : (s.hex_dump && s.hex_dump.length > 0 ? 1 : 0);
+      return acc + handshake + msgs + teardown;
+    }, 0);
+  }, [targetExportSessions]);
+
+  // Execute export to standard PCAP or PCAPNG
+  const handleExportTraffic = (
+    sessionsToExport: TrafficSession[],
+    format: 'pcap' | 'pcapng',
+    filenameOverride?: string
+  ) => {
+    if (sessionsToExport.length === 0) {
+      showToast(isZh ? '⚠️ 無符合條件的連線串流可供匯出' : '⚠️ No matching sessions to export');
+      return;
+    }
+
+    const rawInputs: RawSessionInput[] = sessionsToExport.map(s => ({
+      id: s.id,
+      stream_id: s.stream_id,
+      time: s.time,
+      src_ip: s.src_ip,
+      src_port: s.src_port,
+      dst_ip: s.dst_ip,
+      dst_port: s.dst_port,
+      proto: s.proto,
+      tcp_flags: s.tcp_flags,
+      messages: s.messages,
+      hex_dump: s.hex_dump
+    }));
+
+    const result = exportSessionsToPcap(rawInputs, format, filenameOverride || customExportFilename.trim() || undefined);
+
+    showToast(
+      isZh 
+        ? `✅ 已匯出 ${result.filename} (${result.packetCount} 封包, ${(result.byteSize / 1024).toFixed(1)} KB)`
+        : `✅ Exported ${result.filename} (${result.packetCount} pkts, ${(result.byteSize / 1024).toFixed(1)} KB)`
+    );
+    setIsExportModalOpen(false);
+  };
+
   // Replay Simulator Engine
   const startPcapReplay = (sampleName: string) => {
     setIsReplaying(true);
@@ -647,17 +718,40 @@ export default function TrafficAnalysisNDRView() {
 
         {/* Global Action Tools */}
         <div className="hidden md:flex items-center gap-2">
+          <div className="flex items-center bg-[#111114] border border-gray-800 rounded-xl p-0.5">
+            <button 
+              onClick={() => {
+                setExportScope('filtered');
+                setIsExportModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-[11px] font-bold text-white transition-colors shadow-sm"
+              title={isZh ? '開啟 PCAP/PCAPNG 匯出設定對話盒' : 'Configure PCAP / PCAPNG export'}
+            >
+              <FileDown size={12} /> {isZh ? '匯出 PCAP / PCAPNG' : 'Export PCAP / PCAPNG'}
+            </button>
+            <button
+              onClick={() => handleExportTraffic(filteredSessions, 'pcapng')}
+              className="px-2.5 py-1.5 hover:bg-gray-800 rounded-lg text-[10px] font-mono font-bold text-gray-400 hover:text-white transition-colors"
+              title={isZh ? '立即下載已篩選連線為 .pcapng' : 'Quick download filtered as .pcapng'}
+            >
+              .pcapng
+            </button>
+            <button
+              onClick={() => handleExportTraffic(filteredSessions, 'pcap')}
+              className="px-2.5 py-1.5 hover:bg-gray-800 rounded-lg text-[10px] font-mono font-bold text-gray-400 hover:text-white transition-colors"
+              title={isZh ? '立即下載已篩選連線為 .pcap' : 'Quick download filtered as .pcap'}
+            >
+              .pcap
+            </button>
+          </div>
           <button 
-            onClick={() => showToast(isZh ? '已產生最新 5 分鐘完整 PCAP 封包擷取檔 (.pcapng)！' : 'PCAP bundle exported')}
+            onClick={() => {
+              navigator.clipboard.writeText(`curl -X GET "https://soc.corp.internal/api/v2/ndr/pcap/streams?query=${encodeURIComponent(pcapFilterQuery || '*')}&format=pcapng" -H "Authorization: Bearer <API_KEY>"`);
+              showToast(isZh ? '已複製 NDR PCAP REST API 呼叫指令！' : 'Copied PCAP API curl command');
+            }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#111114] hover:bg-gray-800 border border-gray-800 rounded-xl text-[11px] font-bold text-gray-300 hover:text-white transition-colors"
           >
-            <Download size={12} /> {isZh ? '匯出 PCAP' : 'Export PCAP'}
-          </button>
-          <button 
-            onClick={() => showToast(isZh ? '已複製 NDR REST API 查詢端點！' : 'API endpoint copied')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#111114] hover:bg-gray-800 border border-gray-800 rounded-xl text-[11px] font-bold text-gray-300 hover:text-white transition-colors"
-          >
-            <Share2 size={12} /> API JSON
+            <Share2 size={12} /> API cURL
           </button>
         </div>
       </div>
@@ -718,6 +812,22 @@ export default function TrafficAnalysisNDRView() {
                 <option value="Medium">Medium (中)</option>
                 <option value="Clean">Clean (正常流量)</option>
               </select>
+
+              {/* Quick Export Trigger */}
+              <button
+                onClick={() => {
+                  setExportScope('filtered');
+                  setIsExportModalOpen(true);
+                }}
+                className="px-3.5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20 whitespace-nowrap"
+                title={isZh ? '匯出已篩選連線為 PCAP/PCAPNG 封包' : 'Export filtered traffic to PCAP/PCAPNG'}
+              >
+                <FileDown size={14} />
+                <span>{isZh ? '匯出封包' : 'Export PCAP'}</span>
+                <span className="bg-white/20 text-[10px] px-1.5 py-0.5 rounded font-mono font-black">
+                  {filteredSessions.length}
+                </span>
+              </button>
             </div>
 
             {/* Quick Filter Tag Buttons */}
@@ -745,27 +855,46 @@ export default function TrafficAnalysisNDRView() {
 
           {/* PCAP Session List & Deep Inspector */}
           <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-5 shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-800">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-800">
               <div className="flex items-center gap-2">
                 <FileCode className="w-4 h-4 text-blue-400" />
                 <span className="text-xs font-black uppercase tracking-wider text-white">
                   {isZh ? '擷取網路連線會話清單 (Captured Flow Sessions)' : 'Captured Flow Sessions'}
                 </span>
-                <span className="text-[10px] font-mono bg-blue-600/10 border border-blue-500/30 text-blue-400 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-mono bg-blue-600/10 border border-blue-500/30 text-blue-400 px-2.5 py-0.5 rounded-full font-bold">
                   {filteredSessions.length} {isZh ? '個連線串流' : 'sessions'}
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 text-xs font-mono text-gray-400">
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-rose-500" /> Critical
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-orange-500" /> High
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> Clean
-                </span>
+              {/* PCAP Export Actions for Filtered Sessions */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-[#09090b] border border-gray-800 rounded-xl p-0.5">
+                  <button
+                    onClick={() => {
+                      setExportScope('filtered');
+                      setIsExportModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-bold text-white transition-all shadow-md shadow-blue-600/20"
+                    title={isZh ? '匯出符合當前篩選條件之連線為 PCAP/PCAPNG 封包' : 'Export current filtered traffic to PCAP/PCAPNG'}
+                  >
+                    <FileDown size={13} />
+                    <span>{isZh ? `匯出已篩選 (${filteredSessions.length})` : `Export Filtered (${filteredSessions.length})`}</span>
+                  </button>
+                  <button
+                    onClick={() => handleExportTraffic(filteredSessions, 'pcapng')}
+                    className="px-2.5 py-1.5 text-[10px] font-mono font-bold text-gray-400 hover:text-white hover:bg-gray-800/80 rounded-lg transition-colors"
+                    title={isZh ? '立即下載已篩選流量為 Wireshark .pcapng 格式' : 'Direct download filtered traffic as .pcapng'}
+                  >
+                    .pcapng
+                  </button>
+                  <button
+                    onClick={() => handleExportTraffic(filteredSessions, 'pcap')}
+                    className="px-2.5 py-1.5 text-[10px] font-mono font-bold text-gray-400 hover:text-white hover:bg-gray-800/80 rounded-lg transition-colors"
+                    title={isZh ? '立即下載已篩選流量為標準 Libpcap .pcap 格式' : 'Direct download filtered traffic as .pcap'}
+                  >
+                    .pcap
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -989,16 +1118,24 @@ export default function TrafficAnalysisNDRView() {
                                     )}
 
                                     {/* Action Buttons */}
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap gap-2">
                                       <button 
-                                        onClick={() => showToast(isZh ? `已下載 ${session.stream_id}.pcap 單一連線封包！` : 'Downloaded session PCAP')}
-                                        className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-all border border-gray-700 flex items-center justify-center gap-1.5"
+                                        onClick={() => handleExportTraffic([session], 'pcapng')}
+                                        className="flex-1 py-2 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-blue-500/30 flex items-center justify-center gap-1.5 shadow-sm"
+                                        title={isZh ? '以 Wireshark Next-Gen 格式 (.pcapng) 下載此連線' : 'Download session as .pcapng (Wireshark NG)'}
                                       >
-                                        <Download size={13} /> {isZh ? '下載 Session PCAP' : 'Download PCAP'}
+                                        <FileDown size={13} /> {isZh ? '匯出 .pcapng' : 'Export .pcapng'}
+                                      </button>
+                                      <button 
+                                        onClick={() => handleExportTraffic([session], 'pcap')}
+                                        className="flex-1 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white rounded-xl text-xs font-bold transition-all border border-gray-700 flex items-center justify-center gap-1.5"
+                                        title={isZh ? '以標準 Libpcap 格式 (.pcap) 下載此連線' : 'Download session as .pcap (Standard Libpcap)'}
+                                      >
+                                        <Download size={13} /> {isZh ? '匯出 .pcap' : 'Export .pcap'}
                                       </button>
                                       <button 
                                         onClick={() => showToast(isZh ? '已將連線來源 IP 加入阻斷防火牆黑名單！' : 'IP Blocked')}
-                                        className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-rose-600/20"
+                                        className="py-2 px-3 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-rose-500/30"
                                       >
                                         <Shield size={13} /> {isZh ? '聯防阻斷此 IP' : 'Block IP'}
                                       </button>
@@ -1461,13 +1598,351 @@ export default function TrafficAnalysisNDRView() {
                 </div>
               </div>
 
-              <div className="p-4 border-t border-gray-800 bg-[#09090b] flex justify-end gap-3">
+              <div className="p-4 border-t border-gray-800 bg-[#09090b] flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => handleExportTraffic([selectedSessionForModal], 'pcapng')}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-blue-600/20"
+                    title={isZh ? '匯出此連線為 Wireshark .pcapng 封包' : 'Export this stream as Wireshark .pcapng'}
+                  >
+                    <FileDown size={13} /> {isZh ? '匯出 Wireshark 封包 (.pcapng)' : 'Export as .pcapng'}
+                  </button>
+                  <button 
+                    onClick={() => handleExportTraffic([selectedSessionForModal], 'pcap')}
+                    className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-gray-700 transition-all"
+                    title={isZh ? '匯出此連線為標準 Libpcap .pcap 封包' : 'Export this stream as Libpcap .pcap'}
+                  >
+                    <Download size={13} /> {isZh ? '匯出標準 .pcap' : 'Export as .pcap'}
+                  </button>
+                </div>
                 <button 
                   onClick={() => setSelectedSessionForModal(null)}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold"
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
                 >
                   {isZh ? '關閉視窗' : 'Close'}
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: EXPORT FILTERED TRAFFIC TO PCAP / PCAPNG */}
+      <AnimatePresence>
+        {isExportModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="bg-[#111114] border border-gray-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col"
+            >
+              {/* Header */}
+              <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-gradient-to-r from-blue-950/30 via-transparent to-purple-950/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <FileDown size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      {isZh ? '匯出 PCAP / PCAPNG 封包分析檔案' : 'Export Traffic Capture (.pcap / .pcapng)'}
+                      <span className="text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        Wireshark Ready
+                      </span>
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      {isZh 
+                        ? '生成完整 RFC 標準封包檔，包含乙太網路訊框、IPv4 標頭、TCP 握手與應用層 Payload' 
+                        : 'RFC-compliant packet captures with Ethernet II, IPv4, TCP 3-way handshake, and full payload'}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="p-1.5 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar">
+                {/* 1. Scope Selection */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                    <Filter size={12} className="text-blue-400" />
+                    {isZh ? '1. 選擇匯出連線範圍 (Capture Scope)' : '1. Select Capture Scope'}
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+                    <button
+                      type="button"
+                      onClick={() => setExportScope('filtered')}
+                      className={cn(
+                        "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1",
+                        exportScope === 'filtered' 
+                          ? "bg-blue-600/10 border-blue-500 text-white shadow-sm" 
+                          : "bg-[#09090b] border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-200"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[11px] text-blue-400">
+                          {isZh ? '目前篩選條件' : 'Filtered Sessions'}
+                        </span>
+                        {exportScope === 'filtered' && <Check size={14} className="text-blue-400" />}
+                      </div>
+                      <span className="text-base font-black text-white">{filteredSessions.length}</span>
+                      <span className="text-[10px] text-gray-500 truncate">
+                        {pcapFilterQuery ? `BPF: "${pcapFilterQuery}"` : `${selectedProtoFilter} / ${selectedThreatFilter}`}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setExportScope('all')}
+                      className={cn(
+                        "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1",
+                        exportScope === 'all' 
+                          ? "bg-blue-600/10 border-blue-500 text-white shadow-sm" 
+                          : "bg-[#09090b] border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-200"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[11px] text-purple-400">
+                          {isZh ? '所有快取連線' : 'All Buffer'}
+                        </span>
+                        {exportScope === 'all' && <Check size={14} className="text-blue-400" />}
+                      </div>
+                      <span className="text-base font-black text-white">{SAMPLE_SESSIONS.length}</span>
+                      <span className="text-[10px] text-gray-500">
+                        {isZh ? '完整環形快取緩衝區' : 'Full ring buffer'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setExportScope('selected')}
+                      disabled={expandedSessionId === null}
+                      className={cn(
+                        "p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1",
+                        expandedSessionId === null ? "opacity-40 cursor-not-allowed" : "",
+                        exportScope === 'selected' 
+                          ? "bg-blue-600/10 border-blue-500 text-white shadow-sm" 
+                          : "bg-[#09090b] border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-200"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[11px] text-amber-400">
+                          {isZh ? '單一選定連線' : 'Selected Stream'}
+                        </span>
+                        {exportScope === 'selected' && <Check size={14} className="text-blue-400" />}
+                      </div>
+                      <span className="text-xs font-black text-white truncate">
+                        {expandedSessionId ? SAMPLE_SESSIONS.find(s => s.id === expandedSessionId)?.stream_id : 'None'}
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        {expandedSessionId ? SAMPLE_SESSIONS.find(s => s.id === expandedSessionId)?.proto : 'Select row first'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Format Selection Cards */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                    <FileCode size={12} className="text-purple-400" />
+                    {isZh ? '2. 封包檔案格式 (File Format)' : '2. File Format Specification'}
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* PCAPNG */}
+                    <div 
+                      onClick={() => setExportFormat('pcapng')}
+                      className={cn(
+                        "p-4 rounded-2xl border cursor-pointer transition-all relative flex flex-col justify-between gap-2",
+                        exportFormat === 'pcapng'
+                          ? "bg-blue-600/10 border-blue-500 shadow-md shadow-blue-500/10"
+                          : "bg-[#09090b] border-gray-800 hover:border-gray-700 text-gray-400"
+                      )}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-white font-mono">.pcapng</span>
+                            <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-bold">
+                              {isZh ? '推薦格式' : 'Recommended'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-1 font-sans">
+                            {isZh ? 'PCAP Next Generation 格式 (RFC 8721)' : 'PCAP Next Generation (RFC 8721)'}
+                          </p>
+                        </div>
+                        <input 
+                          type="radio" 
+                          checked={exportFormat === 'pcapng'} 
+                          onChange={() => setExportFormat('pcapng')}
+                          className="mt-1 accent-blue-600"
+                        />
+                      </div>
+                      <div className="pt-2 border-t border-gray-800/80 text-[10px] text-gray-500 font-mono space-y-0.5">
+                        <div>• Enhanced Packet Blocks (EPB)</div>
+                        <div>• 64-bit microsecond timestamps</div>
+                        <div>• Direct Wireshark &amp; TShark native</div>
+                      </div>
+                    </div>
+
+                    {/* PCAP */}
+                    <div 
+                      onClick={() => setExportFormat('pcap')}
+                      className={cn(
+                        "p-4 rounded-2xl border cursor-pointer transition-all relative flex flex-col justify-between gap-2",
+                        exportFormat === 'pcap'
+                          ? "bg-blue-600/10 border-blue-500 shadow-md shadow-blue-500/10"
+                          : "bg-[#09090b] border-gray-800 hover:border-gray-700 text-gray-400"
+                      )}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-white font-mono">.pcap</span>
+                            <span className="text-[10px] bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full font-bold">
+                              {isZh ? '經典通用' : 'Universal'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-1 font-sans">
+                            {isZh ? '傳統 Libpcap 2.4 標準二進位格式' : 'Classic Libpcap 2.4 binary format'}
+                          </p>
+                        </div>
+                        <input 
+                          type="radio" 
+                          checked={exportFormat === 'pcap'} 
+                          onChange={() => setExportFormat('pcap')}
+                          className="mt-1 accent-blue-600"
+                        />
+                      </div>
+                      <div className="pt-2 border-t border-gray-800/80 text-[10px] text-gray-500 font-mono space-y-0.5">
+                        <div>• Magic: 0xa1b2c3d4 (LinkType 1: Ethernet)</div>
+                        <div>• Compatible with Snort, Zeek, tcpdump</div>
+                        <div>• Legacy network forensic tools</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Live Telemetry & Summary */}
+                <div className="bg-[#09090b] border border-gray-800 rounded-2xl p-4 space-y-3 font-mono text-xs">
+                  <div className="flex items-center justify-between text-gray-400 pb-2 border-b border-gray-800/80">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <Layers size={13} className="text-emerald-400" />
+                      {isZh ? '匯出封包統計摘要' : 'Export Summary & Statistics'}
+                    </span>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                      Ready to build
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+                    <div>
+                      <span className="text-gray-500 block">{isZh ? '連線串流' : 'Flow Streams'}:</span>
+                      <strong className="text-white text-sm">{targetExportSessions.length}</strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">{isZh ? '重構封包' : 'Packets'}:</span>
+                      <strong className="text-blue-400 text-sm">~{estimatedPackets}</strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">{isZh ? '訊框協定' : 'Protocols'}:</span>
+                      <strong className="text-purple-400 text-sm">
+                        {Array.from(new Set(targetExportSessions.map(s => s.proto))).join(', ') || 'N/A'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">{isZh ? '連結層' : 'Link Layer'}:</span>
+                      <strong className="text-gray-300 text-sm">Ethernet II</strong>
+                    </div>
+                  </div>
+
+                  {/* Endpoints */}
+                  <div className="pt-2 border-t border-gray-800/60 text-[10px] text-gray-400 flex flex-wrap gap-1.5 items-center">
+                    <span className="text-gray-500">{isZh ? '包含端點:' : 'Endpoints:'}</span>
+                    {targetExportSessions.slice(0, 4).map((s, idx) => (
+                      <span key={idx} className="bg-black/60 border border-gray-800 px-1.5 py-0.5 rounded text-gray-300">
+                        {s.src_ip} ➔ {s.dst_ip}:{s.dst_port}
+                      </span>
+                    ))}
+                    {targetExportSessions.length > 4 && (
+                      <span className="text-gray-600">+{targetExportSessions.length - 4} more</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Wireshark / TShark Analysis Helper */}
+                <div className="bg-black/40 border border-gray-800/80 rounded-2xl p-3.5 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-gray-400 font-bold flex items-center gap-1.5">
+                      <Terminal size={12} className="text-amber-400" />
+                      {isZh ? 'Wireshark / TShark 快速分析指令' : 'Wireshark / TShark Quick Inspection'}
+                    </span>
+                    <button
+                      onClick={() => {
+                        const fname = customExportFilename.trim() || `semor_capture_${targetExportSessions.length}sessions.${exportFormat}`;
+                        navigator.clipboard.writeText(`wireshark -r ${fname}\n# or with tshark:\ntshark -r ${fname} -q -z conv,ip`);
+                        setCopiedWiresharkCmd(true);
+                        setTimeout(() => setCopiedWiresharkCmd(false), 2000);
+                      }}
+                      className="text-[10px] font-mono text-gray-400 hover:text-white flex items-center gap-1"
+                    >
+                      {copiedWiresharkCmd ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                      <span>{copiedWiresharkCmd ? (isZh ? '已複製！' : 'Copied!') : (isZh ? '複製指令' : 'Copy')}</span>
+                    </button>
+                  </div>
+                  <div className="font-mono text-[10px] bg-black/80 rounded-xl p-2.5 text-gray-300 border border-gray-800/60 overflow-x-auto">
+                    <code>wireshark -r {customExportFilename.trim() || `semor_flow_${targetExportSessions.length}sessions.${exportFormat}`}</code>
+                  </div>
+                </div>
+
+                {/* 5. Custom Filename */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                    {isZh ? '自訂檔案名稱 (選填)' : 'Custom File Name (Optional)'}
+                  </label>
+                  <div className="relative flex items-center">
+                    <input 
+                      type="text"
+                      placeholder={`semor_flow_${targetExportSessions.length}sessions_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.${exportFormat}`}
+                      value={customExportFilename}
+                      onChange={(e) => setCustomExportFilename(e.target.value)}
+                      className="w-full bg-[#09090b] border border-gray-800 rounded-xl py-2.5 px-3 text-xs font-mono text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-blue-500"
+                    />
+                    <span className="absolute right-3 text-xs font-mono text-gray-500">
+                      .{exportFormat}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-5 border-t border-gray-800 bg-[#09090b] flex items-center justify-between gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs font-bold transition-colors"
+                >
+                  {isZh ? '取消' : 'Cancel'}
+                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => handleExportTraffic(targetExportSessions, exportFormat)}
+                    disabled={targetExportSessions.length === 0}
+                    className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-600/25 cursor-pointer"
+                  >
+                    <FileDown size={14} />
+                    <span>
+                      {isZh 
+                        ? `生成並匯出 ${exportFormat.toUpperCase()} (${estimatedPackets} 封包)` 
+                        : `Download ${exportFormat.toUpperCase()} Capture (${estimatedPackets} pkts)`}
+                    </span>
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
