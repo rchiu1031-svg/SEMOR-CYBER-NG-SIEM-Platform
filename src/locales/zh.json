@@ -186,7 +186,8 @@
       "ueba": "UEBA 行為分析",
       "decoder": "日誌解碼器",
       "alert": "告警規則設定",
-      "update": "更新管理"
+      "update": "更新管理",
+      "threat_intel": "威脅情資來源 (STIX/TAXII)"
     },
     "network": {
       "title": "系統配置",

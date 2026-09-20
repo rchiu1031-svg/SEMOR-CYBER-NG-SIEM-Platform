@@ -180,7 +180,8 @@
       "ueba": "UEBA 行動分析",
       "decoder": "ログデコーダー",
       "alert": "アラートルール設定",
-      "update": "アップデート管理"
+      "update": "アップデート管理",
+      "threat_intel": "脅威インテリジェンス情報源 (STIX/TAXII)"
     },
     "network": {
       "title": "システム構成",

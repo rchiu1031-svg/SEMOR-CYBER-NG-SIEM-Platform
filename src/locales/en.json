@@ -187,7 +187,8 @@
       "ueba": "UEBA Behavioral Intelligence",
       "decoder": "AI Log Decoder",
       "alert": "Alert Configuration",
-      "update": "Updates Management"
+      "update": "Updates Management",
+      "threat_intel": "Threat Intel Sources (STIX/TAXII)"
     },
     "network": {
       "title": "System Configuration",

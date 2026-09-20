@@ -181,6 +181,7 @@ import DiscoveryView, { AssetsManager } from './components/DiscoveryView';
 import Correlation24hHeatmap from './components/Correlation24hHeatmap';
 import RemoteLogServerSettingView from './components/RemoteLogServerSettingView';
 import SignatureUpdateSettingsView from './components/SignatureUpdateSettingsView';
+import ThreatIntelSourcesSettingView from './components/ThreatIntelSourcesSettingView';
 import GeneralSettingsView from './components/GeneralSettingsView';
 import UserSettingsView from './components/UserSettingsView';
 import AuthenticationSettingsView from './components/AuthenticationSettingsView';
@@ -1660,7 +1661,7 @@ export default function App() {
     localStorage.setItem('seeor_user', JSON.stringify(u));
   };
 
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'network' | 'auth' | 'users' | 'general' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'engine_monitoring' | 'update'>('network');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'network' | 'auth' | 'users' | 'general' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'engine_monitoring' | 'update' | 'threat_intel'>('network');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLangOpen, setIsLangOpen] = useState(false);
   const [isUserOpen, setIsUserOpen] = useState(false);
@@ -2244,6 +2245,12 @@ export default function App() {
               label={t('settings.tabs.update') || "更新管理"} 
               active={activeTab === 'settings' && activeSettingsTab === 'update'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('update'); }}
+              collapsed={!isSidebarOpen}
+            />
+            <SidebarSubItem 
+              label={t('settings.tabs.threat_intel') || (isZh ? "威脅情資來源 (STIX/TAXII)" : "Threat Intel Sources")} 
+              active={activeTab === 'settings' && activeSettingsTab === 'threat_intel'} 
+              onClick={() => { setActiveTab('settings'); setActiveSettingsTab('threat_intel'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
@@ -8123,8 +8130,9 @@ function EngineMonitoringView({ isReadOnly = false }: { isReadOnly?: boolean }) 
   );
 }
 
-function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSubTab: 'general' | 'network' | 'auth' | 'users' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'update' | 'ueba' | 'engine_monitoring', setActiveSubTab: (tab: any) => void, currentUser: any }) {
-  const { t } = useTranslation();
+function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSubTab: 'general' | 'network' | 'auth' | 'users' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'update' | 'ueba' | 'engine_monitoring' | 'threat_intel', setActiveSubTab: (tab: any) => void, currentUser: any }) {
+  const { t, i18n } = useTranslation();
+  const isZh = !i18n.language || i18n.language.startsWith('zh');
   const [isSyncing, setIsSyncing] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -8212,6 +8220,8 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
         return <EngineMonitoringView isReadOnly={isReadOnly} />;
       case 'update':
         return <SignatureUpdateSettingsView isReadOnly={isReadOnly} />;
+      case 'threat_intel':
+        return <ThreatIntelSourcesSettingView isReadOnly={isReadOnly} />;
       case 'collection':
         return <DataCollectionSettingView isReadOnly={isReadOnly} />;
       case 'ueba':
@@ -8458,6 +8468,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
           <div className="bg-gray-800 p-2 rounded-lg border border-gray-700">
             {activeSubTab === 'engine_monitoring' && <Activity className="w-6 h-6 text-emerald-400" />}
             {activeSubTab === 'update' && <RefreshCw className="w-6 h-6 text-blue-400" />}
+            {activeSubTab === 'threat_intel' && <Radio className="w-6 h-6 text-blue-400 animate-pulse" />}
             {activeSubTab === 'nac' && <ShieldCheck className="w-6 h-6 text-red-500" />}
             {activeSubTab === 'collection' && <Database className="w-6 h-6 text-blue-400" />}
             {activeSubTab === 'remotelog' && <Share2 className="w-6 h-6 text-orange-400" />}
@@ -8473,6 +8484,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
             <h2 className="text-2xl font-bold text-white">
               {activeSubTab === 'engine_monitoring' ? '平台核心引擎監控 (Engine Monitoring)' :
                activeSubTab === 'update' ? '特徵庫與規則庫更新管理' :
+               activeSubTab === 'threat_intel' ? (isZh ? '外部威脅情資來源管理 (STIX/TAXII Feeds)' : 'Threat Intelligence Sources (STIX/TAXII)') :
                activeSubTab === 'nac' ? '網路存取控制 (Network Access Control / NAC)' :
                activeSubTab === 'collection' ? '資料採集配置 (Data Collection Setting)' : 
                activeSubTab === 'remotelog' ? '遠端日誌伺服器' : 
@@ -8493,6 +8505,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
             { id: 'engine_monitoring', label: '引擎監控', icon: <Activity size={14} />, supervisorOnly: true },
             { id: 'collection', label: '資料採集', icon: <Database size={14} /> },
             { id: 'update', label: '更新管理', icon: <RefreshCw size={14} /> },
+            { id: 'threat_intel', label: isZh ? '情資來源' : 'Threat Intel', icon: <Radio size={14} /> },
             { id: 'nac', label: 'NAC 控管', icon: <ShieldCheck size={14} /> },
             { id: 'remotelog', label: '遠端日誌', icon: <Share2 size={14} /> },
             { id: 'decoder', label: '日誌解碼', icon: <Binary size={14} /> },
