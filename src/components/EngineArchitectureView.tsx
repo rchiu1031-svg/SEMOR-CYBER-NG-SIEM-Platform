@@ -23,12 +23,14 @@ import {
   Send,
   FolderTree,
   Sliders,
-  Bell
+  Bell,
+  Radio
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
 import { StorageEngineTelemetryPanel } from './StorageEngineTelemetryPanel';
 import { EngineThresholdConfigView } from './EngineThresholdConfigView';
+import { RegexIpcBridgeView } from './RegexIpcBridgeView';
 
 interface EngineStatus {
   collector: {
@@ -115,7 +117,7 @@ interface BlockItem {
 }
 
 export function EngineArchitectureView() {
-  const [activeTab, setActiveTab] = useState<'storage_telemetry' | 'thresholds' | 'telemetry' | 'topology' | 'storage' | 'blocks' | 'tester' | 'code'>('storage_telemetry');
+  const [activeTab, setActiveTab] = useState<'regex_ipc' | 'storage_telemetry' | 'thresholds' | 'telemetry' | 'topology' | 'storage' | 'blocks' | 'tester' | 'code'>('regex_ipc');
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [blocks, setBlocks] = useState<BlockItem[]>([]);
   const [storageTree, setStorageTree] = useState<StorageTreeData | null>(null);
@@ -131,11 +133,12 @@ export function EngineArchitectureView() {
   const [isTesting, setIsTesting] = useState(false);
 
   // Code viewer state
-  const [selectedFileKey, setSelectedFileKey] = useState<string>('rust_engine_block');
+  const [selectedFileKey, setSelectedFileKey] = useState<string>('rust_regex_pipeline');
   const [fileContent, setFileContent] = useState<string>('');
   const [isLoadingCode, setIsLoadingCode] = useState(false);
 
   const fileList = [
+    { key: 'rust_regex_pipeline', name: 'Rust Engine: RegexParserPipeline & ECS 正規化 & UDS 控制幀 (regex_pipeline.rs)', lang: 'rust' },
     { key: 'rust_engine_index', name: 'Rust Engine: BlockHeaderIndex 標頭萃取與高速搜尋 (/src/rust_engine/index.rs)', lang: 'rust' },
     { key: 'rust_engine_storage', name: 'Rust Engine: WAL 預寫日誌 & WriteManager & StorageEngine (/src/rust_engine/storage.rs)', lang: 'rust' },
     { key: 'rust_engine_part', name: 'Rust Engine: ActivePartWriter & 零解壓復原 (/src/rust_engine/part.rs)', lang: 'rust' },
@@ -146,7 +149,7 @@ export function EngineArchitectureView() {
     { key: 'rust_stream', name: 'Rust: Stream 標籤管理 (stream.rs)', lang: 'rust' },
     { key: 'rust_ipc', name: 'Rust: IPC 接收器 (ipc_server.rs)', lang: 'rust' },
     { key: 'rust_main', name: 'Rust: 核心守護進程 (main.rs)', lang: 'rust' },
-    { key: 'rust_readme', name: 'Rust: 第二階段設計規格書 (README.md)', lang: 'md' },
+    { key: 'rust_readme', name: 'Rust: 第三階段設計規格書 (README.md)', lang: 'md' },
     { key: 'go_receiver', name: 'Go: 高效能接收器 (cmd/receiver/main.go)', lang: 'go' },
     { key: 'go_monitor', name: 'Go: 緩衝區即時填充率與瓶頸預測 (cmd/receiver/utils/monitor.go)', lang: 'go' },
     { key: 'go_main', name: 'Go: 主程序 (main.go)', lang: 'go' },
@@ -268,6 +271,7 @@ export function EngineArchitectureView() {
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-800 mt-6 -mb-2 gap-2 overflow-x-auto">
           {[
+            { id: 'regex_ipc', label: 'Go-Rust IPC 橋接與 Regex 萃取管線 (Stage 3)', icon: Radio },
             { id: 'storage_telemetry', label: '儲存引擎吞吐與磁碟遙測 (Throughput & Disk Usage)', icon: HardDrive },
             { id: 'thresholds', label: '引擎門檻觸發器與推播設定 (Threshold Triggers & Delivery)', icon: Sliders },
             { id: 'telemetry', label: 'Go 收集器即時遙測看板 (Buffer & Worker Pool)', icon: Activity },
@@ -285,7 +289,7 @@ export function EngineArchitectureView() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`pb-3 px-3 text-sm font-medium transition flex items-center gap-2 border-b-2 whitespace-nowrap ${
                   active 
-                    ? 'border-indigo-500 text-indigo-400' 
+                    ? 'border-cyan-500 text-cyan-400' 
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -296,6 +300,11 @@ export function EngineArchitectureView() {
           })}
         </div>
       </div>
+
+      {/* TAB: GO-RUST IPC BRIDGE & REGEX EXTRACTION PIPELINE (STAGE 3) */}
+      {activeTab === 'regex_ipc' && (
+        <RegexIpcBridgeView />
+      )}
 
       {/* TAB: RUST STORAGE ENGINE TELEMETRY PANEL */}
       {activeTab === 'storage_telemetry' && (

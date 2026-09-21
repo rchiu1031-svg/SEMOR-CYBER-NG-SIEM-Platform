@@ -52,6 +52,7 @@ export default function DecoderView({ isReadOnly = false }: { isReadOnly?: boole
 
   // AI & Parsing State
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [isDeployingToRust, setIsDeployingToRust] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Custom Decoders stored in LocalStorage
@@ -344,6 +345,36 @@ ${logInput.trim()}`;
     showToast('已重設工作區', 'info');
   };
 
+  // Deploy Extracted Regex Rules down to Rust Storage Core over Unix Domain Socket
+  const handleDeployToRustPipeline = async () => {
+    if (analyzedFields.length === 0) {
+      showToast('目前沒有可下發之正則欄位規則', 'error');
+      return;
+    }
+    try {
+      setIsDeployingToRust(true);
+      const res = await fetch('/api/engine/decoders/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decoderId: `dec-${activeDecoderName.replace(/\s+/g, '-').toLowerCase()}`,
+          decoderName: activeDecoderName,
+          rules: analyzedFields
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(`已透過 UDS (${data.ipcBridge?.socketPath || '/tmp/semor_rust.sock'}) 成功下發 ${data.rulesCount} 組 Regex 規則至 Rust 儲存核心！`, 'success');
+      } else {
+        showToast('下發規則至 Rust 引擎失敗', 'error');
+      }
+    } catch (e: any) {
+      showToast(`下發錯誤: ${e.message}`, 'error');
+    } finally {
+      setIsDeployingToRust(false);
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1750px] mx-auto min-h-screen text-gray-100">
       {/* Toast Notification */}
@@ -404,6 +435,8 @@ ${logInput.trim()}`;
             onRemoveField={handleRemoveField}
             onAddField={handleAddField}
             onSaveDecoder={handleSaveDecoder}
+            onDeployToRust={handleDeployToRustPipeline}
+            isDeployingToRust={isDeployingToRust}
             isReadOnly={isReadOnly}
             sampleLog={logInput}
           />

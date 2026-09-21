@@ -7,15 +7,17 @@ use tracing_subscriber::FmtSubscriber;
 mod block;
 mod bloom;
 mod ipc_server;
+mod regex_pipeline;
 mod storage;
 mod stream;
 
 use ipc_server::IpcServer;
+use regex_pipeline::RegexParserPipeline;
 use storage::VictoriaStorageEngine;
 use stream::StreamManager;
 
 const APP_NAME: &str = "SEMOR VictoriaLogs Storage Core (Rust Engine)";
-const APP_VERSION: &str = "v1.0.0-Block-Engine";
+const APP_VERSION: &str = "v1.0.0-Block-Engine (Stage 3: Regex & UDS)";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,6 +31,7 @@ async fn main() -> Result<()> {
     println!("   {}", APP_NAME);
     println!("   壓縮引擎: VictoriaLogs Block + Delta-of-Delta + ZSTD");
     println!("   儲存分區結構: /data/{{stream_id}}/{{part_id}}.block");
+    println!("   解析管線: Go-Rust UDS IPC 橋接 + Regex 提取與 ECS 標準化");
     println!("   版本: {}", APP_VERSION);
     println!("========================================================");
 
@@ -36,16 +39,19 @@ async fn main() -> Result<()> {
     let uds_path = std::env::var("RUST_UDS_PATH").unwrap_or_else(|_| "/tmp/semor_rust.sock".to_string());
     let tcp_addr = std::env::var("RUST_TCP_ADDR").unwrap_or_else(|_| "127.0.0.1:9527".to_string());
 
-    // 2. 初始化 Stream 管理器與儲存引擎
+    // 2. 初始化 Stream 管理器、儲存引擎與 Regex 解析管線
     let stream_mgr = Arc::new(StreamManager::new());
     let storage = Arc::new(VictoriaStorageEngine::open(&data_dir, stream_mgr.clone())?);
+    let regex_pipeline = Arc::new(RegexParserPipeline::new(&uds_path));
 
     info!("儲存引擎分區結構就緒: {}/{{stream_id}}/{{part_id}}.block", data_dir);
+    info!("Regex 解析與 ECS 標準化管線已啟動，監聽 UDS Socket: {}", uds_path);
 
     // 3. 建立 IPC 服務實例
     let ipc = Arc::new(IpcServer::new(
         storage.clone(),
         stream_mgr.clone(),
+        regex_pipeline.clone(),
         &uds_path,
         &tcp_addr,
     ));

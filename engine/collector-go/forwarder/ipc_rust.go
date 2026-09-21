@@ -91,6 +91,36 @@ func (f *RustIPCForwarder) SendBatch(batch *pipeline.LogBatch) error {
 	return nil
 }
 
+// DeployRules 將來自前台標註的 Regex 規則以 JSON 下發至 Rust 儲存核心
+func (f *RustIPCForwarder) DeployRules(rawRulesJSON []byte) error {
+	if len(rawRulesJSON) == 0 {
+		return nil
+	}
+
+	payload := make([]byte, len(rawRulesJSON)+1)
+	copy(payload, rawRulesJSON)
+	payload[len(rawRulesJSON)] = '\n' // 換行符分隔 Frame
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if !f.isConnected || f.conn == nil {
+		if err := f.reconnectLocked(); err != nil {
+			return fmt.Errorf("無法建立 UDS 連線以部署 Regex 規則: %w", err)
+		}
+	}
+
+	_ = f.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	_, err := f.conn.Write(payload)
+	if err != nil {
+		f.isConnected = false
+		_ = f.conn.Close()
+		return fmt.Errorf("透過 UDS 下發 Regex 規則失敗: %w", err)
+	}
+
+	return nil
+}
+
 func (f *RustIPCForwarder) reconnectLocked() error {
 	var conn net.Conn
 	var err error

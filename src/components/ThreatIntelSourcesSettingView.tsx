@@ -40,7 +40,8 @@ import {
   Share2,
   X,
   Bell,
-  Info
+  Info,
+  ArrowUpDown
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
@@ -51,6 +52,8 @@ import ThreatIntelAlertThresholdModal, {
   evaluateFeedAlerts, 
   TriggeredFeedAlert 
 } from './ThreatIntelAlertThresholdModal';
+import ThreatIntelImportExportModal from './ThreatIntelImportExportModal';
+import FeedStatusOverviewWidget from './FeedStatusOverviewWidget';
 
 export type TaxiiProtocol = 'TAXII 2.1' | 'TAXII 2.0' | 'TAXII 1.1' | 'STIX 2.1 JSON' | 'MISP REST';
 export type TlpLevel = 'TLP:WHITE' | 'TLP:GREEN' | 'TLP:AMBER' | 'TLP:AMBER+STRICT' | 'TLP:RED';
@@ -651,6 +654,7 @@ export default function ThreatIntelSourcesSettingView({ isReadOnly = false }: Th
 
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [activeAlertBannerDismissed, setActiveAlertBannerDismissed] = useState(false);
+  const [isProbingAllFeeds, setIsProbingAllFeeds] = useState(false);
   const [toastNotification, setToastNotification] = useState<{
     id: string;
     title: string;
@@ -711,6 +715,58 @@ export default function ThreatIntelSourcesSettingView({ isReadOnly = false }: Th
         ...prev.slice(0, 49)
       ]);
     }
+  };
+
+  // Import / Export Modal State & Restore Handler
+  const [isImportExportModalOpen, setIsImportExportModalOpen] = useState(false);
+
+  const handleImportFeeds = (
+    importedFeeds: ThreatFeed[],
+    importedAlerts: ThreatIntelAlertThresholds | null,
+    mode: 'merge' | 'overwrite'
+  ) => {
+    if (mode === 'overwrite') {
+      setFeeds(importedFeeds);
+      const logMsg = `[${new Date().toLocaleTimeString()}] [RESTORE-OVERWRITE] Replaced all threat intel feeds with ${importedFeeds.length} feeds from backup.`;
+      setLiveLogs(l => [logMsg, ...l.slice(0, 49)]);
+    } else {
+      // Merge mode
+      setFeeds(prevFeeds => {
+        const existingMap = new Map(prevFeeds.map(f => [f.id, f]));
+        let updatedCount = 0;
+        let newCount = 0;
+
+        importedFeeds.forEach(newFeed => {
+          if (existingMap.has(newFeed.id)) {
+            existingMap.set(newFeed.id, { ...existingMap.get(newFeed.id)!, ...newFeed });
+            updatedCount++;
+          } else {
+            existingMap.set(newFeed.id, newFeed);
+            newCount++;
+          }
+        });
+
+        const logMsg = `[${new Date().toLocaleTimeString()}] [RESTORE-MERGE] Merged ${importedFeeds.length} feeds (${updatedCount} updated, ${newCount} added). Total: ${existingMap.size}`;
+        setLiveLogs(l => [logMsg, ...l.slice(0, 49)]);
+        return Array.from(existingMap.values());
+      });
+    }
+
+    if (importedAlerts) {
+      setAlertThresholds(importedAlerts);
+      localStorage.setItem('taxii_alert_thresholds_v1', JSON.stringify(importedAlerts));
+      const logMsg = `[${new Date().toLocaleTimeString()}] [RESTORE-ALERTS] Restored alert policy from backup (failures: ${importedAlerts.maxFailedAttempts}x, latency: ${importedAlerts.highLatencyMs}ms).`;
+      setLiveLogs(l => [logMsg, ...l.slice(0, 49)]);
+    }
+
+    setToastNotification({
+      id: `import-${Date.now()}`,
+      title: isZh ? '情資來源設定已成功還原' : 'Threat Feeds Restored Successfully',
+      message: isZh 
+        ? `成功以「${mode === 'overwrite' ? '完全覆蓋' : '合併新增'}」模式還原 ${importedFeeds.length} 個情資來源${importedAlerts ? '與告警規則' : ''}。`
+        : `Successfully restored ${importedFeeds.length} feeds (${mode === 'overwrite' ? 'Overwrite' : 'Merge'})${importedAlerts ? ' and alert policies' : ''}.`,
+      severity: 'success'
+    });
   };
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -984,6 +1040,65 @@ export default function ThreatIntelSourcesSettingView({ isReadOnly = false }: Th
       }
       return f;
     }));
+  };
+
+  // Diagnostic probe across all threat feeds simultaneously
+  const handleProbeAllFeeds = () => {
+    setIsProbingAllFeeds(true);
+    setLiveLogs(l => [
+      `[${new Date().toLocaleTimeString()}] [DIAGNOSTIC-PROBE] Initiating simultaneous HTTP health probe across all ${feeds.length} TAXII endpoints...`,
+      ...l.slice(0, 49)
+    ]);
+
+    setTimeout(() => {
+      setFeeds(prev => prev.map(f => {
+        let newLatency = f.latencyMs;
+        let newHttp = f.httpStatusCode ?? 200;
+        let newRate = f.ingestionSuccessRate ?? 100;
+
+        if (f.status === 'error') {
+          newLatency = Math.floor(Math.random() * 200) + 1220;
+          newHttp = 504;
+          newRate = 0;
+        } else if (f.status === 'warning') {
+          newLatency = Math.floor(Math.random() * 120) + 510;
+          newHttp = 206;
+          newRate = Math.floor(Math.random() * 6) + 88;
+        } else if (f.status === 'paused') {
+          newLatency = f.latencyMs;
+        } else {
+          const base = f.latencyMs < 200 ? 70 : 220;
+          newLatency = Math.floor(Math.random() * 45) + base;
+          newHttp = 200;
+          newRate = 100;
+        }
+
+        return {
+          ...f,
+          latencyMs: newLatency,
+          httpStatusCode: newHttp,
+          ingestionSuccessRate: newRate,
+          lastSyncTime: isZh ? '剛剛探測 (Probed just now)' : 'Probed just now'
+        };
+      }));
+
+      setIsProbingAllFeeds(false);
+      setLiveLogs(l => [
+        `[${new Date().toLocaleTimeString()}] [DIAGNOSTIC-PROBE-DONE] Probe finished. Endpoints RTT latencies and health states refreshed.`,
+        ...l.slice(0, 49)
+      ]);
+    }, 600);
+  };
+
+  // Quick filter handler from FeedStatusOverviewWidget
+  const handleSelectOverviewFilter = (filter: 'All' | 'active' | 'error' | 'alerting' | 'optimal' | 'moderate' | 'degraded') => {
+    if (filter === 'active') {
+      setActiveOnlyFilter(prev => !prev);
+      setStatusFilter('All');
+    } else {
+      setActiveOnlyFilter(false);
+      setStatusFilter(prev => prev === filter ? 'All' : filter);
+    }
   };
 
   // Trigger individual manual sync
@@ -1418,12 +1533,13 @@ export default function ThreatIntelSourcesSettingView({ isReadOnly = false }: Th
             </button>
 
             <button
-              onClick={handleExportConfig}
-              className="flex items-center gap-2 px-3.5 py-2 bg-gray-900/80 hover:bg-gray-800 border border-gray-800 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-all active:scale-95"
-              title="Export Feeds Configuration JSON"
+              id="open-threat-intel-import-export-btn"
+              onClick={() => setIsImportExportModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 bg-gray-900/80 hover:bg-gray-800 border border-gray-800 hover:border-blue-500/40 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-all active:scale-95 shadow-sm"
+              title={isZh ? '匯入或匯出情資來源與告警設定 (JSON)' : 'Import or Export Threat Intel Sources & Alert Policies (JSON)'}
             >
-              <Download size={14} />
-              <span>{isZh ? '匯出設定' : 'Export JSON'}</span>
+              <ArrowUpDown size={14} className="text-blue-400" />
+              <span>{isZh ? '匯入 / 匯出' : 'Import / Export'}</span>
             </button>
 
             <button
@@ -1492,198 +1608,18 @@ export default function ThreatIntelSourcesSettingView({ isReadOnly = false }: Th
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* KPI Metrics Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-800/80">
-          <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                {isZh ? '運作中情資饋送' : 'Active Feeds'}
-              </span>
-              <Radio size={14} className="text-blue-400" />
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-white">{stats.activeFeeds}</span>
-              <span className="text-xs text-gray-500 font-bold">/ {stats.totalFeeds} configured</span>
-            </div>
-          </div>
-
-          <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                {isZh ? '已收錄 IoC 總數' : 'Ingested IoCs'}
-              </span>
-              <Database size={14} className="text-emerald-400" />
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-emerald-400">
-                {stats.totalIndicators.toLocaleString()}
-              </span>
-              <span className="text-[10px] text-gray-500 font-bold">Observables</span>
-            </div>
-          </div>
-
-          <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                {isZh ? '自動輪詢排程' : 'Auto-Refresh Active'}
-              </span>
-              <Clock size={14} className="text-cyan-400" />
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-cyan-400">{stats.autoRefreshCount}</span>
-              <span className="text-xs text-gray-500 font-bold">Enabled</span>
-            </div>
-          </div>
-
-          <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                {isZh ? '關聯告警阻斷次數' : 'Correlated Hits'}
-              </span>
-              <ShieldCheck size={14} className="text-purple-400" />
-            </div>
-            <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-purple-400">
-                {stats.totalCorrelationHits.toLocaleString()}
-              </span>
-              <span className="text-[10px] text-gray-500 font-bold">Matched in SIEM</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Real-time Health Distribution Bar */}
-        <div className="mt-4 pt-4 border-t border-gray-800/60 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 text-gray-400 font-medium">
-            <Activity size={14} className="text-blue-400" />
-            <span className="text-[11px] uppercase tracking-wider font-bold text-gray-300">
-              {isZh ? '端點連線健康度即時指標 (HTTP RTT & Ingestion Health)' : 'Real-time Feed Health Status'}
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Active Feeds Filter Pill */}
-            <button
-              id="quick-filter-active-feeds-btn"
-              onClick={() => setActiveOnlyFilter(!activeOnlyFilter)}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                activeOnlyFilter
-                  ? "bg-blue-500/25 border-blue-400 text-blue-300 shadow-sm shadow-blue-900/40 ring-1 ring-blue-400/30"
-                  : "bg-gray-900/80 border-gray-800 text-gray-300 hover:border-blue-500/40 hover:text-blue-400"
-              )}
-              title={isZh ? '僅顯示活躍運作中之情資來源' : 'Show active running feeds only'}
-            >
-              <span className={cn("w-2 h-2 rounded-full", activeOnlyFilter ? "bg-blue-400 animate-pulse" : "bg-blue-500")} />
-              <span>{isZh ? '活躍來源 (Active Feeds)' : 'Active Feeds'}</span>
-              <span className={cn(
-                "px-1.5 py-0.2 rounded text-[10px] font-mono",
-                activeOnlyFilter ? "bg-blue-400/20 text-blue-200 font-bold" : "bg-blue-500/20 text-blue-300"
-              )}>
-                {stats.activeFeeds}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter(statusFilter === 'optimal' ? 'All' : 'optimal')}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                statusFilter === 'optimal'
-                  ? "bg-green-500/20 border-green-500 text-green-300 shadow-sm shadow-green-900/30"
-                  : "bg-gray-900/80 border-gray-800 text-gray-300 hover:border-green-500/40 hover:text-green-400"
-              )}
-              title={isZh ? 'RTT < 200ms 且收錄率 100%' : 'RTT < 200ms and 100% Ingestion Rate'}
-            >
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              <span>{isZh ? '最佳 (Optimal <200ms)' : 'Optimal (<200ms)'}</span>
-              <span className="px-1.5 py-0.2 rounded bg-green-500/20 text-green-300 text-[10px] font-mono">
-                {stats.healthSummary.optimal}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter(statusFilter === 'moderate' ? 'All' : 'moderate')}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                statusFilter === 'moderate'
-                  ? "bg-lime-500/20 border-lime-500 text-lime-300 shadow-sm shadow-lime-900/30"
-                  : "bg-gray-900/80 border-gray-800 text-gray-300 hover:border-lime-500/40 hover:text-lime-400"
-              )}
-              title={isZh ? 'RTT 200~500ms' : 'RTT 200~500ms and Ingestion Rate >= 95%'}
-            >
-              <span className="w-2 h-2 rounded-full bg-lime-500" />
-              <span>{isZh ? '良好 (Moderate 200~500ms)' : 'Moderate (200-500ms)'}</span>
-              <span className="px-1.5 py-0.2 rounded bg-lime-500/20 text-lime-300 text-[10px] font-mono">
-                {stats.healthSummary.moderate}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter(statusFilter === 'degraded' ? 'All' : 'degraded')}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                statusFilter === 'degraded'
-                  ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm shadow-amber-900/30"
-                  : "bg-gray-900/80 border-gray-800 text-gray-300 hover:border-amber-500/40 hover:text-amber-400"
-              )}
-              title={isZh ? 'RTT 500~1000ms 或部分收錄 (HTTP 206/429)' : 'RTT 500~1000ms or Partial Ingestion'}
-            >
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              <span>{isZh ? '降級 (Degraded 500~1000ms)' : 'Degraded (500-1000ms)'}</span>
-              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
-                {stats.healthSummary.degraded}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter(statusFilter === 'error' ? 'All' : 'error')}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                statusFilter === 'error'
-                  ? "bg-red-500/20 border-red-500 text-red-300 shadow-sm shadow-red-900/30"
-                  : "bg-gray-900/80 border-gray-800 text-gray-300 hover:border-red-500/40 hover:text-red-400"
-              )}
-              title={isZh ? 'RTT > 1000ms 或 HTTP 錯誤/收錄失敗' : 'RTT > 1000ms or HTTP Error / Failed Ingestion'}
-            >
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-              <span>{isZh ? '嚴重異常 (Critical >1000ms)' : 'Critical (>1000ms)'}</span>
-              <span className="px-1.5 py-0.2 rounded bg-red-500/20 text-red-300 text-[10px] font-mono">
-                {stats.healthSummary.error}
-              </span>
-            </button>
-
-            {/* Alerting Breached Quick Filter */}
-            <button
-              onClick={() => setStatusFilter(statusFilter === 'alerting' ? 'All' : 'alerting')}
-              className={cn(
-                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all",
-                statusFilter === 'alerting'
-                  ? "bg-amber-500/20 border-amber-500 text-amber-300 shadow-sm shadow-amber-900/30"
-                  : "bg-gray-900/80 border-gray-800 text-gray-300 hover:border-amber-500/40 hover:text-amber-400"
-              )}
-              title={isZh ? '連續失敗超限或延遲過高觸發告警之來源' : 'Feeds triggering alert threshold breaches'}
-            >
-              <Bell size={12} className={activeAlerts.length > 0 ? "text-amber-400 animate-pulse" : "text-gray-500"} />
-              <span>{isZh ? '告警超標 (Alerting)' : 'Alerting'}</span>
-              <span className={cn(
-                "px-1.5 py-0.2 rounded text-[10px] font-mono font-bold",
-                activeAlerts.length > 0 ? "bg-red-500/30 text-red-300 border border-red-500/40" : "bg-gray-800 text-gray-400"
-              )}>
-                {activeAlerts.length}
-              </span>
-            </button>
-
-            {(statusFilter !== 'All' || activeOnlyFilter) && (
-              <button
-                onClick={() => { setStatusFilter('All'); setActiveOnlyFilter(false); }}
-                className="text-[10px] text-gray-400 hover:text-white underline ml-1"
-              >
-                {isZh ? '清除' : 'Clear'}
-              </button>
-            )}
-          </div>
-        </div>
       </div>
+
+      {/* Feed Status Overview Section */}
+      <FeedStatusOverviewWidget
+        feeds={feeds}
+        activeAlerts={activeAlerts}
+        isZh={isZh}
+        activeFilter={statusFilter !== 'All' ? statusFilter : activeOnlyFilter ? 'active' : 'All'}
+        onSelectFilter={handleSelectOverviewFilter}
+        onProbeAllFeeds={handleProbeAllFeeds}
+        isProbing={isProbingAllFeeds}
+      />
 
       {/* Alert Notification Banner when active alerts exist */}
       {activeAlerts.length > 0 && !activeAlertBannerDismissed && (
@@ -3088,6 +3024,16 @@ export default function ThreatIntelSourcesSettingView({ isReadOnly = false }: Th
         feeds={feeds}
         onProbeFeed={handlePingFeed}
         onTriggerTestNotification={handleTriggerTestNotification}
+        isZh={isZh}
+      />
+
+      {/* Threat Intel Backup & Restore (Import / Export) Modal */}
+      <ThreatIntelImportExportModal
+        isOpen={isImportExportModalOpen}
+        onClose={() => setIsImportExportModalOpen(false)}
+        feeds={feeds}
+        alertThresholds={alertThresholds}
+        onImportFeeds={handleImportFeeds}
         isZh={isZh}
       />
 

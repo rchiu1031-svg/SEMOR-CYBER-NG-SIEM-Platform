@@ -14,7 +14,8 @@ import {
   AlertCircle,
   HelpCircle,
   Tag,
-  Code
+  Code,
+  Send
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../lib/utils';
@@ -27,6 +28,8 @@ interface NormalizedFieldsManagerProps {
   onRemoveField: (id: string) => void;
   onAddField: (field: ExtractedField) => void;
   onSaveDecoder: (meta: { name: string; brand: string; version: string; description: string }) => void;
+  onDeployToRust?: () => void;
+  isDeployingToRust?: boolean;
   isReadOnly?: boolean;
   sampleLog: string;
 }
@@ -37,6 +40,8 @@ export const NormalizedFieldsManager: React.FC<NormalizedFieldsManagerProps> = (
   onRemoveField,
   onAddField,
   onSaveDecoder,
+  onDeployToRust,
+  isDeployingToRust = false,
   isReadOnly = false,
   sampleLog
 }) => {
@@ -173,7 +178,20 @@ export const NormalizedFieldsManager: React.FC<NormalizedFieldsManagerProps> = (
           />
         </div>
 
-        <div className="flex justify-end pt-1">
+        <div className="flex items-center justify-end gap-3 pt-1 flex-wrap">
+          {onDeployToRust && (
+            <button
+              type="button"
+              onClick={onDeployToRust}
+              disabled={isReadOnly || isDeployingToRust || analyzedFields.length === 0}
+              className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-cyan-900/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              title="透過 Unix Domain Socket (/tmp/semor_rust.sock) 將當前 Regex 標註規則即時下發至 Rust 儲存核心"
+            >
+              <Send size={14} className={isDeployingToRust ? "animate-spin" : ""} />
+              <span>{isDeployingToRust ? '下發中...' : '即時下發至 Rust 核心 (UDS Deploy)'}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {

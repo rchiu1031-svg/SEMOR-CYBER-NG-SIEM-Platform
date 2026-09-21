@@ -2123,6 +2123,31 @@ func (e *ReceiverEngine) sendToRustEngine(batch *RustLogBatch) {
 	}
 }
 
+// deployRulesToRust 將前台標註的 Regex 規則以 JSON 格式透過 Unix Domain Socket 串接下發至 Rust
+func (e *ReceiverEngine) deployRulesToRust(rawRules []byte) error {
+	if len(rawRules) == 0 {
+		return nil
+	}
+	payload := make([]byte, len(rawRules)+1)
+	copy(payload, rawRules)
+	payload[len(rawRules)] = '\n'
+
+	e.rustMu.Lock()
+	defer e.rustMu.Unlock()
+
+	if !e.isRustConn || e.rustConn == nil {
+		return fmt.Errorf("Rust 儲存核心 UDS (%s) 尚未連線，無法下發正則規則", e.cfg.RustUDSPath)
+	}
+
+	_ = e.rustConn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := e.rustConn.Write(payload); err != nil {
+		e.isRustConn = false
+		_ = e.rustConn.Close()
+		return fmt.Errorf("寫入 UDS 下發規則失敗: %w", err)
+	}
+	return nil
+}
+
 func (e *ReceiverEngine) runRustIPCManager(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -2475,6 +2500,35 @@ func (e *ReceiverEngine) startHTTPServer() {
 			logsDispatched,
 		)
 		_, _ = w.Write([]byte(output))
+	})
+
+	// 動態下發 Regex 規則經由 Unix Domain Socket 串接至 Rust 儲存核心 (/api/v1/rules/deploy)
+	mux.HandleFunc("/api/v1/rules/deploy", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		if err := e.deployRulesToRust(body); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"target":      "Rust Storage Engine (UDS: " + e.cfg.RustUDSPath + ")",
+			"deployed_at": time.Now().Format(time.RFC3339Nano),
+		})
 	})
 
 	server := &http.Server{

@@ -7,6 +7,7 @@ use tokio::net::{TcpListener, UnixListener};
 use tracing::{error, info};
 
 use crate::block::BlockBuilder;
+use crate::regex_pipeline::RegexParserPipeline;
 use crate::storage::VictoriaStorageEngine;
 use crate::stream::StreamManager;
 
@@ -26,6 +27,7 @@ struct InboundEntry {
 pub struct IpcServer {
     storage: Arc<VictoriaStorageEngine>,
     stream_mgr: Arc<StreamManager>,
+    regex_pipeline: Arc<RegexParserPipeline>,
     uds_path: String,
     tcp_addr: String,
 }
@@ -34,15 +36,22 @@ impl IpcServer {
     pub fn new(
         storage: Arc<VictoriaStorageEngine>,
         stream_mgr: Arc<StreamManager>,
+        regex_pipeline: Arc<RegexParserPipeline>,
         uds_path: &str,
         tcp_addr: &str,
     ) -> Self {
         IpcServer {
             storage,
             stream_mgr,
+            regex_pipeline,
             uds_path: uds_path.to_string(),
             tcp_addr: tcp_addr.to_string(),
         }
+    }
+
+    /// 取得綁定之 Regex 解析管線實例
+    pub fn regex_pipeline(&self) -> Arc<RegexParserPipeline> {
+        self.regex_pipeline.clone()
     }
 
     /// 啟動 UDS (Unix Domain Socket) 監聽
@@ -53,19 +62,20 @@ impl IpcServer {
         }
 
         let listener = UnixListener::bind(path)?;
-        info!("[Rust 儲存核心] UDS IPC 監聽就緒: {}", self.uds_path);
+        info!("[Rust 儲存核心] UDS IPC 監聽就緒 (AF_UNIX): {}", self.uds_path);
 
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let storage = self.storage.clone();
                     let stream_mgr = self.stream_mgr.clone();
+                    let pipeline = self.regex_pipeline.clone();
                     tokio::spawn(async move {
                         let (reader, _) = stream.into_split();
                         let mut lines = BufReader::new(reader).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr) {
-                                error!("處理 UDS 批次日誌失敗: {:?}", e);
+                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline) {
+                                error!("處理 UDS 批次日誌或規則下發失敗: {:?}", e);
                             }
                         }
                     });
@@ -86,12 +96,13 @@ impl IpcServer {
                     info!("接受來自 Go 收集器 TCP 連線: {}", addr);
                     let storage = self.storage.clone();
                     let stream_mgr = self.stream_mgr.clone();
+                    let pipeline = self.regex_pipeline.clone();
                     tokio::spawn(async move {
                         let (reader, _) = stream.into_split();
                         let mut lines = BufReader::new(reader).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr) {
-                                error!("處理 TCP 批次日誌失敗: {:?}", e);
+                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline) {
+                                error!("處理 TCP 批次日誌或規則下發失敗: {:?}", e);
                             }
                         }
                     });
@@ -105,12 +116,31 @@ impl IpcServer {
         line: &str,
         storage: &Arc<VictoriaStorageEngine>,
         stream_mgr: &Arc<StreamManager>,
+        regex_pipeline: &Arc<RegexParserPipeline>,
     ) -> Result<()> {
-        if line.trim().is_empty() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             return Ok(());
         }
 
-        let batch: InboundBatch = serde_json::from_str(line)?;
+        // 1. 識別是否為前台或 Go Receiver 下發之動態 Regex 解碼規則集
+        if trimmed.contains("\"command\"") && trimmed.contains("DEPLOY_RULES")
+            || trimmed.contains("\"rules\"") && trimmed.contains("\"regex\"")
+        {
+            match regex_pipeline.deploy_rules_json(trimmed) {
+                Ok(count) => {
+                    info!("[Rust IPC] 透過 UDS 成功熱佈署 {} 組 Regex 正則解析規則！", count);
+                    return Ok(());
+                }
+                Err(err) => {
+                    error!("[Rust IPC] 熱佈署 Regex 規則解析失敗: {:?}", err);
+                    return Err(err);
+                }
+            }
+        }
+
+        // 2. 正常日誌串流處理：反序列化為 InboundBatch
+        let batch: InboundBatch = serde_json::from_str(trimmed)?;
         let stream_id = if let Some(labels) = &batch.stream_labels {
             stream_mgr.get_or_create_stream_id(labels)
         } else {
@@ -123,7 +153,21 @@ impl IpcServer {
         let mut builder = BlockBuilder::new(stream_id, &active_part_tag, block_seq, 4096, 2 * 1024 * 1024);
 
         for entry in batch.entries {
+            // 執行 Rust Regex 提取與 ECS 標準化管線
+            let extraction = regex_pipeline.extract_and_normalize(&entry.raw_msg);
+
+            // 將原始日誌連同時間戳寫入 BlockBuilder
             builder.add_row(entry.timestamp, &entry.raw_msg);
+
+            // 同時將提取出的標準化數值 (如 IP, Port, Action 等) 注入該 Block 之 Bloom Filter
+            for field in extraction.extracted_fields {
+                builder.bloom_filter.insert(&field.name);
+                builder.bloom_filter.insert(&field.raw_value);
+                if let Some(ecs) = field.ecs_key {
+                    builder.bloom_filter.insert(&ecs);
+                }
+            }
+
             if builder.is_full() {
                 // 當前 Block 滿載，立即寫入磁碟並開啟新 Block
                 let block = builder.build()?;
@@ -141,3 +185,4 @@ impl IpcServer {
         Ok(())
     }
 }
+
