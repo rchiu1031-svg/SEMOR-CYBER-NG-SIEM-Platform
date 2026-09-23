@@ -837,7 +837,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.text({ type: ['text/*', 'application/x-ndjson', 'application/json-lines'], limit: '20mb' }));
+  app.use(express.json({ limit: '20mb' }));
 
   // Auth APIs
   app.post('/api/auth/login', (req, res) => {
@@ -1667,8 +1668,591 @@ async function startServer() {
     });
   });
 
+  // ==========================================
+  // Persistent SIEM Log Storage & Ingestion Pipeline Engine
+  // ==========================================
+  const RUNTIME_LOGS_PATH = path.join(process.cwd(), 'runtime_logs.json');
+
+  const initialLogsCorpus = [
+    {
+      id: "VL-LOG-9001",
+      "@timestamp": new Date(Date.now() - 42000).toISOString(),
+      _stream: "firewall",
+      source: "FortiGate-60F",
+      event: "Firewall Drop Event",
+      event_type: "firewall_drop",
+      severity: "Critical",
+      src_ip: "10.88.14.92",
+      dst_ip: "192.168.1.100",
+      src_port: 54120,
+      dst_port: 445,
+      proto: "TCP",
+      action: "deny",
+      user: "SYSTEM",
+      host: "dc01.corp.internal",
+      process: "smb_service",
+      file: "ntoskrnl.exe",
+      hash_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      cve_id: "CVE-2017-0144",
+      geo_country: "Internal",
+      response_code: 403,
+      latency_ms: 1.2,
+      full_log: 'date=2026-09-22 time=12:25:31 devname="FG60F-HQ" devid="FGT60FTK21000000" logid="0000000013" type="traffic" subtype="forward" level="warning" vd="root" srcip=10.88.14.92 srcport=54120 srcintf="port2" dstip=192.168.1.100 dstport=445 dstintf="port1" sessionid=10928 policyid=4 proto=6 action="deny" policytype="policy" poluuid="2cfc" service="SMB" trandisp="noop" duration=0 sentbyte=0 rcvdbyte=0 crscore=50 craction=131072 crlevel="high" msg="SMB access violation blocked"',
+      mitre_technique: "T1210 - Exploitation of Remote Services",
+      mitre_tactic: "Lateral Movement",
+      ai_analysis: "偵測到疑似 EternalBlue SMB 惡意探測，來源主機嘗試對網域控制站 (DC01) 445 埠發起未授權攻擊，防火牆已成功阻擋。"
+    },
+    {
+      id: "VL-LOG-9002",
+      "@timestamp": new Date(Date.now() - 115000).toISOString(),
+      _stream: "security_events",
+      source: "Active Directory DC-01",
+      event: "An account failed to log on",
+      event_type: "auth_failure",
+      severity: "High",
+      src_ip: "192.168.1.205",
+      dst_ip: "192.168.1.10",
+      src_port: 60124,
+      dst_port: 88,
+      proto: "TCP",
+      action: "Blocked",
+      user: "administrator",
+      host: "WIN-DC-PROD",
+      process: "lsass.exe",
+      file: "kerberos.dll",
+      hash_sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      cve_id: "N/A",
+      geo_country: "Internal",
+      response_code: 401,
+      latency_ms: 3.5,
+      full_log: '<13>Sep 22 12:24:18 WIN-DC-PROD Microsoft-Windows-Security-Auditing[4625]: An account failed to log on. Subject: Security ID: S-1-0-0 Account Name: - Logon Type: 3 Account For Which Logon Failed: Security ID: S-1-0-0 Account Name: administrator Failure Information: Failure Reason: Unknown user name or bad password. Status: 0xC000006D Sub Status: 0xC000006A Network Information: Workstation Name: WORKSTATION-PC Source Network Address: 192.168.1.205 Source Port: 60124 Process Information: Caller Process ID: 0x2b4 Caller Process Name: C:\\Windows\\System32\\lsass.exe',
+      mitre_technique: "T1110 - Brute Force",
+      mitre_tactic: "Credential Access",
+      ai_analysis: "連續多次使用 administrator 權限嘗試透過 Kerberos 驗證失敗，符合密碼暴力破解與密碼噴灑 (Password Spraying) 模式。"
+    },
+    {
+      id: "VL-LOG-9003",
+      "@timestamp": new Date(Date.now() - 198000).toISOString(),
+      _stream: "edr",
+      source: "CrowdStrike Falcon",
+      event: "Credential Dumping Activity",
+      event_type: "credential_dumping",
+      severity: "Critical",
+      src_ip: "10.0.4.15",
+      dst_ip: "10.0.4.15",
+      src_port: 0,
+      dst_port: 0,
+      proto: "LOCAL",
+      action: "Blocked",
+      user: "victim_user",
+      host: "FINANCE-PC03",
+      process: "mimikatz.exe",
+      file: "mimidrv.sys",
+      hash_sha256: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+      cve_id: "N/A",
+      geo_country: "Internal",
+      response_code: 0,
+      latency_ms: 0.8,
+      full_log: '{"event_id": "CS-9092","host": "FINANCE-PC03","process": "mimikatz.exe","parent_process": "powershell.exe","cmdline": "mimikatz.exe privilege::debug sekurlsa::logonpasswords exit","target_process": "lsass.exe","action": "Blocked","technique": "T1003.001","status": "TERMINATED_BY_AGENT"}',
+      mitre_technique: "T1003.001 - LSASS Memory",
+      mitre_tactic: "Credential Access",
+      ai_analysis: "端點防護 EDR 攔截到攻擊者透過 powershell 調用 mimikatz.exe 讀取 LSASS 記憶體憑證，程序已被即時終止。"
+    },
+    {
+      id: "VL-LOG-9004",
+      "@timestamp": new Date(Date.now() - 320000).toISOString(),
+      _stream: "ids",
+      source: "Suricata IDS/IPS",
+      event: "ET SCAN Potential SSH Brute Force",
+      event_type: "ids_alert",
+      severity: "High",
+      src_ip: "45.142.214.88",
+      dst_ip: "172.16.0.22",
+      src_port: 48912,
+      dst_port: 22,
+      proto: "TCP",
+      action: "deny",
+      user: "root",
+      host: "edge-gateway-01",
+      process: "sshd",
+      file: "/var/log/suricata/eve.json",
+      hash_sha256: "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+      cve_id: "N/A",
+      geo_country: "Russia",
+      response_code: 403,
+      latency_ms: 2.1,
+      full_log: '{"timestamp":"2026-09-22T12:20:14.281822+0000","flow_id":9123847291,"in_iface":"eth0","event_type":"alert","src_ip":"45.142.214.88","src_port":48912,"dest_ip":"172.16.0.22","dest_port":22,"proto":"TCP","alert":{"action":"blocked","gid":1,"signature_id":2001219,"rev":19,"signature":"ET SCAN Potential SSH Brute Force","category":"Attempted Information Leak","severity":1}}',
+      mitre_technique: "T1110.001 - Password Guessing",
+      mitre_tactic: "Initial Access",
+      ai_analysis: "Suricata 規則簽章比對命中外部已知惡意 IP 針對 SSH 服務的高頻密碼暴力猜測，邊界防火牆已自動下發黑名單阻擋。"
+    },
+    {
+      id: "VL-LOG-9005",
+      "@timestamp": new Date(Date.now() - 480000).toISOString(),
+      _stream: "firewall",
+      source: "Palo Alto NGFW",
+      event: "DNS Tunneling Command & Control Detected",
+      event_type: "c2_beacon",
+      severity: "Critical",
+      src_ip: "10.0.12.44",
+      dst_ip: "8.8.8.8",
+      src_port: 53112,
+      dst_port: 53,
+      proto: "UDP",
+      action: "deny",
+      user: "eng_chen",
+      host: "DEV-MAC-BOOK-12",
+      process: "nslookup",
+      file: "resolv.conf",
+      hash_sha256: "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
+      cve_id: "N/A",
+      geo_country: "United States",
+      response_code: 503,
+      latency_ms: 1.8,
+      full_log: '1,2026/09/22 12:17:34,001801000000,THREAT,dns,1,2026/09/22 12:17:34,10.0.12.44,8.8.8.8,0.0.0.0,0.0.0.0,Trust-Untrust,,,dns,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,log-forwarding,2026/09/22 12:17:34,81290,1,53112,53,0,0,0x0,udp,drop,"w4b8e2190f.attacker-c2-domain.com",Command and Control(109000001),any,informational,client-to-server,981290,0x0,10.0.0.0-10.255.255.255,United States,0,1,0',
+      mitre_technique: "T1071.004 - DNS",
+      mitre_tactic: "Command and Control",
+      ai_analysis: "Palo Alto NGFW 發現異常長度的子域名請求特徵，判定為利用 DNS 隧道作為 C2 通道進行資料回傳，已及時丟棄連線封包。"
+    },
+    {
+      id: "VL-LOG-9006",
+      "@timestamp": new Date(Date.now() - 610000).toISOString(),
+      _stream: "web",
+      source: "NGINX WAF Ingress",
+      event: "SQL Injection Probe Blocked",
+      event_type: "sqli_probe",
+      severity: "High",
+      src_ip: "185.220.101.5",
+      dst_ip: "10.0.1.50",
+      src_port: 43219,
+      dst_port: 443,
+      proto: "TCP",
+      action: "Blocked",
+      user: "anonymous",
+      host: "k8s-ingress-prod",
+      process: "nginx-ingress-controller",
+      file: "/api/v1/users/profile",
+      hash_sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      cve_id: "CWE-89",
+      geo_country: "Netherlands",
+      response_code: 403,
+      latency_ms: 4.8,
+      full_log: '185.220.101.5 - - [22/Sep/2026:12:15:20 +0000] "GET /api/v1/users/profile?id=1%20UNION%20SELECT%20null,username,password_hash%20FROM%20admin-- HTTP/1.1" 403 162 "-" "sqlmap/1.6.12#stable" waf_rule="CRS-942100" waf_action="DENY"',
+      mitre_technique: "T1190 - Exploit Public-Facing Application",
+      mitre_tactic: "Initial Access",
+      ai_analysis: "ModSecurity WAF 偵測到已知 SQL 注入測試工具 (sqlmap) 針對使用者檔案端點發起 UNION SELECT 攻擊，WAF 立即觸發 HTTP 403 阻擋。"
+    },
+    {
+      id: "VL-LOG-9007",
+      "@timestamp": new Date(Date.now() - 780000).toISOString(),
+      _stream: "edr",
+      source: "Microsoft Defender for Endpoint",
+      event: "Ransomware Shadow Copy Deletion Blocked",
+      event_type: "shadow_copy_deletion",
+      severity: "Critical",
+      src_ip: "10.0.2.88",
+      dst_ip: "10.0.2.88",
+      src_port: 0,
+      dst_port: 0,
+      proto: "LOCAL",
+      action: "Blocked",
+      user: "hr_admin",
+      host: "HR-DESKTOP-09",
+      process: "vssadmin.exe",
+      file: "C:\\Windows\\System32\\vssadmin.exe",
+      hash_sha256: "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+      cve_id: "N/A",
+      geo_country: "Internal",
+      response_code: 0,
+      latency_ms: 1.1,
+      full_log: '{"EventTime":"2026-09-22T12:12:44Z","DeviceName":"HR-DESKTOP-09","ActionType":"AntivirusDetection","FileName":"vssadmin.exe","FolderPath":"C:\\\\Windows\\\\System32","ProcessCommandLine":"vssadmin.exe delete shadows /all /quiet","ThreatName":"Behavior:Win32/RansomwareDefenseTampering","AdditionalFields":{"Action":"Blocked","ParentProcess":"cmd.exe"}}',
+      mitre_technique: "T1490 - Inhibit System Recovery",
+      mitre_tactic: "Impact",
+      ai_analysis: "端點攔截到勒索軟體典型的防禦破壞行為 (vssadmin delete shadows /all /quiet)，意圖刪除 Windows 磁碟陰影複製還原點，行為已遭阻止並隔離母行程。"
+    },
+    {
+      id: "VL-LOG-9008",
+      "@timestamp": new Date(Date.now() - 950000).toISOString(),
+      _stream: "firewall",
+      source: "FortiGate-60F",
+      event: "TCP Port Scan Detected",
+      event_type: "port_scan",
+      severity: "Medium",
+      src_ip: "192.168.10.45",
+      dst_ip: "192.168.1.50",
+      src_port: 41200,
+      dst_port: 80,
+      proto: "TCP",
+      action: "deny",
+      user: "guest",
+      host: "BYOD-LAPTOP-X",
+      process: "nmap",
+      file: "libpcap.so",
+      hash_sha256: "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
+      cve_id: "N/A",
+      geo_country: "Internal",
+      response_code: 403,
+      latency_ms: 0.9,
+      full_log: 'date=2026-09-22 time=12:10:02 devname="FG60F-HQ" type="ips" subtype="signature" level="alert" severity="medium" srcip=192.168.10.45 dstip=192.168.1.50 sessionid=49201 proto=6 action="deny" attack="TCP.Port.Scan" msg="IPS: TCP SYN scan over multiple ports detected"',
+      mitre_technique: "T1046 - Network Service Discovery",
+      mitre_tactic: "Discovery",
+      ai_analysis: "訪客無線網路網段之個人設備對辦公核心網段進行橫向 TCP SYN 埠掃描，IPS 防禦模組已即時重設該連線。"
+    }
+  ];
+
+  let runtimeLogCorpus: any[] = [...initialLogsCorpus];
+
+  // Try loading persisted logs
+  try {
+    if (fs.existsSync(RUNTIME_LOGS_PATH)) {
+      const saved = JSON.parse(fs.readFileSync(RUNTIME_LOGS_PATH, 'utf-8'));
+      if (Array.isArray(saved) && saved.length > 0) {
+        runtimeLogCorpus = saved;
+        console.log(`[Storage Engine] Loaded ${saved.length} persistent log records from disk.`);
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage Engine] Failed to load runtime logs from disk:', err);
+  }
+
+  // Core Log Ingestion, Parsing, Enrichment & Normalization Helper
+  function ingestSingleLog(rawLog: string, meta: { protocol?: string; remoteIP?: string; source?: string; stream?: string } = {}) {
+    const raw = String(rawLog || '').trim();
+    if (!raw) return null;
+
+    const protocol = meta.protocol || "Syslog UDP :5140";
+    const remoteIP = meta.remoteIP || "192.168.10.45";
+
+    const facilityNames = [
+      "kernel", "user", "mail", "system", "auth", "syslog", "lpr", "news",
+      "uucp", "clock", "authpriv", "ftp", "ntp", "logaudit", "logalert", "cron",
+      "local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7"
+    ];
+    const severityNames = [
+      "Emergency", "Alert", "Critical", "Error", "Warning", "Notice", "Informational", "Debug"
+    ];
+
+    let messageBody = raw;
+    let eventName = "Ingested Log Record";
+    let eventType = "log_entry";
+    let src_ip = remoteIP;
+    let dst_ip = "10.0.0.1";
+    let src_port = 0;
+    let dst_port = 0;
+    let proto = "TCP";
+    let action = "allow";
+    let severity = "Informational";
+    let user = "system";
+    let host = "collector-gw";
+    let process = "syslog";
+    let file = "N/A";
+    let mitre_technique = "N/A";
+    let mitre_tactic = "N/A";
+    let ai_analysis = "收集器即時解析與規範化之進線事件。";
+
+    // 1. RFC 5424
+    const rfc5424Match = raw.match(/^<(\d{1,3})>([1-9]\d{0,1})\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(?:\[(.*?)\])?\s*(.*)$/);
+    if (rfc5424Match) {
+      const pri = parseInt(rfc5424Match[1], 10);
+      const sevCode = pri % 8;
+      severity = severityNames[sevCode] || "Informational";
+      host = rfc5424Match[4] || host;
+      process = rfc5424Match[5] || process;
+      messageBody = rfc5424Match[9] || "";
+      eventName = `${process} System Event`;
+    } else {
+      // 2. RFC 3164
+      const rfc3164Match = raw.match(/^<(\d{1,3})>([A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:\[\s]+)(?:\[(\d+)\])?:\s*(.*)$/);
+      if (rfc3164Match) {
+        const pri = parseInt(rfc3164Match[1], 10);
+        const sevCode = pri % 8;
+        severity = severityNames[sevCode] || "Informational";
+        host = rfc3164Match[3] || host;
+        process = rfc3164Match[4] || process;
+        messageBody = rfc3164Match[6] || "";
+        eventName = `${process} BSD Log`;
+      }
+    }
+
+    // 3. CEF
+    if (raw.includes("CEF:")) {
+      const cefMatch = raw.match(/CEF:(\d+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)/);
+      if (cefMatch) {
+        host = cefMatch[2] || host;
+        eventName = cefMatch[6] || eventName;
+        messageBody = cefMatch[8] || "";
+      }
+    } else if (raw.startsWith('{') && raw.endsWith('}')) {
+      try {
+        const j = JSON.parse(raw);
+        if (j.src_ip || j.srcip) src_ip = j.src_ip || j.srcip;
+        if (j.dst_ip || j.dstip) dst_ip = j.dst_ip || j.dstip;
+        if (j.user || j.username) user = j.user || j.username;
+        if (j.host || j.hostname) host = j.host || j.hostname;
+        if (j.action) action = j.action;
+        if (j.severity) severity = j.severity;
+        if (j.process) process = j.process;
+        if (j.event || j.name) eventName = j.event || j.name;
+      } catch (e) {}
+    }
+
+    // 4. Key-Value Extraction
+    const kvRegex = /([a-zA-Z0-9_\-\.]+)=("([^"]*)"|'([^']*)'|([^\s",]+))/g;
+    let kvMatch;
+    while ((kvMatch = kvRegex.exec(messageBody || raw)) !== null) {
+      const k = kvMatch[1].toLowerCase();
+      const v = kvMatch[3] !== undefined ? kvMatch[3] : (kvMatch[4] !== undefined ? kvMatch[4] : kvMatch[5]);
+      if (['srcip', 'src_ip', 'src'].includes(k)) src_ip = v;
+      if (['dstip', 'dst_ip', 'dst'].includes(k)) dst_ip = v;
+      if (['srcport', 'src_port', 'spt'].includes(k)) src_port = parseInt(v, 10) || 0;
+      if (['dstport', 'dst_port', 'dpt'].includes(k)) dst_port = parseInt(v, 10) || 0;
+      if (['action', 'act'].includes(k)) action = v;
+      if (['user', 'username', 'usr', 'suser'].includes(k)) user = v;
+      if (['proto', 'protocol'].includes(k)) proto = v.toUpperCase();
+      if (['devname', 'device_name', 'hostname'].includes(k)) host = v;
+      if (['app', 'app_name', 'process'].includes(k)) process = v;
+      if (['msg', 'reason', 'attack'].includes(k)) eventName = v;
+      if (['severity', 'level'].includes(k)) severity = v;
+    }
+
+    // Normalize Severity
+    const sevStr = String(severity).toUpperCase();
+    if (sevStr.includes('CRIT') || sevStr.includes('EMERG') || sevStr.includes('ALERT') || sevStr === '8' || sevStr === '9' || sevStr === '10') {
+      severity = 'Critical';
+    } else if (sevStr.includes('ERR') || sevStr.includes('HIGH') || sevStr === '6' || sevStr === '7') {
+      severity = 'High';
+    } else if (sevStr.includes('WARN') || sevStr.includes('MED') || sevStr === '4' || sevStr === '5') {
+      severity = 'Medium';
+    } else if (sevStr.includes('NOTICE') || sevStr.includes('LOW') || sevStr === '2' || sevStr === '3') {
+      severity = 'Low';
+    } else {
+      severity = 'Informational';
+    }
+
+    // Normalize Action
+    const actStr = String(action).toLowerCase();
+    if (['drop', 'deny', 'block', 'blocked', 'discard', 'rejected'].includes(actStr)) {
+      action = 'deny';
+    } else if (['allow', 'permit', 'pass', 'allowed', 'accepted'].includes(actStr)) {
+      action = 'allow';
+    }
+
+    // Detect Stream
+    let stream = meta.stream || "";
+    if (!stream) {
+      const rawLower = raw.toLowerCase();
+      if (rawLower.includes('fortigate') || rawLower.includes('palo alto') || rawLower.includes('firewall') || rawLower.includes('fgt-') || rawLower.includes('ips') || action === 'deny') {
+        stream = 'firewall';
+        eventType = 'firewall_traffic';
+      } else if (rawLower.includes('ssh') || rawLower.includes('auth') || rawLower.includes('login') || rawLower.includes('kerberos') || rawLower.includes('active directory')) {
+        stream = 'security_events';
+        eventType = 'auth_event';
+      } else if (rawLower.includes('mimikatz') || rawLower.includes('edr') || rawLower.includes('crowdstrike') || rawLower.includes('lsass') || rawLower.includes('tamper')) {
+        stream = 'edr';
+        eventType = 'endpoint_detection';
+      } else if (rawLower.includes('suricata') || rawLower.includes('scan') || rawLower.includes('ids')) {
+        stream = 'ids';
+        eventType = 'ids_alert';
+      } else if (rawLower.includes('http') || rawLower.includes('waf') || rawLower.includes('nginx')) {
+        stream = 'web';
+        eventType = 'waf_event';
+      } else {
+        stream = 'syslog';
+        eventType = 'syslog_message';
+      }
+    }
+
+    // Formulate AI Analysis
+    if (action === 'deny' || severity === 'Critical' || severity === 'High') {
+      ai_analysis = `來源主機 ${src_ip} 對目標 ${dst_ip}:${dst_port} 發起連線，行為特徵命中安全防禦政策，已被即時執行阻擋處置。`;
+      if (raw.toLowerCase().includes('ssh') || raw.toLowerCase().includes('brute')) {
+        mitre_technique = "T1110 - Brute Force";
+        mitre_tactic = "Credential Access";
+        ai_analysis = `偵測到來自 ${src_ip} 的高頻登入嘗試，符合暴力破解行為特徵，已自動執行安全控管。`;
+      } else if (raw.toLowerCase().includes('sql') || raw.toLowerCase().includes('union')) {
+        mitre_technique = "T1190 - Exploit Public-Facing Application";
+        mitre_tactic = "Initial Access";
+        ai_analysis = `Web 應用層偵測到疑似 SQL 注入攻擊嘗試，WAF 模組已阻斷惡意載荷。`;
+      }
+    }
+
+    const logId = `VL-LOG-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const record = {
+      id: logId,
+      "@timestamp": new Date().toISOString(),
+      _stream: stream,
+      source: meta.source || host || "Ingest Collector",
+      event: eventName,
+      event_type: eventType,
+      severity: severity,
+      src_ip: src_ip,
+      dst_ip: dst_ip,
+      src_port: src_port,
+      dst_port: dst_port,
+      proto: proto,
+      action: action,
+      user: user,
+      host: host,
+      process: process,
+      file: file,
+      hash_sha256: "N/A",
+      cve_id: "N/A",
+      geo_country: src_ip.startsWith('10.') || src_ip.startsWith('192.168.') || src_ip.startsWith('172.') || src_ip === '127.0.0.1' ? "Internal" : "External",
+      response_code: action === 'deny' ? 403 : 200,
+      latency_ms: Number((Math.random() * 2 + 0.5).toFixed(1)),
+      full_log: raw,
+      mitre_technique: mitre_technique,
+      mitre_tactic: mitre_tactic,
+      ai_analysis: ai_analysis
+    };
+
+    runtimeLogCorpus.unshift(record);
+    if (runtimeLogCorpus.length > 2500) {
+      runtimeLogCorpus = runtimeLogCorpus.slice(0, 2500);
+    }
+
+    // Update Ingestion Sources Telemetry counters
+    const matchedSource = activeIngestSources.find(s => 
+      s.remoteIP === remoteIP || (meta.source && s.name.includes(meta.source))
+    ) || activeIngestSources[0];
+
+    if (matchedSource) {
+      matchedSource.bytesReceived += Buffer.byteLength(raw, 'utf8');
+      matchedSource.currentEPS = Math.min(matchedSource.peakEPS, matchedSource.currentEPS + 1);
+      matchedSource.lastSeen = new Date().toISOString();
+    }
+
+    return record;
+  }
+
+  // VictoriaLogs Native NDJSON Ingestion API (/insert/jsonline)
+  app.post('/insert/jsonline', (req, res) => {
+    let body = req.body;
+    let lines: string[] = [];
+
+    if (typeof body === 'string') {
+      lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+    } else if (Array.isArray(body)) {
+      lines = body.map(b => (typeof b === 'object' ? JSON.stringify(b) : String(b)));
+    } else if (body && typeof body === 'object') {
+      lines = [JSON.stringify(body)];
+    }
+
+    if (lines.length === 0) {
+      return res.status(400).json({ error: 'No JSON lines provided' });
+    }
+
+    const insertedRecords = lines.map(line => 
+      ingestSingleLog(line, { protocol: "HTTP NDJSON :8080", source: "VictoriaLogs Ingest" })
+    ).filter(Boolean);
+
+    res.json({
+      status: "ok",
+      inserted: insertedRecords.length,
+      stream: "http_ndjson",
+      totalStorageRows: runtimeLogCorpus.length
+    });
+  });
+
+  // Grafana Loki Compatible Stream Push API (/insert/loki/api/v1/push)
+  app.post('/insert/loki/api/v1/push', (req, res) => {
+    const { streams } = req.body || {};
+    let totalPushed = 0;
+
+    if (Array.isArray(streams)) {
+      for (const s of streams) {
+        const streamLabels = s.stream || {};
+        const values = s.values || [];
+        for (const v of values) {
+          const rawLog = Array.isArray(v) && v[1] ? v[1] : JSON.stringify(v);
+          ingestSingleLog(rawLog, {
+            protocol: "Grafana Loki Push",
+            source: streamLabels.app || streamLabels.job || "Loki Agent",
+            stream: streamLabels.stream || "syslog"
+          });
+          totalPushed++;
+        }
+      }
+    }
+
+    res.status(204).end();
+  });
+
+  // Elasticsearch Bulk Compatible Ingestion API (/insert/elasticsearch/_bulk)
+  app.post('/insert/elasticsearch/_bulk', (req, res) => {
+    const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    let inserted = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        const parsed = JSON.parse(lines[i]);
+        if (parsed.index || parsed.create) {
+          // Following line is the document
+          if (i + 1 < lines.length) {
+            ingestSingleLog(lines[i + 1], { protocol: "ES Bulk Ingest", source: "Elastic Agent" });
+            inserted++;
+            i++;
+          }
+        } else {
+          ingestSingleLog(lines[i], { protocol: "ES Bulk Ingest", source: "Elastic Agent" });
+          inserted++;
+        }
+      } catch (e) {}
+    }
+
+    res.json({
+      took: 2,
+      errors: false,
+      items: Array(inserted).fill({ index: { status: 201 } })
+    });
+  });
+
+  // SEMOR Standard Batch Ingestion Endpoint (/api/v1/ingest)
+  app.post('/api/v1/ingest', (req, res) => {
+    const { logs, log, source, stream } = req.body || {};
+    const inputLogs = logs || (log ? [log] : []);
+
+    if (!Array.isArray(inputLogs) || inputLogs.length === 0) {
+      return res.status(400).json({ error: 'No logs provided' });
+    }
+
+    const inserted = inputLogs.map(l => ingestSingleLog(l, { source, stream })).filter(Boolean);
+    res.json({
+      status: "success",
+      count: inserted.length,
+      totalCorpusCount: runtimeLogCorpus.length
+    });
+  });
+
+  // Frontend & Collector Diagnostic Ingestion Simulation API (/api/engine/collector/simulate-packet)
+  app.post('/api/engine/collector/simulate-packet', (req, res) => {
+    const { raw_log, protocol, remote_ip, source, stream } = req.body || {};
+    if (!raw_log) {
+      return res.status(400).json({ error: 'raw_log parameter is required' });
+    }
+
+    const record = ingestSingleLog(raw_log, { protocol, remoteIP: remote_ip, source, stream });
+    res.json({
+      status: "ok",
+      ingested_entry: record,
+      total_logs: runtimeLogCorpus.length
+    });
+  });
+
+  // Reset Logs to Baseline Corpus API (/api/engine/collector/reset-logs)
+  app.post('/api/engine/collector/reset-logs', (req, res) => {
+    runtimeLogCorpus = [...initialLogsCorpus];
+    try {
+      if (fs.existsSync(RUNTIME_LOGS_PATH)) {
+        fs.unlinkSync(RUNTIME_LOGS_PATH);
+      }
+    } catch (e) {}
+    res.json({ status: "ok", message: "Log corpus reset to initial SIEM state", count: runtimeLogCorpus.length });
+  });
+
   app.post('/api/engine/ingest', (req, res) => {
-    const { log, logs, source } = req.body;
+    const { log, logs, source, stream } = req.body;
     const inputLogs = logs || (log ? [log] : []);
     
     if (inputLogs.length === 0) {
@@ -1677,20 +2261,24 @@ async function startServer() {
 
     const now = Date.now();
     const processedEntries = inputLogs.map((raw: string, idx: number) => {
+      // Ingest into live runtime log corpus for instant LogsQL querying!
+      const ingested = ingestSingleLog(raw, { source, stream });
+
       // Extract tokens for Bloom Filter
       const tokens = raw.split(/[^a-zA-Z0-9.-_]+/).filter(t => t.length >= 3);
       const rawBytes = Buffer.byteLength(raw, 'utf8');
       const estimatedCompressed = Math.max(12, Math.floor(rawBytes / 11.2));
       
       return {
-        id: `entry_${now}_${idx}`,
+        id: ingested ? ingested.id : `entry_${now}_${idx}`,
         timestamp: now - idx * 25,
         raw: raw,
         tokensSample: tokens.slice(0, 8),
         streamId: 1001,
         uncompressedBytes: rawBytes,
         compressedBytes: estimatedCompressed,
-        ratio: (rawBytes / estimatedCompressed).toFixed(1) + 'x'
+        ratio: (rawBytes / estimatedCompressed).toFixed(1) + 'x',
+        parsedEntry: ingested
       };
     });
 
@@ -1705,7 +2293,8 @@ async function startServer() {
       totalCompressedBytes: totalCompBytes,
       compressionRatio: (totalRawBytes / Math.max(1, totalCompBytes)).toFixed(1) + 'x',
       bloomFilterTokensCount: processedEntries.reduce((acc: number, e: any) => acc + e.tokensSample.length, 0),
-      entries: processedEntries
+      entries: processedEntries,
+      currentCorpusSize: runtimeLogCorpus.length
     });
   });
 
@@ -2208,233 +2797,9 @@ async function startServer() {
 
     const tStart = process.hrtime.bigint();
 
-    // Base SIEM corpus representing logs stored in Rust VictoriaLogs block partitions (/data/{stream_id}/{part_id}.block)
-    const baseCorpus = [
-      {
-        id: "VL-LOG-9001",
-        "@timestamp": new Date(Date.now() - 42000).toISOString(),
-        _stream: "firewall",
-        source: "FortiGate-60F",
-        event: "Firewall Drop Event",
-        event_type: "firewall_drop",
-        severity: "Critical",
-        src_ip: "10.88.14.92",
-        dst_ip: "192.168.1.100",
-        src_port: 54120,
-        dst_port: 445,
-        proto: "TCP",
-        action: "deny",
-        user: "SYSTEM",
-        host: "dc01.corp.internal",
-        process: "smb_service",
-        file: "ntoskrnl.exe",
-        hash_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        cve_id: "CVE-2017-0144",
-        geo_country: "Internal",
-        response_code: 403,
-        latency_ms: 1.2,
-        full_log: 'date=2026-09-22 time=12:25:31 devname="FG60F-HQ" devid="FGT60FTK21000000" logid="0000000013" type="traffic" subtype="forward" level="warning" vd="root" srcip=10.88.14.92 srcport=54120 srcintf="port2" dstip=192.168.1.100 dstport=445 dstintf="port1" sessionid=10928 policyid=4 proto=6 action="deny" policytype="policy" poluuid="2cfc" service="SMB" trandisp="noop" duration=0 sentbyte=0 rcvdbyte=0 crscore=50 craction=131072 crlevel="high" msg="SMB access violation blocked"',
-        mitre_technique: "T1210 - Exploitation of Remote Services",
-        mitre_tactic: "Lateral Movement",
-        ai_analysis: "偵測到疑似 EternalBlue SMB 惡意探測，來源主機嘗試對網域控制站 (DC01) 445 埠發起未授權攻擊，防火牆已成功阻擋。"
-      },
-      {
-        id: "VL-LOG-9002",
-        "@timestamp": new Date(Date.now() - 115000).toISOString(),
-        _stream: "security_events",
-        source: "Active Directory DC-01",
-        event: "An account failed to log on",
-        event_type: "auth_failure",
-        severity: "High",
-        src_ip: "192.168.1.205",
-        dst_ip: "192.168.1.10",
-        src_port: 60124,
-        dst_port: 88,
-        proto: "TCP",
-        action: "Blocked",
-        user: "administrator",
-        host: "WIN-DC-PROD",
-        process: "lsass.exe",
-        file: "kerberos.dll",
-        hash_sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-        cve_id: "N/A",
-        geo_country: "Internal",
-        response_code: 401,
-        latency_ms: 3.5,
-        full_log: '<13>Sep 22 12:24:18 WIN-DC-PROD Microsoft-Windows-Security-Auditing[4625]: An account failed to log on. Subject: Security ID: S-1-0-0 Account Name: - Logon Type: 3 Account For Which Logon Failed: Security ID: S-1-0-0 Account Name: administrator Failure Information: Failure Reason: Unknown user name or bad password. Status: 0xC000006D Sub Status: 0xC000006A Network Information: Workstation Name: WORKSTATION-PC Source Network Address: 192.168.1.205 Source Port: 60124 Process Information: Caller Process ID: 0x2b4 Caller Process Name: C:\\Windows\\System32\\lsass.exe',
-        mitre_technique: "T1110 - Brute Force",
-        mitre_tactic: "Credential Access",
-        ai_analysis: "連續多次使用 administrator 權限嘗試透過 Kerberos 驗證失敗，符合密碼暴力破解與密碼噴灑 (Password Spraying) 模式。"
-      },
-      {
-        id: "VL-LOG-9003",
-        "@timestamp": new Date(Date.now() - 198000).toISOString(),
-        _stream: "edr",
-        source: "CrowdStrike Falcon",
-        event: "Credential Dumping Activity",
-        event_type: "credential_dumping",
-        severity: "Critical",
-        src_ip: "10.0.4.15",
-        dst_ip: "10.0.4.15",
-        src_port: 0,
-        dst_port: 0,
-        proto: "LOCAL",
-        action: "Blocked",
-        user: "victim_user",
-        host: "FINANCE-PC03",
-        process: "mimikatz.exe",
-        file: "mimidrv.sys",
-        hash_sha256: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-        cve_id: "N/A",
-        geo_country: "Internal",
-        response_code: 0,
-        latency_ms: 0.8,
-        full_log: '{"event_id": "CS-9092","host": "FINANCE-PC03","process": "mimikatz.exe","parent_process": "powershell.exe","cmdline": "mimikatz.exe privilege::debug sekurlsa::logonpasswords exit","target_process": "lsass.exe","action": "Blocked","technique": "T1003.001","status": "TERMINATED_BY_AGENT"}',
-        mitre_technique: "T1003.001 - LSASS Memory",
-        mitre_tactic: "Credential Access",
-        ai_analysis: "端點防護 EDR 攔截到攻擊者透過 powershell 調用 mimikatz.exe 讀取 LSASS 記憶體憑證，程序已被即時終止。"
-      },
-      {
-        id: "VL-LOG-9004",
-        "@timestamp": new Date(Date.now() - 320000).toISOString(),
-        _stream: "ids",
-        source: "Suricata IDS/IPS",
-        event: "ET SCAN Potential SSH Brute Force",
-        event_type: "ids_alert",
-        severity: "High",
-        src_ip: "45.142.214.88",
-        dst_ip: "172.16.0.22",
-        src_port: 48912,
-        dst_port: 22,
-        proto: "TCP",
-        action: "deny",
-        user: "root",
-        host: "edge-gateway-01",
-        process: "sshd",
-        file: "/var/log/suricata/eve.json",
-        hash_sha256: "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
-        cve_id: "N/A",
-        geo_country: "Russia",
-        response_code: 403,
-        latency_ms: 2.1,
-        full_log: '{"timestamp":"2026-09-22T12:20:14.281822+0000","flow_id":9123847291,"in_iface":"eth0","event_type":"alert","src_ip":"45.142.214.88","src_port":48912,"dest_ip":"172.16.0.22","dest_port":22,"proto":"TCP","alert":{"action":"blocked","gid":1,"signature_id":2001219,"rev":19,"signature":"ET SCAN Potential SSH Brute Force","category":"Attempted Information Leak","severity":1}}',
-        mitre_technique: "T1110.001 - Password Guessing",
-        mitre_tactic: "Initial Access",
-        ai_analysis: "Suricata 規則簽章比對命中外部已知惡意 IP 針對 SSH 服務的高頻密碼暴力猜測，邊界防火牆已自動下發黑名單阻擋。"
-      },
-      {
-        id: "VL-LOG-9005",
-        "@timestamp": new Date(Date.now() - 480000).toISOString(),
-        _stream: "firewall",
-        source: "Palo Alto NGFW",
-        event: "DNS Tunneling Command & Control Detected",
-        event_type: "c2_beacon",
-        severity: "Critical",
-        src_ip: "10.0.12.44",
-        dst_ip: "8.8.8.8",
-        src_port: 53112,
-        dst_port: 53,
-        proto: "UDP",
-        action: "deny",
-        user: "eng_chen",
-        host: "DEV-MAC-BOOK-12",
-        process: "nslookup",
-        file: "resolv.conf",
-        hash_sha256: "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
-        cve_id: "N/A",
-        geo_country: "United States",
-        response_code: 503,
-        latency_ms: 1.8,
-        full_log: '1,2026/09/22 12:17:34,001801000000,THREAT,dns,1,2026/09/22 12:17:34,10.0.12.44,8.8.8.8,0.0.0.0,0.0.0.0,Trust-Untrust,,,dns,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,log-forwarding,2026/09/22 12:17:34,81290,1,53112,53,0,0,0x0,udp,drop,"w4b8e2190f.attacker-c2-domain.com",Command and Control(109000001),any,informational,client-to-server,981290,0x0,10.0.0.0-10.255.255.255,United States,0,1,0',
-        mitre_technique: "T1071.004 - DNS",
-        mitre_tactic: "Command and Control",
-        ai_analysis: "Palo Alto NGFW 發現異常長度的子域名請求特徵，判定為利用 DNS 隧道作為 C2 通道進行資料回傳，已及時丟棄連線封包。"
-      },
-      {
-        id: "VL-LOG-9006",
-        "@timestamp": new Date(Date.now() - 610000).toISOString(),
-        _stream: "web",
-        source: "NGINX WAF Ingress",
-        event: "SQL Injection Probe Blocked",
-        event_type: "sqli_probe",
-        severity: "High",
-        src_ip: "185.220.101.5",
-        dst_ip: "10.0.1.50",
-        src_port: 43219,
-        dst_port: 443,
-        proto: "TCP",
-        action: "Blocked",
-        user: "anonymous",
-        host: "k8s-ingress-prod",
-        process: "nginx-ingress-controller",
-        file: "/api/v1/users/profile",
-        hash_sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-        cve_id: "CWE-89",
-        geo_country: "Netherlands",
-        response_code: 403,
-        latency_ms: 4.8,
-        full_log: '185.220.101.5 - - [22/Sep/2026:12:15:20 +0000] "GET /api/v1/users/profile?id=1%20UNION%20SELECT%20null,username,password_hash%20FROM%20admin-- HTTP/1.1" 403 162 "-" "sqlmap/1.6.12#stable" waf_rule="CRS-942100" waf_action="DENY"',
-        mitre_technique: "T1190 - Exploit Public-Facing Application",
-        mitre_tactic: "Initial Access",
-        ai_analysis: "ModSecurity WAF 偵測到已知 SQL 注入測試工具 (sqlmap) 針對使用者檔案端點發起 UNION SELECT 攻擊，WAF 立即觸發 HTTP 403 阻擋。"
-      },
-      {
-        id: "VL-LOG-9007",
-        "@timestamp": new Date(Date.now() - 780000).toISOString(),
-        _stream: "edr",
-        source: "Microsoft Defender for Endpoint",
-        event: "Ransomware Shadow Copy Deletion Blocked",
-        event_type: "shadow_copy_deletion",
-        severity: "Critical",
-        src_ip: "10.0.2.88",
-        dst_ip: "10.0.2.88",
-        src_port: 0,
-        dst_port: 0,
-        proto: "LOCAL",
-        action: "Blocked",
-        user: "hr_admin",
-        host: "HR-DESKTOP-09",
-        process: "vssadmin.exe",
-        file: "C:\\Windows\\System32\\vssadmin.exe",
-        hash_sha256: "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-        cve_id: "N/A",
-        geo_country: "Internal",
-        response_code: 0,
-        latency_ms: 1.1,
-        full_log: '{"EventTime":"2026-09-22T12:12:44Z","DeviceName":"HR-DESKTOP-09","ActionType":"AntivirusDetection","FileName":"vssadmin.exe","FolderPath":"C:\\\\Windows\\\\System32","ProcessCommandLine":"vssadmin.exe delete shadows /all /quiet","ThreatName":"Behavior:Win32/RansomwareDefenseTampering","AdditionalFields":{"Action":"Blocked","ParentProcess":"cmd.exe"}}',
-        mitre_technique: "T1490 - Inhibit System Recovery",
-        mitre_tactic: "Impact",
-        ai_analysis: "端點攔截到勒索軟體典型的防禦破壞行為 (vssadmin delete shadows /all /quiet)，意圖刪除 Windows 磁碟陰影複製還原點，行為已遭阻止並隔離母行程。"
-      },
-      {
-        id: "VL-LOG-9008",
-        "@timestamp": new Date(Date.now() - 950000).toISOString(),
-        _stream: "firewall",
-        source: "FortiGate-60F",
-        event: "TCP Port Scan Detected",
-        event_type: "port_scan",
-        severity: "Medium",
-        src_ip: "192.168.10.45",
-        dst_ip: "192.168.1.0/24",
-        src_port: 41200,
-        dst_port: 80,
-        proto: "TCP",
-        action: "deny",
-        user: "guest",
-        host: "BYOD-LAPTOP-X",
-        process: "nmap",
-        file: "libpcap.so",
-        hash_sha256: "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
-        cve_id: "N/A",
-        geo_country: "Internal",
-        response_code: 403,
-        latency_ms: 0.9,
-        full_log: 'date=2026-09-22 time=12:10:02 devname="FG60F-HQ" type="ips" subtype="signature" level="alert" severity="medium" srcip=192.168.10.45 dstip=192.168.1.50 sessionid=49201 proto=6 action="deny" attack="TCP.Port.Scan" msg="IPS: TCP SYN scan over multiple ports detected"',
-        mitre_technique: "T1046 - Network Service Discovery",
-        mitre_tactic: "Discovery",
-        ai_analysis: "訪客無線網路網段之個人設備對辦公核心網段進行橫向 TCP SYN 埠掃描，IPS 防禦模組已即時重設該連線。"
-      }
-    ];
+    // Dynamic VictoriaLogs log storage corpus (includes real-time ingested logs from Syslog, HTTP NDJSON, Loki, and EDR)
+    const baseCorpus = runtimeLogCorpus;
+
 
     // Filter by LogsQL syntax
     let filtered = baseCorpus;
@@ -2565,6 +2930,8 @@ async function startServer() {
 
   app.post('/api/engine/logsql/query', handleLogsQLQuery);
   app.get('/api/engine/logsql/query', handleLogsQLQuery);
+  app.post('/select/logsql/query', handleLogsQLQuery);
+  app.get('/select/logsql/query', handleLogsQLQuery);
 
   app.get('/api/engine/blocks', (req, res) => {
     // Generate recent VictoriaBlocks list for the block visualizer reflecting /data/{stream_id}/{part_id}.block
@@ -2741,6 +3108,9 @@ async function startServer() {
       'go_main': 'engine/collector-go/main.go',
       'go_syslog': 'engine/collector-go/receiver/syslog.go',
       'go_http': 'engine/collector-go/receiver/http.go',
+      'go_stream_manager': 'engine/collector-go/pipeline/stream_manager.go',
+      'go_bloom': 'engine/collector-go/pipeline/bloom.go',
+      'go_block_accumulator': 'engine/collector-go/pipeline/block_accumulator.go',
       'go_pipeline': 'engine/collector-go/pipeline/processor.go',
       'go_ipc': 'engine/collector-go/forwarder/ipc_rust.go',
       'go_config': 'engine/collector-go/config/config.go',

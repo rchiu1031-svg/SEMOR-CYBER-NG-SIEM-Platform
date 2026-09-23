@@ -75,6 +75,8 @@ export function LogParserDiagnosticPanel() {
   const [protocol, setProtocol] = useState(PRESET_LOGS[0].protocol);
   const [remoteIP, setRemoteIP] = useState(PRESET_LOGS[0].remoteIP);
   const [isRunning, setIsRunning] = useState(false);
+  const [isIngesting, setIsIngesting] = useState(false);
+  const [ingestSuccess, setIngestSuccess] = useState<{ id: string; total: number } | null>(null);
   const [result, setResult] = useState<DiagnosticResult | null>(null);
   const [activeTab, setActiveTab] = useState<'fields' | 'headers' | 'ecs' | 'json'>('fields');
   const [injectedCount, setInjectedCount] = useState<number | null>(null);
@@ -89,6 +91,36 @@ export function LogParserDiagnosticPanel() {
       setRemoteIP(found.remoteIP);
       setResult(null);
       setInjectedCount(null);
+      setIngestSuccess(null);
+    }
+  };
+
+  const injectIntoStorageEngine = async () => {
+    if (!rawLog.trim()) return;
+    setIsIngesting(true);
+    setIngestSuccess(null);
+    try {
+      const res = await fetch('/api/engine/collector/simulate-packet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          raw_log: rawLog,
+          protocol: protocol,
+          remote_ip: remoteIP
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setIngestSuccess({
+          id: data.ingested_entry?.id || 'VL-LOG',
+          total: data.total_logs || 0
+        });
+        executeDiagnosticParse();
+      }
+    } catch (e) {
+      console.error('Failed to ingest log:', e);
+    } finally {
+      setIsIngesting(false);
     }
   };
 
@@ -213,15 +245,40 @@ export function LogParserDiagnosticPanel() {
               </div>
             </div>
 
-            <button
-              onClick={executeDiagnosticParse}
-              disabled={isRunning || !rawLog.trim()}
-              className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-500/20 disabled:opacity-50 transition active:scale-95"
-            >
-              <Play className={`w-3.5 h-3.5 fill-current ${isRunning ? 'animate-spin' : ''}`} />
-              {isRunning ? '解析中...' : '執行即時解構與分析 (Parse Log)'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={executeDiagnosticParse}
+                disabled={isRunning || isIngesting || !rawLog.trim()}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium flex items-center gap-2 transition active:scale-95 disabled:opacity-50"
+              >
+                <Play className={`w-3.5 h-3.5 ${isRunning ? 'animate-spin' : ''}`} />
+                {isRunning ? '解析中...' : '解構分析 (Parse)'}
+              </button>
+
+              <button
+                onClick={injectIntoStorageEngine}
+                disabled={isRunning || isIngesting || !rawLog.trim()}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition active:scale-95"
+              >
+                <Layers className={`w-3.5 h-3.5 ${isIngesting ? 'animate-spin' : ''}`} />
+                {isIngesting ? '寫入中...' : '寫入儲存引擎並索引 (Ingest & Index)'}
+              </button>
+            </div>
           </div>
+
+          {ingestSuccess && (
+            <div className="mt-2 bg-emerald-950/60 border border-emerald-500/40 rounded-lg p-2.5 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  <strong>日誌已寫入 VictoriaLogs 區塊！</strong> 識別碼: <code className="bg-emerald-900/60 px-1.5 py-0.5 rounded text-[11px] font-mono text-emerald-200">{ingestSuccess.id}</code> (總數: <strong>{ingestSuccess.total}</strong> 筆)。
+                </span>
+              </div>
+              <span className="text-[11px] text-emerald-400 font-mono bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/30">
+                LogsQL 即時可查
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Right: Quick Spec Card */}

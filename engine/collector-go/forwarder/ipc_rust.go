@@ -91,6 +91,42 @@ func (f *RustIPCForwarder) SendBatch(batch *pipeline.LogBatch) error {
 	return nil
 }
 
+// SendVictoriaBlock 將封裝完成之 VictoriaLogs 區塊 (包含 Bloom Filter 與標頭) 透過 IPC 送交儲存引擎
+func (f *RustIPCForwarder) SendVictoriaBlock(block *pipeline.VictoriaBlock) error {
+	if block == nil || len(block.Entries) == 0 {
+		return nil
+	}
+
+	payload, err := json.Marshal(block)
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n') // 以換行符分隔 Frame
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if !f.isConnected || f.conn == nil {
+		if err := f.reconnectLocked(); err != nil {
+			atomic.AddUint64(&f.totalFailed, uint64(block.Header.RowsCount))
+			return err
+		}
+	}
+
+	_ = f.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	_, err = f.conn.Write(payload)
+	if err != nil {
+		f.isConnected = false
+		_ = f.conn.Close()
+		atomic.AddUint64(&f.totalFailed, uint64(block.Header.RowsCount))
+		return fmt.Errorf("VictoriaBlock 區塊發送至儲存引擎失敗: %w", err)
+	}
+
+	atomic.AddUint64(&f.totalSent, uint64(block.Header.RowsCount))
+	atomic.AddUint64(&f.totalBatches, 1)
+	return nil
+}
+
 // DeployRules 將來自前台標註的 Regex 規則以 JSON 下發至 Rust 儲存核心
 func (f *RustIPCForwarder) DeployRules(rawRulesJSON []byte) error {
 	if len(rawRulesJSON) == 0 {
