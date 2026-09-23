@@ -27,6 +27,10 @@ interface DecoderHeaderProps {
   extractedFieldCount: number;
   onExportAll: () => void;
   onResetWorkspace: () => void;
+  onDeployToProduction?: () => void;
+  isDeploying?: boolean;
+  activeProductionDecoderName?: string;
+  activeProductionDeployedAt?: string;
 }
 
 export const DecoderHeader: React.FC<DecoderHeaderProps> = ({
@@ -37,7 +41,11 @@ export const DecoderHeader: React.FC<DecoderHeaderProps> = ({
   activeFilterCount,
   extractedFieldCount,
   onExportAll,
-  onResetWorkspace
+  onResetWorkspace,
+  onDeployToProduction,
+  isDeploying = false,
+  activeProductionDecoderName,
+  activeProductionDeployedAt
 }) => {
   return (
     <div className="space-y-6">
@@ -103,6 +111,37 @@ export const DecoderHeader: React.FC<DecoderHeaderProps> = ({
             </button>
           </div>
 
+          {/* 部署至生產引擎按鈕 */}
+          {onDeployToProduction && (
+            <button
+              type="button"
+              onClick={onDeployToProduction}
+              disabled={isDeploying}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shadow-lg",
+                isDeploying
+                  ? "bg-amber-600/40 text-amber-200 border border-amber-500/40 cursor-wait"
+                  : "bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/40 shadow-emerald-950/40 active:scale-95"
+              )}
+              title="將工作區標註之 Regex 規則透過 Go-Rust UDS 橋接即時熱部署至生產核心"
+            >
+              {isDeploying ? (
+                <>
+                  <RefreshCw size={13} className="animate-spin text-amber-300" />
+                  <span>熱部署下發中...</span>
+                </>
+              ) : (
+                <>
+                  <Zap size={14} className="text-yellow-300 fill-yellow-300" />
+                  <span>部署至生產引擎</span>
+                  <span className="text-[10px] font-mono bg-black/30 px-1.5 py-0.2 rounded border border-white/20">
+                    動態生效
+                  </span>
+                </>
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onExportAll}
@@ -113,6 +152,34 @@ export const DecoderHeader: React.FC<DecoderHeaderProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Production Active Indicator Pill */}
+      {activeProductionDecoderName && (
+        <div className="bg-emerald-950/30 border border-emerald-500/30 px-4 py-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span className="font-bold text-gray-300">
+              生產引擎生效中解碼器：
+            </span>
+            <span className="font-black text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
+              {activeProductionDecoderName}
+            </span>
+            <span className="text-gray-500 text-[11px] font-mono">
+              (IPC: Unix Domain Socket /tmp/semor_rust.sock)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 text-[11px] text-gray-400 font-mono">
+            <span>管線狀態: <strong className="text-emerald-400">Zero-Copy Active</strong></span>
+            {activeProductionDeployedAt && (
+              <span>• 最近熱部署: <strong className="text-gray-300">{new Date(activeProductionDeployedAt).toLocaleTimeString()}</strong></span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Real-time KPI / Telemetry Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">

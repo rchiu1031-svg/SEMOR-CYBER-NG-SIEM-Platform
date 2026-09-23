@@ -1004,6 +1004,7 @@ async function startServer() {
   ];
   let totalPipelineLogsParsed = 1450000;
   let totalPipelineLogsMatched = 1441300;
+  let lastDeployedAt = new Date().toISOString();
   const engineStartTime = Date.now();
 
   // Go Ingestion Collector Healthcheck & Telemetry Endpoint (Real-time proxy/direct simulation)
@@ -1106,10 +1107,375 @@ async function startServer() {
       network: {
         syslogUDPPort: 5140,
         syslogTCPPort: 5140,
+        syslogTLSPort: 6514,
         httpPort: 8080,
         bytesReceivedTotal: Math.floor(uptimeSec * 2450000 + 450000000),
         mbpsIngest: Number((processedEps * 0.0038).toFixed(2))
       }
+    });
+  });
+
+  // Detailed Ingestion Sources Registry
+  const activeIngestSources = [
+    {
+      id: "src-01",
+      name: "FGT-CORP-FW01",
+      remoteIP: "192.168.10.1",
+      remotePort: 5140,
+      protocol: "Syslog UDP",
+      format: "Fortinet Key-Value",
+      vendor: "Fortinet FortiGate 100F",
+      currentEPS: 4820,
+      peakEPS: 7200,
+      bytesReceived: 184592000,
+      droppedPackets: 0,
+      activeState: "active",
+      lastSeen: new Date().toISOString()
+    },
+    {
+      id: "src-02",
+      name: "PA-PERIMETER-5220",
+      remoteIP: "172.16.20.254",
+      remotePort: 6514,
+      protocol: "Syslog TLS (RFC 5425)",
+      format: "ArcSight CEF",
+      vendor: "Palo Alto Networks PA-5220",
+      currentEPS: 3250,
+      peakEPS: 5800,
+      bytesReceived: 142800000,
+      droppedPackets: 0,
+      activeState: "active",
+      lastSeen: new Date().toISOString()
+    },
+    {
+      id: "src-03",
+      name: "CORE-SW-CAT9300",
+      remoteIP: "10.0.0.2",
+      remotePort: 5140,
+      protocol: "Syslog TCP",
+      format: "RFC 3164 (BSD)",
+      vendor: "Cisco Catalyst 9300 Switch",
+      currentEPS: 1140,
+      peakEPS: 2400,
+      bytesReceived: 49200000,
+      droppedPackets: 0,
+      activeState: "active",
+      lastSeen: new Date().toISOString()
+    },
+    {
+      id: "src-04",
+      name: "K8S-PROD-DAEMONSET",
+      remoteIP: "10.244.0.15",
+      remotePort: 8080,
+      protocol: "HTTP NDJSON",
+      format: "VictoriaLogs /insert/jsonline",
+      vendor: "FluentBit / Vector Agent",
+      currentEPS: 5410,
+      peakEPS: 8900,
+      bytesReceived: 219400000,
+      droppedPackets: 0,
+      activeState: "active",
+      lastSeen: new Date().toISOString()
+    },
+    {
+      id: "src-05",
+      name: "WAZUH-EDR-CLUSTER",
+      remoteIP: "192.168.100.80",
+      remotePort: 8080,
+      protocol: "REST API Batch",
+      format: "JSON Line",
+      vendor: "Wazuh Security Agent Manager",
+      currentEPS: 2890,
+      peakEPS: 4500,
+      bytesReceived: 98400000,
+      droppedPackets: 0,
+      activeState: "active",
+      lastSeen: new Date().toISOString()
+    }
+  ];
+
+  // GET /api/engine/collector/sources
+  app.get('/api/engine/collector/sources', (req, res) => {
+    // Dynamically jitter the EPS slightly to reflect active traffic
+    const list = activeIngestSources.map(s => ({
+      ...s,
+      currentEPS: Math.max(50, Math.floor(s.currentEPS + (Math.random() * 200 - 100))),
+      lastSeen: new Date().toISOString()
+    }));
+    res.json({
+      status: "ok",
+      totalSources: list.length,
+      totalEPS: list.reduce((acc, curr) => acc + curr.currentEPS, 0),
+      sources: list
+    });
+  });
+
+  // GET /api/engine/collector/protocols
+  app.get('/api/engine/collector/protocols', (req, res) => {
+    res.json({
+      protocols: [
+        {
+          id: "syslog-udp",
+          name: "Syslog UDP Receiver",
+          port: 5140,
+          transport: "UDP",
+          standard: "RFC 3164 / RFC 5424",
+          status: "listening",
+          bufferMB: 32,
+          workersCount: 16,
+          features: ["SO_RCVBUF 32MB", "Decoupled Zero-Copy Packet Pool", "Lock-Striped Shards", "Token-Bucket Rate Limiter"]
+        },
+        {
+          id: "syslog-tcp",
+          name: "Syslog TCP Receiver",
+          port: 5140,
+          transport: "TCP",
+          standard: "RFC 6587 / Octet-Counting",
+          status: "listening",
+          maxLineMB: 1,
+          features: ["Octet-Counting Framing (RFC 6587)", "Non-Transparent Delimited Streaming", "Keep-Alive Heartbeat"]
+        },
+        {
+          id: "syslog-tls",
+          name: "Syslog TLS Receiver",
+          port: 6514,
+          transport: "TLS (TCP)",
+          standard: "RFC 5425 Secure Syslog",
+          status: "listening",
+          tlsVersion: "TLS 1.2 / TLS 1.3",
+          cipherSuite: "ECDHE-ECDSA-AES256-GCM-SHA384",
+          features: ["mTLS Client Certificate Auth", "Strict Octet-Counting Framing", "Anti-Man-in-the-Middle Encryption"]
+        },
+        {
+          id: "http-ingest",
+          name: "HTTP High-Throughput Ingest",
+          port: 8080,
+          transport: "HTTP/1.1",
+          standard: "VictoriaLogs NDJSON / Loki / ES",
+          status: "listening",
+          endpoints: ["/insert/jsonline", "/insert/loki/api/v1/push", "/insert/elasticsearch/_bulk", "/api/v1/ingest"],
+          features: ["NDJSON Streaming Scanner", "Grafana Loki Compatibility", "Elasticsearch Bulk Protocol", "Dynamic Microsecond Parser Tester"]
+        }
+      ]
+    });
+  });
+
+  // POST /api/engine/collector/test-log - Comprehensive Log Parser & Diagnostic Inspector
+  app.post('/api/engine/collector/test-log', (req, res) => {
+    const startTime = process.hrtime.bigint();
+    const rawLog = (req.body.raw_log || req.body.rawMsg || "").trim();
+    const protocol = req.body.protocol || "syslog-udp";
+    const remoteIP = req.body.remote_ip || "192.168.10.45";
+
+    if (!rawLog) {
+      return res.status(400).json({ error: "raw_log payload is required" });
+    }
+
+    const facilityNames = [
+      "kernel", "user", "mail", "system", "auth", "syslog", "lpr", "news",
+      "uucp", "clock", "authpriv", "ftp", "ntp", "logaudit", "logalert", "cron",
+      "local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7"
+    ];
+    const severityNames = [
+      "Emergency", "Alert", "Critical", "Error", "Warning", "Notice", "Informational", "Debug"
+    ];
+
+    const fields: Record<string, any> = {
+      protocol: protocol,
+      remote_ip: remoteIP,
+      "event.ingested": new Date().toISOString()
+    };
+
+    let parsedFormat = "Raw Text";
+    let messageBody = rawLog;
+
+    // 1. Test RFC 5424: <PRI>VERSION TIMESTAMP HOST APP PROCID MSGID [SD] MSG
+    const rfc5424Match = rawLog.match(/^<(\d{1,3})>([1-9]\d{0,1})\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(?:\[(.*?)\])?\s*(.*)$/);
+    if (rfc5424Match) {
+      parsedFormat = "RFC-5424 (IETF Standard)";
+      const pri = parseInt(rfc5424Match[1], 10);
+      const facCode = Math.floor(pri / 8);
+      const sevCode = pri % 8;
+
+      fields["syslog_format"] = "RFC-5424";
+      fields["syslog_priority"] = pri;
+      fields["syslog_facility_code"] = facCode;
+      fields["syslog_facility"] = facilityNames[facCode] || `facility_${facCode}`;
+      fields["syslog_severity_code"] = sevCode;
+      fields["syslog_severity"] = severityNames[sevCode] || `severity_${sevCode}`;
+      fields["severity"] = fields["syslog_severity"];
+      fields["syslog_version"] = parseInt(rfc5424Match[2], 10);
+      fields["timestamp_str"] = rfc5424Match[3];
+      fields["hostname"] = rfc5424Match[4];
+      fields["app_name"] = rfc5424Match[5];
+      fields["proc_id"] = rfc5424Match[6];
+      fields["msg_id"] = rfc5424Match[7];
+
+      if (rfc5424Match[8]) {
+        fields["structured_data_raw"] = `[${rfc5424Match[8]}]`;
+        // Parse SD parameters
+        const sdRegex = /([^\s=]+)="([^"]*)"/g;
+        let sdm;
+        const sdObj: Record<string, string> = {};
+        while ((sdm = sdRegex.exec(rfc5424Match[8])) !== null) {
+          sdObj[sdm[1]] = sdm[2];
+        }
+        fields["structured_data"] = sdObj;
+      }
+      messageBody = rfc5424Match[9] || "";
+      fields["message"] = messageBody;
+    } else {
+      // 2. Test RFC 3164: <PRI>Mmm dd hh:mm:ss HOST TAG[PID]: MSG
+      const rfc3164Match = rawLog.match(/^<(\d{1,3})>([A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:\[\s]+)(?:\[(\d+)\])?:\s*(.*)$/);
+      if (rfc3164Match) {
+        parsedFormat = "RFC-3164 (BSD Classic)";
+        const pri = parseInt(rfc3164Match[1], 10);
+        const facCode = Math.floor(pri / 8);
+        const sevCode = pri % 8;
+
+        fields["syslog_format"] = "RFC-3164";
+        fields["syslog_priority"] = pri;
+        fields["syslog_facility_code"] = facCode;
+        fields["syslog_facility"] = facilityNames[facCode] || `facility_${facCode}`;
+        fields["syslog_severity_code"] = sevCode;
+        fields["syslog_severity"] = severityNames[sevCode] || `severity_${sevCode}`;
+        fields["severity"] = fields["syslog_severity"];
+        fields["bsd_timestamp"] = rfc3164Match[2];
+        fields["hostname"] = rfc3164Match[3];
+        fields["app_name"] = rfc3164Match[4];
+        if (rfc3164Match[5]) {
+          fields["proc_id"] = rfc3164Match[5];
+        }
+        messageBody = rfc3164Match[6] || "";
+        fields["message"] = messageBody;
+      }
+    }
+
+    // 3. Check for ArcSight CEF
+    if (rawLog.includes("CEF:")) {
+      parsedFormat = "ArcSight Common Event Format (CEF)";
+      const cefMatch = rawLog.match(/CEF:(\d+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)/);
+      if (cefMatch) {
+        fields["cef_version"] = cefMatch[1];
+        fields["device_vendor"] = cefMatch[2];
+        fields["device_product"] = cefMatch[3];
+        fields["device_version"] = cefMatch[4];
+        fields["device_event_class_id"] = cefMatch[5];
+        fields["name"] = cefMatch[6];
+        fields["severity"] = cefMatch[7];
+        messageBody = cefMatch[8];
+      }
+    } else if (rawLog.trim().startsWith("{") && rawLog.trim().endsWith("}")) {
+      // 4. Check for JSON format
+      try {
+        const jsonParsed = JSON.parse(rawLog.trim());
+        parsedFormat = "JSON Formatted Event";
+        Object.assign(fields, jsonParsed);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 5. Key-Value Extraction on the Message or Raw payload (srcip, dstip, proto, action, user, etc.)
+    const kvRegex = /([a-zA-Z0-9_\-\.]+)=("([^"]*)"|'([^']*)'|([^\s",]+))/g;
+    let kvMatch;
+    let kvCount = 0;
+    while ((kvMatch = kvRegex.exec(messageBody || rawLog)) !== null) {
+      const k = kvMatch[1].toLowerCase();
+      const v = kvMatch[3] !== undefined ? kvMatch[3] : (kvMatch[4] !== undefined ? kvMatch[4] : kvMatch[5]);
+      fields[k] = v;
+      kvCount++;
+
+      // Normalized mappings
+      if (k === 'srcip' || k === 'src_ip' || k === 'src') {
+        fields['source.ip'] = v;
+        fields['src_ip'] = v;
+      }
+      if (k === 'dstip' || k === 'dst_ip' || k === 'dst') {
+        fields['destination.ip'] = v;
+        fields['dst_ip'] = v;
+      }
+      if (k === 'srcport' || k === 'src_port' || k === 'spt') {
+        fields['source.port'] = parseInt(v, 10) || v;
+        fields['src_port'] = fields['source.port'];
+      }
+      if (k === 'dstport' || k === 'dst_port' || k === 'dpt') {
+        fields['destination.port'] = parseInt(v, 10) || v;
+        fields['dst_port'] = fields['destination.port'];
+      }
+      if (k === 'action' || k === 'act') {
+        fields['event.action'] = v;
+        fields['action'] = v;
+      }
+      if (k === 'user' || k === 'username' || k === 'usr' || k === 'suser') {
+        fields['user.name'] = v;
+        fields['user'] = v;
+      }
+      if (k === 'proto' || k === 'protocol') {
+        fields['network.transport'] = v.toUpperCase();
+      }
+    }
+
+    if (kvCount > 2 && parsedFormat === "Raw Text") {
+      parsedFormat = "Firewall Key-Value Ingestion";
+    }
+
+    // 6. Enrich with IP analysis (RFC 1918 Private IP checks)
+    const isPrivate = (ip: string) => {
+      if (!ip) return false;
+      return ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') || ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.31.') || ip === '127.0.0.1';
+    };
+
+    if (fields['src_ip']) {
+      fields['src_ip_is_private'] = isPrivate(fields['src_ip']);
+      fields['source.geo.country_name'] = fields['src_ip_is_private'] ? "Internal Network" : "United States";
+    }
+    if (fields['dst_ip']) {
+      fields['dst_ip_is_private'] = isPrivate(fields['dst_ip']);
+    }
+
+    // 7. Severity normalization
+    const sevRaw = String(fields['severity'] || 'info').toUpperCase();
+    if (sevRaw.includes('CRIT') || sevRaw.includes('EMERG') || sevRaw.includes('ALERT') || sevRaw === '8' || sevRaw === '9' || sevRaw === '10') {
+      fields['severity_unified'] = 'Critical';
+      fields['severity_level'] = 5;
+    } else if (sevRaw.includes('ERR') || sevRaw.includes('HIGH') || sevRaw === '6' || sevRaw === '7') {
+      fields['severity_unified'] = 'High';
+      fields['severity_level'] = 4;
+    } else if (sevRaw.includes('WARN') || sevRaw.includes('MED') || sevRaw === '4' || sevRaw === '5') {
+      fields['severity_unified'] = 'Medium';
+      fields['severity_level'] = 3;
+    } else if (sevRaw.includes('NOTICE') || sevRaw.includes('LOW') || sevRaw === '2' || sevRaw === '3') {
+      fields['severity_unified'] = 'Low';
+      fields['severity_level'] = 2;
+    } else {
+      fields['severity_unified'] = 'Informational';
+      fields['severity_level'] = 1;
+    }
+
+    // 8. Action normalization
+    if (fields['action']) {
+      const act = String(fields['action']).toLowerCase();
+      if (['drop', 'deny', 'block', 'blocked', 'discard', 'rejected'].includes(act)) {
+        fields['action_normalized'] = 'blocked';
+      } else if (['allow', 'permit', 'pass', 'allowed', 'accepted'].includes(act)) {
+        fields['action_normalized'] = 'allowed';
+      } else {
+        fields['action_normalized'] = act;
+      }
+    }
+
+    const endTime = process.hrtime.bigint();
+    const elapsedMicros = Number((endTime - startTime) / 1000n);
+
+    res.json({
+      status: "ok",
+      parsed_format: parsedFormat,
+      elapsed_micros: elapsedMicros,
+      elapsed_ms: Number((elapsedMicros / 1000).toFixed(3)),
+      raw_length: rawLog.length,
+      fields_count: Object.keys(fields).length,
+      extracted_fields: fields
     });
   });
 
@@ -1639,12 +2005,13 @@ async function startServer() {
       id: decoderId || 'custom',
       name: decoderName || '動態自訂解碼器'
     };
+    lastDeployedAt = new Date().toISOString();
 
     console.log(`[Stage 3 IPC Pipeline] Hot-deployed ${rules.length} regex rules for '${activeDecoderMeta.name}' down to Rust Engine via UDS /tmp/semor_rust.sock`);
 
     res.json({
       success: true,
-      deployedAt: new Date().toISOString(),
+      deployedAt: lastDeployedAt,
       decoderId: activeDecoderMeta.id,
       decoderName: activeDecoderMeta.name,
       rulesCount: rules.length,
@@ -1663,6 +2030,24 @@ async function startServer() {
         ecsMapping: r.ecsMapping || null,
         confidence: r.confidence || 95
       }))
+    });
+  });
+
+  app.get('/api/engine/decoders/active', (req, res) => {
+    res.json({
+      success: true,
+      decoderId: activeDecoderMeta.id,
+      decoderName: activeDecoderMeta.name,
+      rulesCount: activeDecodersRules.length,
+      rules: activeDecodersRules,
+      deployedAt: lastDeployedAt,
+      ipcBridge: {
+        socketPath: '/tmp/semor_rust.sock',
+        protocol: 'AF_UNIX (SOCK_STREAM)',
+        targetEngine: 'semor-vlog-engine (Rust Block Storage Core)',
+        goTransmitter: 'semor-collector (cmd/receiver/main.go)',
+        status: 'active_linked'
+      }
     });
   });
 
@@ -1812,6 +2197,374 @@ async function startServer() {
       isFullyNormalized: matchCount > 0 && Object.keys(flatEcsMap).length > 0
     });
   });
+
+  // ==========================================
+  // Stage 4: VictoriaLogs LogsQL Query Gateway API (Go Collector -> Rust Storage Engine)
+  // ==========================================
+  const handleLogsQLQuery = async (req: express.Request, res: express.Response) => {
+    const rawQuery = (req.body?.query || req.query.query || '*') as string;
+    const limitNum = Math.min(500, Math.max(1, parseInt((req.body?.limit || req.query.limit || '50') as string, 10)));
+    const timeRange = (req.body?.timeRange || req.query.timeRange || '1h') as string;
+
+    const tStart = process.hrtime.bigint();
+
+    // Base SIEM corpus representing logs stored in Rust VictoriaLogs block partitions (/data/{stream_id}/{part_id}.block)
+    const baseCorpus = [
+      {
+        id: "VL-LOG-9001",
+        "@timestamp": new Date(Date.now() - 42000).toISOString(),
+        _stream: "firewall",
+        source: "FortiGate-60F",
+        event: "Firewall Drop Event",
+        event_type: "firewall_drop",
+        severity: "Critical",
+        src_ip: "10.88.14.92",
+        dst_ip: "192.168.1.100",
+        src_port: 54120,
+        dst_port: 445,
+        proto: "TCP",
+        action: "deny",
+        user: "SYSTEM",
+        host: "dc01.corp.internal",
+        process: "smb_service",
+        file: "ntoskrnl.exe",
+        hash_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        cve_id: "CVE-2017-0144",
+        geo_country: "Internal",
+        response_code: 403,
+        latency_ms: 1.2,
+        full_log: 'date=2026-09-22 time=12:25:31 devname="FG60F-HQ" devid="FGT60FTK21000000" logid="0000000013" type="traffic" subtype="forward" level="warning" vd="root" srcip=10.88.14.92 srcport=54120 srcintf="port2" dstip=192.168.1.100 dstport=445 dstintf="port1" sessionid=10928 policyid=4 proto=6 action="deny" policytype="policy" poluuid="2cfc" service="SMB" trandisp="noop" duration=0 sentbyte=0 rcvdbyte=0 crscore=50 craction=131072 crlevel="high" msg="SMB access violation blocked"',
+        mitre_technique: "T1210 - Exploitation of Remote Services",
+        mitre_tactic: "Lateral Movement",
+        ai_analysis: "偵測到疑似 EternalBlue SMB 惡意探測，來源主機嘗試對網域控制站 (DC01) 445 埠發起未授權攻擊，防火牆已成功阻擋。"
+      },
+      {
+        id: "VL-LOG-9002",
+        "@timestamp": new Date(Date.now() - 115000).toISOString(),
+        _stream: "security_events",
+        source: "Active Directory DC-01",
+        event: "An account failed to log on",
+        event_type: "auth_failure",
+        severity: "High",
+        src_ip: "192.168.1.205",
+        dst_ip: "192.168.1.10",
+        src_port: 60124,
+        dst_port: 88,
+        proto: "TCP",
+        action: "Blocked",
+        user: "administrator",
+        host: "WIN-DC-PROD",
+        process: "lsass.exe",
+        file: "kerberos.dll",
+        hash_sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        cve_id: "N/A",
+        geo_country: "Internal",
+        response_code: 401,
+        latency_ms: 3.5,
+        full_log: '<13>Sep 22 12:24:18 WIN-DC-PROD Microsoft-Windows-Security-Auditing[4625]: An account failed to log on. Subject: Security ID: S-1-0-0 Account Name: - Logon Type: 3 Account For Which Logon Failed: Security ID: S-1-0-0 Account Name: administrator Failure Information: Failure Reason: Unknown user name or bad password. Status: 0xC000006D Sub Status: 0xC000006A Network Information: Workstation Name: WORKSTATION-PC Source Network Address: 192.168.1.205 Source Port: 60124 Process Information: Caller Process ID: 0x2b4 Caller Process Name: C:\\Windows\\System32\\lsass.exe',
+        mitre_technique: "T1110 - Brute Force",
+        mitre_tactic: "Credential Access",
+        ai_analysis: "連續多次使用 administrator 權限嘗試透過 Kerberos 驗證失敗，符合密碼暴力破解與密碼噴灑 (Password Spraying) 模式。"
+      },
+      {
+        id: "VL-LOG-9003",
+        "@timestamp": new Date(Date.now() - 198000).toISOString(),
+        _stream: "edr",
+        source: "CrowdStrike Falcon",
+        event: "Credential Dumping Activity",
+        event_type: "credential_dumping",
+        severity: "Critical",
+        src_ip: "10.0.4.15",
+        dst_ip: "10.0.4.15",
+        src_port: 0,
+        dst_port: 0,
+        proto: "LOCAL",
+        action: "Blocked",
+        user: "victim_user",
+        host: "FINANCE-PC03",
+        process: "mimikatz.exe",
+        file: "mimidrv.sys",
+        hash_sha256: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+        cve_id: "N/A",
+        geo_country: "Internal",
+        response_code: 0,
+        latency_ms: 0.8,
+        full_log: '{"event_id": "CS-9092","host": "FINANCE-PC03","process": "mimikatz.exe","parent_process": "powershell.exe","cmdline": "mimikatz.exe privilege::debug sekurlsa::logonpasswords exit","target_process": "lsass.exe","action": "Blocked","technique": "T1003.001","status": "TERMINATED_BY_AGENT"}',
+        mitre_technique: "T1003.001 - LSASS Memory",
+        mitre_tactic: "Credential Access",
+        ai_analysis: "端點防護 EDR 攔截到攻擊者透過 powershell 調用 mimikatz.exe 讀取 LSASS 記憶體憑證，程序已被即時終止。"
+      },
+      {
+        id: "VL-LOG-9004",
+        "@timestamp": new Date(Date.now() - 320000).toISOString(),
+        _stream: "ids",
+        source: "Suricata IDS/IPS",
+        event: "ET SCAN Potential SSH Brute Force",
+        event_type: "ids_alert",
+        severity: "High",
+        src_ip: "45.142.214.88",
+        dst_ip: "172.16.0.22",
+        src_port: 48912,
+        dst_port: 22,
+        proto: "TCP",
+        action: "deny",
+        user: "root",
+        host: "edge-gateway-01",
+        process: "sshd",
+        file: "/var/log/suricata/eve.json",
+        hash_sha256: "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+        cve_id: "N/A",
+        geo_country: "Russia",
+        response_code: 403,
+        latency_ms: 2.1,
+        full_log: '{"timestamp":"2026-09-22T12:20:14.281822+0000","flow_id":9123847291,"in_iface":"eth0","event_type":"alert","src_ip":"45.142.214.88","src_port":48912,"dest_ip":"172.16.0.22","dest_port":22,"proto":"TCP","alert":{"action":"blocked","gid":1,"signature_id":2001219,"rev":19,"signature":"ET SCAN Potential SSH Brute Force","category":"Attempted Information Leak","severity":1}}',
+        mitre_technique: "T1110.001 - Password Guessing",
+        mitre_tactic: "Initial Access",
+        ai_analysis: "Suricata 規則簽章比對命中外部已知惡意 IP 針對 SSH 服務的高頻密碼暴力猜測，邊界防火牆已自動下發黑名單阻擋。"
+      },
+      {
+        id: "VL-LOG-9005",
+        "@timestamp": new Date(Date.now() - 480000).toISOString(),
+        _stream: "firewall",
+        source: "Palo Alto NGFW",
+        event: "DNS Tunneling Command & Control Detected",
+        event_type: "c2_beacon",
+        severity: "Critical",
+        src_ip: "10.0.12.44",
+        dst_ip: "8.8.8.8",
+        src_port: 53112,
+        dst_port: 53,
+        proto: "UDP",
+        action: "deny",
+        user: "eng_chen",
+        host: "DEV-MAC-BOOK-12",
+        process: "nslookup",
+        file: "resolv.conf",
+        hash_sha256: "ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
+        cve_id: "N/A",
+        geo_country: "United States",
+        response_code: 503,
+        latency_ms: 1.8,
+        full_log: '1,2026/09/22 12:17:34,001801000000,THREAT,dns,1,2026/09/22 12:17:34,10.0.12.44,8.8.8.8,0.0.0.0,0.0.0.0,Trust-Untrust,,,dns,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,log-forwarding,2026/09/22 12:17:34,81290,1,53112,53,0,0,0x0,udp,drop,"w4b8e2190f.attacker-c2-domain.com",Command and Control(109000001),any,informational,client-to-server,981290,0x0,10.0.0.0-10.255.255.255,United States,0,1,0',
+        mitre_technique: "T1071.004 - DNS",
+        mitre_tactic: "Command and Control",
+        ai_analysis: "Palo Alto NGFW 發現異常長度的子域名請求特徵，判定為利用 DNS 隧道作為 C2 通道進行資料回傳，已及時丟棄連線封包。"
+      },
+      {
+        id: "VL-LOG-9006",
+        "@timestamp": new Date(Date.now() - 610000).toISOString(),
+        _stream: "web",
+        source: "NGINX WAF Ingress",
+        event: "SQL Injection Probe Blocked",
+        event_type: "sqli_probe",
+        severity: "High",
+        src_ip: "185.220.101.5",
+        dst_ip: "10.0.1.50",
+        src_port: 43219,
+        dst_port: 443,
+        proto: "TCP",
+        action: "Blocked",
+        user: "anonymous",
+        host: "k8s-ingress-prod",
+        process: "nginx-ingress-controller",
+        file: "/api/v1/users/profile",
+        hash_sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        cve_id: "CWE-89",
+        geo_country: "Netherlands",
+        response_code: 403,
+        latency_ms: 4.8,
+        full_log: '185.220.101.5 - - [22/Sep/2026:12:15:20 +0000] "GET /api/v1/users/profile?id=1%20UNION%20SELECT%20null,username,password_hash%20FROM%20admin-- HTTP/1.1" 403 162 "-" "sqlmap/1.6.12#stable" waf_rule="CRS-942100" waf_action="DENY"',
+        mitre_technique: "T1190 - Exploit Public-Facing Application",
+        mitre_tactic: "Initial Access",
+        ai_analysis: "ModSecurity WAF 偵測到已知 SQL 注入測試工具 (sqlmap) 針對使用者檔案端點發起 UNION SELECT 攻擊，WAF 立即觸發 HTTP 403 阻擋。"
+      },
+      {
+        id: "VL-LOG-9007",
+        "@timestamp": new Date(Date.now() - 780000).toISOString(),
+        _stream: "edr",
+        source: "Microsoft Defender for Endpoint",
+        event: "Ransomware Shadow Copy Deletion Blocked",
+        event_type: "shadow_copy_deletion",
+        severity: "Critical",
+        src_ip: "10.0.2.88",
+        dst_ip: "10.0.2.88",
+        src_port: 0,
+        dst_port: 0,
+        proto: "LOCAL",
+        action: "Blocked",
+        user: "hr_admin",
+        host: "HR-DESKTOP-09",
+        process: "vssadmin.exe",
+        file: "C:\\Windows\\System32\\vssadmin.exe",
+        hash_sha256: "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+        cve_id: "N/A",
+        geo_country: "Internal",
+        response_code: 0,
+        latency_ms: 1.1,
+        full_log: '{"EventTime":"2026-09-22T12:12:44Z","DeviceName":"HR-DESKTOP-09","ActionType":"AntivirusDetection","FileName":"vssadmin.exe","FolderPath":"C:\\\\Windows\\\\System32","ProcessCommandLine":"vssadmin.exe delete shadows /all /quiet","ThreatName":"Behavior:Win32/RansomwareDefenseTampering","AdditionalFields":{"Action":"Blocked","ParentProcess":"cmd.exe"}}',
+        mitre_technique: "T1490 - Inhibit System Recovery",
+        mitre_tactic: "Impact",
+        ai_analysis: "端點攔截到勒索軟體典型的防禦破壞行為 (vssadmin delete shadows /all /quiet)，意圖刪除 Windows 磁碟陰影複製還原點，行為已遭阻止並隔離母行程。"
+      },
+      {
+        id: "VL-LOG-9008",
+        "@timestamp": new Date(Date.now() - 950000).toISOString(),
+        _stream: "firewall",
+        source: "FortiGate-60F",
+        event: "TCP Port Scan Detected",
+        event_type: "port_scan",
+        severity: "Medium",
+        src_ip: "192.168.10.45",
+        dst_ip: "192.168.1.0/24",
+        src_port: 41200,
+        dst_port: 80,
+        proto: "TCP",
+        action: "deny",
+        user: "guest",
+        host: "BYOD-LAPTOP-X",
+        process: "nmap",
+        file: "libpcap.so",
+        hash_sha256: "185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
+        cve_id: "N/A",
+        geo_country: "Internal",
+        response_code: 403,
+        latency_ms: 0.9,
+        full_log: 'date=2026-09-22 time=12:10:02 devname="FG60F-HQ" type="ips" subtype="signature" level="alert" severity="medium" srcip=192.168.10.45 dstip=192.168.1.50 sessionid=49201 proto=6 action="deny" attack="TCP.Port.Scan" msg="IPS: TCP SYN scan over multiple ports detected"',
+        mitre_technique: "T1046 - Network Service Discovery",
+        mitre_tactic: "Discovery",
+        ai_analysis: "訪客無線網路網段之個人設備對辦公核心網段進行橫向 TCP SYN 埠掃描，IPS 防禦模組已即時重設該連線。"
+      }
+    ];
+
+    // Filter by LogsQL syntax
+    let filtered = baseCorpus;
+    const qLower = rawQuery.trim().toLowerCase();
+
+    if (qLower && qLower !== '*') {
+      const pipeParts = rawQuery.split('|').map(s => s.trim());
+      const filterExpr = pipeParts[0];
+
+      filtered = filtered.filter(item => {
+        // Stream filter: _stream: "xxx" or _stream: xxx
+        const streamMatch = filterExpr.match(/_stream:\s*"?([a-zA-Z0-9_\-*]+)"?/i);
+        if (streamMatch && streamMatch[1] !== '*') {
+          const reqStream = streamMatch[1].toLowerCase();
+          if (!item._stream?.toLowerCase().includes(reqStream) && !item.source?.toLowerCase().includes(reqStream)) {
+            return false;
+          }
+        }
+
+        // Action filter: action: "deny" or action: deny
+        const actionMatch = filterExpr.match(/action:\s*"?([a-zA-Z0-9_\-*]+)"?/i);
+        if (actionMatch && actionMatch[1] !== '*') {
+          const reqAction = actionMatch[1].toLowerCase().replace('*', '');
+          if (!item.action?.toLowerCase().includes(reqAction)) {
+            return false;
+          }
+        }
+
+        // Severity filter: severity: "Critical"
+        const sevMatch = filterExpr.match(/severity:\s*"?([a-zA-Z0-9_\-*]+)"?/i);
+        if (sevMatch && sevMatch[1] !== '*') {
+          const reqSev = sevMatch[1].toLowerCase().replace('*', '');
+          if (!item.severity?.toLowerCase().includes(reqSev)) {
+            return false;
+          }
+        }
+
+        // src_ip filter: src_ip: "10.*"
+        const srcIpMatch = filterExpr.match(/src_ip:\s*"?([0-9.*]+)"?/i);
+        if (srcIpMatch) {
+          const reqIp = srcIpMatch[1].replace('*', '');
+          if (!item.src_ip?.includes(reqIp)) {
+            return false;
+          }
+        }
+
+        // Free-text keyword matching across all fields if no specific prefix
+        const words = filterExpr.split(/\s+/).filter(w => !w.includes(':') && !['and', 'or', 'not'].includes(w.toLowerCase()));
+        for (const word of words) {
+          const cleanWord = word.replace(/["'*]/g, '').toLowerCase();
+          if (cleanWord.length > 1) {
+            const rowText = `${item.full_log} ${item.event} ${item.source} ${item.user} ${item.host} ${item.process} ${item.src_ip} ${item.dst_ip}`.toLowerCase();
+            if (!rowText.includes(cleanWord)) {
+              return false;
+            }
+          }
+        }
+
+        return true;
+      });
+    }
+
+    // Apply currently active deployed decoder rules from Phase 3 to dynamically enrich/normalize the returned logs!
+    const enrichedLogs = filtered.map(log => {
+      const logCopy = { ...log };
+      for (const rule of activeDecodersRules) {
+        if (!rule.regex) continue;
+        try {
+          const re = new RegExp(rule.regex);
+          const match = re.exec(logCopy.full_log);
+          if (match) {
+            const val = (match[1] !== undefined ? match[1] : match[0]).trim();
+            if (rule.ecsMapping) {
+              (logCopy as any)[`_ecs_${rule.ecsMapping.replace(/\./g, '_')}`] = val;
+            }
+            if (rule.name === 'action' && val) logCopy.action = val;
+            if (rule.name === 'srcip' && val) logCopy.src_ip = val;
+            if (rule.name === 'dstip' && val) logCopy.dst_ip = val;
+            if (rule.name === 'srcport' && val) logCopy.src_port = parseInt(val, 10) || logCopy.src_port;
+            if (rule.name === 'dstport' && val) logCopy.dst_port = parseInt(val, 10) || logCopy.dst_port;
+          }
+        } catch (e) {
+          // ignore invalid custom regex gracefully
+        }
+      }
+      return logCopy;
+    });
+
+    const pagedLogs = enrichedLogs.slice(0, limitNum);
+    const durationNanos = Number(process.hrtime.bigint() - tStart);
+    const durationMicros = Math.max(1240, Number((durationNanos / 1000).toFixed(0)));
+    const durationMs = Number((durationMicros / 1000).toFixed(2));
+
+    let aggregations: any = null;
+    if (rawQuery.includes('stats count() by')) {
+      const byMatch = rawQuery.match(/stats count\(\) by ([a-zA-Z0-9_]+)/i);
+      const field = byMatch ? byMatch[1] : 'action';
+      const counts: Record<string, number> = {};
+      for (const item of enrichedLogs) {
+        const key = String((item as any)[field] || 'unknown');
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      aggregations = {
+        field,
+        buckets: Object.entries(counts).map(([name, count]) => ({ name, count }))
+      };
+    }
+
+    res.json({
+      success: true,
+      engine: "semor-collector (Go Core v2.5) -> VictoriaLogs Rust Storage Engine",
+      gateway: "Go Ingestion Core (HTTP :8080 /select/logsql/query)",
+      targetSocket: "/tmp/semor_rust.sock",
+      query: rawQuery,
+      limit: limitNum,
+      timeRange,
+      executionMicros: durationMicros,
+      executionTimeMs: durationMs,
+      scannedBlocks: Math.min(6, Math.max(1, Math.ceil(enrichedLogs.length / 3))),
+      bloomFilterPrunedBlocks: 42,
+      totalMatched: enrichedLogs.length,
+      activeDecoderApplied: activeDecoderMeta.name,
+      activeDecoderId: activeDecoderMeta.id,
+      logs: pagedLogs,
+      aggregations
+    });
+  };
+
+  app.post('/api/engine/logsql/query', handleLogsQLQuery);
+  app.get('/api/engine/logsql/query', handleLogsQLQuery);
 
   app.get('/api/engine/blocks', (req, res) => {
     // Generate recent VictoriaBlocks list for the block visualizer reflecting /data/{stream_id}/{part_id}.block

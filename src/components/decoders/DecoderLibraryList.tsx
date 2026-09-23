@@ -19,7 +19,9 @@ import {
   AlertCircle,
   Clock,
   Tag,
-  ArrowRight
+  ArrowRight,
+  Zap,
+  CheckCircle2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../../lib/utils';
@@ -31,13 +33,17 @@ interface DecoderLibraryListProps {
   onSelectDecoderToLoad: (decoder: DecoderItem) => void;
   onDeleteCustomDecoder: (id: string) => void;
   isReadOnly?: boolean;
+  onDeployDecoderToProduction?: (decoder: DecoderItem) => void;
+  activeProductionDecoderName?: string;
 }
 
 export const DecoderLibraryList: React.FC<DecoderLibraryListProps> = ({
   decoders,
   onSelectDecoderToLoad,
   onDeleteCustomDecoder,
-  isReadOnly = false
+  isReadOnly = false,
+  onDeployDecoderToProduction,
+  activeProductionDecoderName
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'custom' | 'firewall' | 'os' | 'web' | 'ids'>('all');
@@ -182,6 +188,12 @@ export const DecoderLibraryList: React.FC<DecoderLibraryListProps> = ({
                       <h4 className="text-xs font-bold text-white group-hover:text-cyan-300 transition-colors">
                         {dec.name}
                       </h4>
+                      {dec.name === activeProductionDecoderName && (
+                        <span className="px-1.5 py-0.2 text-[8px] font-mono font-black uppercase rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                          <CheckCircle2 size={9} className="text-emerald-400" />
+                          生產生效中
+                        </span>
+                      )}
                       {dec.isCustom && (
                         <span className="px-1.5 py-0.2 text-[8px] font-black uppercase rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                           自訂
@@ -237,8 +249,8 @@ export const DecoderLibraryList: React.FC<DecoderLibraryListProps> = ({
             </div>
 
             {/* Bottom Metrics & Load Action */}
-            <div className="pt-3 border-t border-gray-800/80 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-3 text-[10px] text-gray-500 font-mono">
+            <div className="pt-3 border-t border-gray-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-[10px] text-gray-500 font-mono">
                 <span>{dec.fields.length} 欄位</span>
                 <span>•</span>
                 <span className="flex items-center gap-1 text-cyan-400/80">
@@ -246,14 +258,33 @@ export const DecoderLibraryList: React.FC<DecoderLibraryListProps> = ({
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={() => onSelectDecoderToLoad(dec)}
-                className="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-              >
-                <span>載入至工作區</span>
-                <ArrowRight size={12} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {onDeployDecoderToProduction && (
+                  <button
+                    type="button"
+                    onClick={() => onDeployDecoderToProduction(dec)}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer",
+                      dec.name === activeProductionDecoderName
+                        ? "bg-emerald-600/20 text-emerald-300 border border-emerald-500/40"
+                        : "bg-gray-800/90 hover:bg-emerald-600/20 text-gray-300 hover:text-emerald-300 border border-gray-750 hover:border-emerald-500/30"
+                    )}
+                    title="將此解碼器規則透過 UDS 即時部署至 Rust 核心"
+                  >
+                    <Zap size={11} className={dec.name === activeProductionDecoderName ? "text-yellow-300 fill-yellow-300" : "text-gray-400"} />
+                    <span>{dec.name === activeProductionDecoderName ? "已生效" : "部署"}</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => onSelectDecoderToLoad(dec)}
+                  className="px-2.5 py-1.5 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <span>載入</span>
+                  <ArrowRight size={11} />
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -410,18 +441,34 @@ export const DecoderLibraryList: React.FC<DecoderLibraryListProps> = ({
               </div>
 
               {/* Modal Footer */}
-              <div className="p-4 sm:p-6 border-t border-gray-800 flex items-center justify-between bg-black/40">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectDecoderToLoad(activeModalDecoder);
-                    setActiveModalDecoder(null);
-                  }}
-                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-900/30"
-                >
-                  <span>載入此解碼器至工作區編輯</span>
-                  <ArrowRight size={14} />
-                </button>
+              <div className="p-4 sm:p-6 border-t border-gray-800 flex flex-wrap items-center justify-between gap-3 bg-black/40">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectDecoderToLoad(activeModalDecoder);
+                      setActiveModalDecoder(null);
+                    }}
+                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-900/30"
+                  >
+                    <span>載入此解碼器至工作區編輯</span>
+                    <ArrowRight size={13} />
+                  </button>
+
+                  {onDeployDecoderToProduction && activeModalDecoder && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDeployDecoderToProduction(activeModalDecoder);
+                        setActiveModalDecoder(null);
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-950/40"
+                    >
+                      <Zap size={13} className="text-yellow-300 fill-yellow-300" />
+                      <span>立即部署至生產引擎</span>
+                    </button>
+                  )}
+                </div>
 
                 <button
                   type="button"

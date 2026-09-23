@@ -54,6 +54,34 @@ export default function DecoderView({ isReadOnly = false }: { isReadOnly?: boole
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isDeployingToRust, setIsDeployingToRust] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [activeProductionDecoder, setActiveProductionDecoder] = useState<{
+    id: string;
+    name: string;
+    deployedAt: string;
+    rulesCount: number;
+  } | null>({
+    id: 'fortigate-ngfw',
+    name: 'FortiGate 次世代防火牆日誌',
+    deployedAt: new Date().toISOString(),
+    rulesCount: 6
+  });
+
+  // Fetch initial active production decoder state from backend
+  useEffect(() => {
+    fetch('/api/engine/decoders/active')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.decoderName) {
+          setActiveProductionDecoder({
+            id: data.decoderId,
+            name: data.decoderName,
+            deployedAt: data.deployedAt,
+            rulesCount: data.rulesCount
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Custom Decoders stored in LocalStorage
   const [customDecoders, setCustomDecoders] = useState<DecoderItem[]>(() => {
@@ -348,28 +376,67 @@ ${logInput.trim()}`;
   // Deploy Extracted Regex Rules down to Rust Storage Core over Unix Domain Socket
   const handleDeployToRustPipeline = async () => {
     if (analyzedFields.length === 0) {
-      showToast('目前沒有可下發之正則欄位規則', 'error');
+      showToast('目前工作區沒有可下發之正則欄位規則', 'error');
       return;
     }
     try {
       setIsDeployingToRust(true);
+      const decId = `dec-${activeDecoderName.replace(/\s+/g, '-').toLowerCase()}`;
       const res = await fetch('/api/engine/decoders/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          decoderId: `dec-${activeDecoderName.replace(/\s+/g, '-').toLowerCase()}`,
+          decoderId: decId,
           decoderName: activeDecoderName,
           rules: analyzedFields
         })
       });
       if (res.ok) {
         const data = await res.json();
-        showToast(`已透過 UDS (${data.ipcBridge?.socketPath || '/tmp/semor_rust.sock'}) 成功下發 ${data.rulesCount} 組 Regex 規則至 Rust 儲存核心！`, 'success');
+        setActiveProductionDecoder({
+          id: decId,
+          name: activeDecoderName,
+          deployedAt: data.deployedAt || new Date().toISOString(),
+          rulesCount: analyzedFields.length
+        });
+        showToast(`已透過 UDS (${data.ipcBridge?.socketPath || '/tmp/semor_rust.sock'}) 成功熱部署「${activeDecoderName}」至生產核心 (動態生效)！`, 'success');
       } else {
         showToast('下發規則至 Rust 引擎失敗', 'error');
       }
     } catch (e: any) {
       showToast(`下發錯誤: ${e.message}`, 'error');
+    } finally {
+      setIsDeployingToRust(false);
+    }
+  };
+
+  // Deploy any decoder directly from the library to production engine
+  const handleDeployDecoderToProduction = async (decoder: DecoderItem) => {
+    try {
+      setIsDeployingToRust(true);
+      const res = await fetch('/api/engine/decoders/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decoderId: decoder.id,
+          decoderName: decoder.name,
+          rules: decoder.fields
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActiveProductionDecoder({
+          id: decoder.id,
+          name: decoder.name,
+          deployedAt: data.deployedAt || new Date().toISOString(),
+          rulesCount: decoder.fields.length
+        });
+        showToast(`解碼器「${decoder.name}」已透過 UDS 成功熱部署至生產核心 (動態生效)！`, 'success');
+      } else {
+        showToast('部署至生產引擎失敗', 'error');
+      }
+    } catch (e: any) {
+      showToast(`部署錯誤: ${e.message}`, 'error');
     } finally {
       setIsDeployingToRust(false);
     }
@@ -407,6 +474,10 @@ ${logInput.trim()}`;
         extractedFieldCount={analyzedFields.length}
         onExportAll={handleExportAll}
         onResetWorkspace={handleResetWorkspace}
+        onDeployToProduction={handleDeployToRustPipeline}
+        isDeploying={isDeployingToRust}
+        activeProductionDecoderName={activeProductionDecoder?.name}
+        activeProductionDeployedAt={activeProductionDecoder?.deployedAt}
       />
 
       {/* Tab Router Content */}
@@ -449,6 +520,8 @@ ${logInput.trim()}`;
           onSelectDecoderToLoad={handleSelectDecoderToLoad}
           onDeleteCustomDecoder={handleDeleteCustomDecoder}
           isReadOnly={isReadOnly}
+          onDeployDecoderToProduction={handleDeployDecoderToProduction}
+          activeProductionDecoderName={activeProductionDecoder?.name}
         />
       )}
 

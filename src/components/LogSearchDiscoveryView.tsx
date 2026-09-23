@@ -257,12 +257,12 @@ const SAMPLE_LOGS: LogRecord[] = [
 ];
 
 const PRESET_QUERIES = [
-  { label: '🚨 關鍵與高風險威脅', query: 'severity: "Critical" OR severity: "High"', desc: '篩選所有被評定為嚴重及高危險等級的安全日誌' },
-  { label: '🛡️ 遭主動阻斷/隔離事件', query: 'action: "Blocked" OR action: "Quarantined"', desc: '查核邊界防火牆、WAF 及 EDR 成功攔截之攻擊' },
-  { label: '🔑 身分驗證與憑證竊取', query: 'event_type: "credential_dumping" OR event_type: "kerberoasting"', desc: '鎖定 LSASS 記憶體傾印與 Kerberos 票證異常' },
-  { label: '🌐 境外 IP 異常通訊', query: 'geo_country: "RU" OR geo_country: "CN" OR geo_country: "NL"', desc: '監控非境內來源或目標之連線紀錄' },
-  { label: '🗄️ 資料庫 SQL 注入', query: 'source: "PostgreSQL" AND severity: "High"', desc: '檢索資料庫內部異常查詢與語法注入' },
-  { label: '⚡ PowerShell / 命令列攻擊', query: 'process: "powershell.exe" OR process: "cmd.exe"', desc: '端點可疑腳本與行程執行追蹤' }
+  { label: '🔥 防火牆阻斷日誌 (LogsQL)', query: '_stream: "firewall" action: "deny"', desc: 'VictoriaLogs 流過濾與 FortiGate Drop 動作' },
+  { label: '🚨 關鍵與高風險威脅 (LogsQL)', query: 'severity: "Critical" OR severity: "High"', desc: '篩選所有被評定為嚴重及高危險等級的安全日誌' },
+  { label: '🛡️ 遭主動阻斷/隔離事件 (LogsQL)', query: 'action: "Blocked" OR action: "deny"', desc: '查核邊界防火牆、WAF 及 EDR 成功攔截之攻擊' },
+  { label: '🔑 端點憑證竊取 (EDR LogsQL)', query: '_stream: "edr" process: "mimikatz.exe"', desc: '鎖定 LSASS 記憶體傾印與憑證提取程序' },
+  { label: '📊 動作分佈聚合統計 (LogsQL Stats)', query: '* | stats count() by action', desc: '利用 LogsQL 管道執行聚合分組計算' },
+  { label: '🌐 內部橫向探測 (LogsQL Wildcard)', query: 'src_ip: "10.*"', desc: '追蹤內網網段來源之連線探測' }
 ];
 
 export default function LogSearchDiscoveryView() {
@@ -270,8 +270,8 @@ export default function LogSearchDiscoveryView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Search & Query States
-  const [searchQuery, setSearchQuery] = useState('');
-  const [appliedQuery, setAppliedQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('_stream: "firewall"');
+  const [appliedQuery, setAppliedQuery] = useState('_stream: "firewall"');
   const [timeRange, setTimeRange] = useState('Last 15 minutes');
   const [isTimeDropdownOpen, setIsTimeDropdownOpen] = useState(false);
   const [customStart, setCustomStart] = useState('');
@@ -296,7 +296,34 @@ export default function LogSearchDiscoveryView() {
   const [isPresetOpen, setIsPresetOpen] = useState(false);
   const [activeFacetField, setActiveFacetField] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [queryExecutionTime, setQueryExecutionTime] = useState(18);
+  const [queryExecutionTime, setQueryExecutionTime] = useState(1.42);
+
+  // LogsQL Backend Engine State
+  const [isLoadingQuery, setIsLoadingQuery] = useState(false);
+  const [logsqlMetadata, setLogsqlMetadata] = useState<{
+    engine: string;
+    gateway: string;
+    targetSocket: string;
+    executionMicros: number;
+    executionTimeMs: number;
+    scannedBlocks: number;
+    bloomFilterPrunedBlocks: number;
+    totalMatched: number;
+    activeDecoderApplied: string;
+    activeDecoderId?: string;
+    aggregations: { field: string; buckets: { name: string; count: number }[] } | null;
+  }>({
+    engine: "semor-collector (Go Core v2.5) -> VictoriaLogs Rust Storage Engine",
+    gateway: "Go Ingestion Core (HTTP :8080 /select/logsql/query)",
+    targetSocket: "/tmp/semor_rust.sock",
+    executionMicros: 1240,
+    executionTimeMs: 1.24,
+    scannedBlocks: 3,
+    bloomFilterPrunedBlocks: 42,
+    totalMatched: 8,
+    activeDecoderApplied: "FortiGate 次世代防火牆日誌",
+    aggregations: null
+  });
 
   // Raw logs data buffer
   const [logRecords, setLogRecords] = useState<LogRecord[]>(SAMPLE_LOGS);
@@ -305,6 +332,62 @@ export default function LogSearchDiscoveryView() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  // LogsQL Query Execution against Go Collector / VictoriaLogs Rust Engine
+  const executeLogsQL = async (queryStr: string) => {
+    setIsLoadingQuery(true);
+    try {
+      const res = await fetch('/api/engine/logsql/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: queryStr.trim() || '*',
+          limit: 100,
+          timeRange
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
+          setLogRecords(data.logs);
+        } else if (queryStr === '*' || !queryStr) {
+          setLogRecords(data.logs || SAMPLE_LOGS);
+        } else {
+          setLogRecords(data.logs || []);
+        }
+
+        setLogsqlMetadata({
+          engine: data.engine || "semor-collector (Go Core) -> VictoriaLogs Rust Storage Engine",
+          gateway: data.gateway || "Go Ingestion Core (HTTP :8080 /select/logsql/query)",
+          targetSocket: data.targetSocket || "/tmp/semor_rust.sock",
+          executionMicros: data.executionMicros || 1350,
+          executionTimeMs: data.executionTimeMs || 1.35,
+          scannedBlocks: data.scannedBlocks || 3,
+          bloomFilterPrunedBlocks: data.bloomFilterPrunedBlocks || 42,
+          totalMatched: data.totalMatched !== undefined ? data.totalMatched : (data.logs?.length || 0),
+          activeDecoderApplied: data.activeDecoderApplied || "FortiGate 次世代防火牆日誌",
+          activeDecoderId: data.activeDecoderId,
+          aggregations: data.aggregations || null
+        });
+        setQueryExecutionTime(data.executionTimeMs || 1.35);
+        setAppliedQuery(queryStr);
+        showToast(isZh ? `已向 Go 後端發送 LogsQL 查詢，耗時 ${data.executionTimeMs} ms (${data.executionMicros} μs)` : `LogsQL query completed in ${data.executionTimeMs} ms`);
+      } else {
+        setAppliedQuery(queryStr);
+        showToast(isZh ? 'LogsQL 引擎離線，已使用快取日誌進行本地檢索' : 'Query executed on local cache');
+      }
+    } catch (err: any) {
+      setAppliedQuery(queryStr);
+      showToast(isZh ? `LogsQL 查詢連線異常: ${err.message}` : `Query error: ${err.message}`);
+    } finally {
+      setIsLoadingQuery(false);
+    }
+  };
+
+  useEffect(() => {
+    executeLogsQL(searchQuery);
+  }, []);
 
   // Live Stream Simulation
   useEffect(() => {
@@ -422,9 +505,7 @@ export default function LogSearchDiscoveryView() {
 
   // Execute Query Trigger
   const handleExecuteSearch = () => {
-    setAppliedQuery(searchQuery);
-    setQueryExecutionTime(Math.floor(Math.random() * 25) + 12);
-    showToast(isZh ? '已套用檢索查詢，日誌串流與命中頻率長條圖已即時更新！' : 'Query executed successfully.');
+    executeLogsQL(searchQuery);
   };
 
   // Export to CSV
@@ -480,14 +561,14 @@ export default function LogSearchDiscoveryView() {
           {/* Query Input with Prefix Badge */}
           <div className="flex-1 relative flex items-center">
             <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-gray-500 pointer-events-none">
-              <Search className="w-4 h-4 text-blue-400" />
-              <span className="text-[10px] font-mono font-black text-gray-500 border-r border-gray-700 pr-2 uppercase">KQL / VRL</span>
+              <Search className="w-4 h-4 text-cyan-400" />
+              <span className="text-[10px] font-mono font-black text-cyan-400/90 border-r border-gray-700 pr-2 uppercase">LogsQL</span>
             </div>
             
             <input 
               type="text" 
-              placeholder={isZh ? '檢索日誌欄位 (例如 source: "Palo Alto" AND severity: "Critical" 或 event: "Injection" ...)' : 'Search logs (e.g. source: "Palo Alto" AND severity: "Critical" ...)'}
-              className="w-full bg-[#09090b] border border-gray-800 focus:border-blue-500 rounded-2xl py-3 pl-28 pr-28 text-xs focus:outline-none transition-all placeholder:text-gray-600 font-mono text-slate-200 shadow-inner"
+              placeholder={isZh ? '輸入 VictoriaLogs LogsQL 查詢 (例如 _stream: "firewall" action: "deny" 或 * | stats count() by action ...)' : 'Enter LogsQL query (e.g. _stream: "firewall" action: "deny" or * | stats count() by action ...)'}
+              className="w-full bg-[#09090b] border border-gray-800 focus:border-cyan-500 rounded-2xl py-3 pl-28 pr-28 text-xs focus:outline-none transition-all placeholder:text-gray-600 font-mono text-slate-200 shadow-inner"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -508,11 +589,11 @@ export default function LogSearchDiscoveryView() {
               )}
               <button
                 onClick={() => setIsQueryHelperOpen(!isQueryHelperOpen)}
-                className="p-1.5 hover:bg-blue-900/30 text-blue-400 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-bold"
-                title="語法速查表"
+                className="p-1.5 hover:bg-cyan-900/30 text-cyan-400 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-bold"
+                title="LogsQL 語法速查表"
               >
                 <HelpCircle size={13} />
-                <span className="hidden sm:inline">{isZh ? '語法' : 'Syntax'}</span>
+                <span className="hidden sm:inline">{isZh ? 'LogsQL 語法' : 'LogsQL Syntax'}</span>
               </button>
             </div>
           </div>
@@ -521,11 +602,11 @@ export default function LogSearchDiscoveryView() {
           <div className="relative">
             <button
               onClick={() => setIsPresetOpen(!isPresetOpen)}
-              className="px-3.5 py-3 bg-[#09090b] hover:bg-gray-900 border border-gray-800 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 text-gray-300 hover:text-white justify-between min-w-[150px]"
+              className="px-3.5 py-3 bg-[#09090b] hover:bg-gray-900 border border-gray-800 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 text-gray-300 hover:text-white justify-between min-w-[160px]"
             >
               <div className="flex items-center gap-2">
                 <Bookmark size={13} className="text-amber-400" />
-                <span>{isZh ? '常用檢索範本' : 'Presets'}</span>
+                <span>{isZh ? 'LogsQL 檢索範本' : 'LogsQL Presets'}</span>
               </div>
               <ChevronDown size={13} className={cn("transition-transform text-gray-500", isPresetOpen && "rotate-180")} />
             </button>
@@ -541,7 +622,7 @@ export default function LogSearchDiscoveryView() {
                     className="absolute right-0 mt-2 w-80 bg-[#16161a] border border-gray-800 rounded-2xl shadow-2xl z-50 p-2 text-xs space-y-1"
                   >
                     <div className="px-3 py-1.5 border-b border-gray-800 text-[10px] font-black uppercase tracking-wider text-gray-400 flex items-center justify-between">
-                      <span>{isZh ? '快速套用預設情境' : 'Pre-configured Threat Queries'}</span>
+                      <span>{isZh ? '快速套用 LogsQL 情境' : 'Pre-configured LogsQL Queries'}</span>
                       <Sparkles size={12} className="text-amber-400" />
                     </div>
                     {PRESET_QUERIES.map((preset, idx) => (
@@ -550,13 +631,13 @@ export default function LogSearchDiscoveryView() {
                         onClick={() => {
                           setSearchQuery(preset.query);
                           setIsPresetOpen(false);
-                          showToast(isZh ? `已套用範本: ${preset.label}` : `Applied query preset`);
+                          executeLogsQL(preset.query);
                         }}
                         className="w-full text-left p-2.5 rounded-xl hover:bg-slate-900 transition-all flex flex-col gap-0.5 group"
                       >
-                        <span className="font-black text-xs text-white group-hover:text-blue-400 transition-colors">{preset.label}</span>
+                        <span className="font-black text-xs text-white group-hover:text-cyan-400 transition-colors">{preset.label}</span>
                         <span className="text-[10px] text-gray-400">{preset.desc}</span>
-                        <span className="text-[9px] font-mono text-gray-600 truncate mt-0.5">{preset.query}</span>
+                        <span className="text-[9px] font-mono text-cyan-500/80 truncate mt-0.5">{preset.query}</span>
                       </button>
                     ))}
                   </motion.div>
@@ -572,7 +653,7 @@ export default function LogSearchDiscoveryView() {
               className="flex items-center gap-2 px-4 py-3 bg-[#09090b] hover:bg-gray-900 border border-gray-800 rounded-2xl text-xs font-bold transition-all min-w-[170px] justify-between text-gray-300"
             >
               <div className="flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                <Clock className="w-3.5 h-3.5 text-cyan-400" />
                 <span className="font-medium text-white">{timeRange}</span>
               </div>
               <ChevronDown className={cn("w-3.5 h-3.5 text-gray-500 transition-transform", isTimeDropdownOpen && "rotate-180")} />
@@ -602,7 +683,7 @@ export default function LogSearchDiscoveryView() {
                           }}
                           className={cn(
                             "text-left px-3 py-2 text-[11px] font-bold rounded-xl transition-colors",
-                            timeRange === range ? "bg-blue-600 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
+                            timeRange === range ? "bg-cyan-600 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
                           )}
                         >
                           {range}
@@ -618,13 +699,13 @@ export default function LogSearchDiscoveryView() {
                       <div className="space-y-2">
                         <input 
                           type="datetime-local" 
-                          className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-gray-300 font-mono outline-none focus:border-blue-500"
+                          className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-gray-300 font-mono outline-none focus:border-cyan-500"
                           value={customStart}
                           onChange={(e) => setCustomStart(e.target.value)}
                         />
                         <input 
                           type="datetime-local" 
-                          className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-gray-300 font-mono outline-none focus:border-blue-500"
+                          className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-gray-300 font-mono outline-none focus:border-cyan-500"
                           value={customEnd}
                           onChange={(e) => setCustomEnd(e.target.value)}
                         />
@@ -634,7 +715,7 @@ export default function LogSearchDiscoveryView() {
                             setTimeRange(`${customStart} ~ ${customEnd}`);
                             setIsTimeDropdownOpen(false);
                           }}
-                          className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                          className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-30 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
                         >
                           套用自訂區間
                         </button>
@@ -649,10 +730,15 @@ export default function LogSearchDiscoveryView() {
           {/* Execute Query Button */}
           <button 
             onClick={handleExecuteSearch}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-blue-600/25 flex items-center justify-center gap-2 shrink-0"
+            disabled={isLoadingQuery}
+            className="px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-cyan-600/25 flex items-center justify-center gap-2 shrink-0"
           >
-            <Play size={13} className="fill-current" />
-            <span>{isZh ? '檢索日誌' : 'Search Logs'}</span>
+            {isLoadingQuery ? (
+              <RefreshCw size={13} className="animate-spin" />
+            ) : (
+              <Play size={13} className="fill-current" />
+            )}
+            <span>{isLoadingQuery ? (isZh ? '檢索中...' : 'Querying...') : (isZh ? 'LogsQL 檢索' : 'Search LogsQL')}</span>
           </button>
         </div>
 
@@ -666,8 +752,8 @@ export default function LogSearchDiscoveryView() {
               className="overflow-hidden bg-[#09090b] border border-gray-800/90 rounded-2xl p-4 text-xs font-mono space-y-2.5"
             >
               <div className="flex items-center justify-between border-b border-gray-800 pb-2">
-                <span className="text-[11px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-                  <BookOpen size={13} /> {isZh ? 'KQL / Lucene / VictoriaLogs 檢索語法速查' : 'Query Syntax Cheat Sheet'}
+                <span className="text-[11px] font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                  <BookOpen size={13} /> {isZh ? 'VictoriaLogs LogsQL 高效查詢語法速查' : 'VictoriaLogs LogsQL Query Cheat Sheet'}
                 </span>
                 <button onClick={() => setIsQueryHelperOpen(false)} className="text-gray-500 hover:text-white">
                   <X size={14} />
@@ -676,24 +762,24 @@ export default function LogSearchDiscoveryView() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px]">
                 <div className="bg-[#111114] p-3 rounded-xl border border-gray-800 space-y-1">
-                  <span className="text-amber-400 font-bold block">{isZh ? '欄位精確與萬用字元比對' : 'Exact & Wildcards'}</span>
-                  <p className="text-gray-400"><code>source: "Palo Alto"</code></p>
-                  <p className="text-gray-400"><code>src_ip: 10.88.*</code></p>
-                  <p className="text-gray-400"><code>user: *admin*</code></p>
+                  <span className="text-cyan-400 font-bold block">{isZh ? '1. Stream 標籤與欄位精確' : '1. Stream Filters'}</span>
+                  <p className="text-gray-400"><code>_stream: "firewall"</code></p>
+                  <p className="text-gray-400"><code>_stream: "edr" action: "deny"</code></p>
+                  <p className="text-gray-400"><code>src_ip: "10.*"</code></p>
                 </div>
 
                 <div className="bg-[#111114] p-3 rounded-xl border border-gray-800 space-y-1">
-                  <span className="text-blue-400 font-bold block">{isZh ? '布林邏輯組合 (AND/OR/NOT)' : 'Boolean Operators'}</span>
-                  <p className="text-gray-400"><code>severity: "Critical" AND action: "Blocked"</code></p>
-                  <p className="text-gray-400"><code>proto: TCP OR proto: UDP</code></p>
+                  <span className="text-blue-400 font-bold block">{isZh ? '2. 邏輯運算 (AND / OR / NOT)' : '2. Boolean Logic'}</span>
+                  <p className="text-gray-400"><code>severity: "Critical" AND action: "deny"</code></p>
+                  <p className="text-gray-400"><code>proto: "TCP" OR proto: "UDP"</code></p>
                   <p className="text-gray-400"><code>NOT user: "SYSTEM"</code></p>
                 </div>
 
                 <div className="bg-[#111114] p-3 rounded-xl border border-gray-800 space-y-1">
-                  <span className="text-purple-400 font-bold block">{isZh ? '數值區間與狀態碼' : 'Range Queries'}</span>
-                  <p className="text-gray-400"><code>response_code: &gt;= 400</code></p>
-                  <p className="text-gray-400"><code>dst_port: [80 TO 443]</code></p>
-                  <p className="text-gray-400"><code>latency_ms: &gt; 5.0</code></p>
+                  <span className="text-purple-400 font-bold block">{isZh ? '3. 管道統計聚合 (| stats)' : '3. Pipe Aggregation'}</span>
+                  <p className="text-gray-400"><code>* | stats count() by action</code></p>
+                  <p className="text-gray-400"><code>_stream: "firewall" | stats count() by severity</code></p>
+                  <p className="text-gray-400"><code>* | stats count() by src_ip</code></p>
                 </div>
               </div>
             </motion.div>
@@ -704,7 +790,7 @@ export default function LogSearchDiscoveryView() {
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-gray-800/80">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 text-xs text-gray-400 font-bold mr-1">
-              <Filter className="w-3.5 h-3.5 text-blue-400" />
+              <Filter className="w-3.5 h-3.5 text-cyan-400" />
               <span className="text-[10px] uppercase tracking-wider">{isZh ? '作用中過濾條件:' : 'Filters:'}</span>
             </div>
 
@@ -718,7 +804,7 @@ export default function LogSearchDiscoveryView() {
                   className={cn(
                     "flex items-center gap-2 px-3 py-1 rounded-xl border text-[11px] font-mono font-bold shadow-sm transition-all",
                     filter.type === 'include' 
-                      ? "bg-blue-600/10 text-blue-400 border-blue-500/30" 
+                      ? "bg-cyan-600/10 text-cyan-400 border-cyan-500/30" 
                       : "bg-rose-600/10 text-rose-400 border-rose-500/30"
                   )}
                 >
@@ -788,14 +874,71 @@ export default function LogSearchDiscoveryView() {
 
             {/* Ingestion & Performance Telemetry Badge */}
             <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-gray-400 bg-[#09090b] border border-gray-800 px-3 py-1.5 rounded-xl">
-              <Activity size={12} className="text-emerald-400" />
-              <span>{isZh ? '檢索耗時' : 'Latency'}: <strong className="text-blue-400">{queryExecutionTime} ms</strong></span>
+              <Activity size={12} className="text-cyan-400" />
+              <span>{isZh ? 'LogsQL 耗時' : 'Latency'}: <strong className="text-cyan-400">{queryExecutionTime} ms</strong></span>
               <span className="text-gray-700">|</span>
-              <span>{isZh ? '採集吞吐' : 'Rate'}: <strong className="text-emerald-400">38,500 EPS</strong></span>
+              <span>{isZh ? '採集吞吐' : 'Rate'}: <strong className="text-emerald-400">42,800 EPS</strong></span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* LogsQL Backend Ingestion Engine Status & IPC Pipeline Banner */}
+      <div className="bg-[#111114]/90 border border-cyan-500/20 rounded-2xl p-3.5 shadow-xl flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2 px-2.5 py-1 bg-cyan-950/40 border border-cyan-500/30 rounded-lg text-cyan-300">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-bold text-[11px]">LogsQL 引擎通道: Go Core (:8080) ➔ UDS ➔ Rust Engine</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-gray-400 text-[11px]">
+            <Database size={13} className="text-cyan-400" />
+            <span>通訊接口: <strong className="text-gray-200">{logsqlMetadata.targetSocket}</strong></span>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-gray-400 text-[11px]">
+            <Cpu size={13} className="text-purple-400" />
+            <span>生產生效解碼器: <strong className="text-emerald-400">{logsqlMetadata.activeDecoderApplied}</strong></span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-400">
+          <span className="px-2 py-0.5 bg-black/40 border border-gray-800 rounded">
+            區塊剪枝: <strong className="text-cyan-300">{logsqlMetadata.bloomFilterPrunedBlocks} 區塊</strong> (Bloom Filter)
+          </span>
+          <span className="px-2 py-0.5 bg-black/40 border border-gray-800 rounded">
+            掃描區塊: <strong className="text-blue-300">{logsqlMetadata.scannedBlocks} 區塊</strong>
+          </span>
+          <span className="px-2 py-0.5 bg-black/40 border border-gray-800 rounded">
+            微秒計時: <strong className="text-emerald-400">{logsqlMetadata.executionMicros} μs</strong>
+          </span>
+        </div>
+      </div>
+
+      {/* LogsQL Aggregations Bar Card (Visible when `| stats` is queried) */}
+      {logsqlMetadata.aggregations && logsqlMetadata.aggregations.buckets.length > 0 && (
+        <div className="bg-[#111114] border border-purple-500/30 rounded-2xl p-4 shadow-xl space-y-3">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+            <div className="flex items-center gap-2">
+              <Layers size={14} className="text-purple-400" />
+              <span className="text-xs font-black uppercase text-purple-300 tracking-wider">
+                LogsQL 統計聚合分析: <code>stats count() by {logsqlMetadata.aggregations.field}</code>
+              </span>
+            </div>
+            <span className="text-[10px] font-mono text-gray-400">
+              共計 {logsqlMetadata.aggregations.buckets.reduce((acc, b) => acc + b.count, 0)} 筆事件
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+            {logsqlMetadata.aggregations.buckets.map((bucket, i) => (
+              <div key={i} className="bg-black/50 border border-gray-800/80 rounded-xl p-2.5 flex flex-col justify-between">
+                <span className="text-[10px] font-mono text-gray-400 truncate">{bucket.name}</span>
+                <span className="text-base font-black text-cyan-400 font-mono mt-1">{bucket.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* TIME-SERIES OCCURRENCE HISTOGRAM */}
       <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-5 shadow-2xl">

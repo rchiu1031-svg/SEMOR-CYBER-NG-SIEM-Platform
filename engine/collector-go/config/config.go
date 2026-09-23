@@ -8,9 +8,11 @@ import (
 // Config 定義 SEMOR Go 收集器所有可配置參數
 type Config struct {
 	// Syslog 接收埠設定
-	SyslogUDPPort int
-	SyslogTCPPort int
-	UDPBufferSize int // 放大核心 Buffer 防止爆發遺失 (預設 32MB)
+	SyslogUDPPort         int
+	SyslogTCPPort         int
+	SyslogTLSPort         int // RFC 5425 Syslog over TLS (預設 6514)
+	UDPBufferSize         int // 放大核心 Buffer 防止爆發遺失 (預設 32MB)
+	RateLimitEPSPerSource int // 單一來源 IP 限速 EPS (0 代表不限速，預設 50000)
 
 	// HTTP 批次接收服務
 	HTTPPort int
@@ -31,17 +33,19 @@ type Config struct {
 
 func LoadConfig() *Config {
 	return &Config{
-		SyslogUDPPort:     getEnvInt("SYSLOG_UDP_PORT", 5140),
-		SyslogTCPPort:     getEnvInt("SYSLOG_TCP_PORT", 5140),
-		UDPBufferSize:     getEnvInt("UDP_BUFFER_SIZE_MB", 32) * 1024 * 1024,
-		HTTPPort:          getEnvInt("COLLECTOR_HTTP_PORT", 8080),
-		BatchSize:         getEnvInt("BATCH_SIZE", 2000),
-		BatchTimeout:      getEnvInt("BATCH_TIMEOUT_MS", 250),
-		ChannelCap:        getEnvInt("CHANNEL_CAPACITY", 50000),
-		RustEngineUDSPath: getEnvString("RUST_UDS_PATH", "/tmp/semor_rust.sock"),
-		RustEngineTCPAddr: getEnvString("RUST_TCP_ADDR", "127.0.0.1:9527"),
-		UseUDS:            getEnvBool("USE_UDS", true),
-		WebUIAPIURL:       getEnvString("WEB_UI_URL", "http://localhost:3000"),
+		SyslogUDPPort:         getEnvInt("SYSLOG_UDP_PORT", 5140),
+		SyslogTCPPort:         getEnvInt("SYSLOG_TCP_PORT", 5140),
+		SyslogTLSPort:         getEnvInt("SYSLOG_TLS_PORT", 6514),
+		UDPBufferSize:         getEnvInt("UDP_BUFFER_SIZE_MB", 32) * 1024 * 1024,
+		RateLimitEPSPerSource: getEnvInt("RATE_LIMIT_EPS_PER_SOURCE", 50000),
+		HTTPPort:              getEnvInt("COLLECTOR_HTTP_PORT", 8080),
+		BatchSize:             getEnvInt("BATCH_SIZE", 2000),
+		BatchTimeout:          getEnvInt("BATCH_TIMEOUT_MS", 250),
+		ChannelCap:            getEnvInt("CHANNEL_CAPACITY", 50000),
+		RustEngineUDSPath:     getEnvString("RUST_UDS_PATH", "/tmp/semor_rust.sock"),
+		RustEngineTCPAddr:     getEnvString("RUST_TCP_ADDR", "127.0.0.1:9527"),
+		UseUDS:                getEnvBool("USE_UDS", true),
+		WebUIAPIURL:           getEnvString("WEB_UI_URL", "http://localhost:3000"),
 	}
 }
 

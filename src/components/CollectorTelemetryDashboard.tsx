@@ -18,7 +18,11 @@ import {
   Maximize2,
   Gauge,
   ShieldAlert,
-  ArrowUpRight
+  ArrowUpRight,
+  Terminal,
+  FileCode,
+  Shield,
+  Filter
 } from 'lucide-react';
 import {
   AreaChart,
@@ -34,6 +38,8 @@ import {
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts';
+import LogParserDiagnosticPanel from './LogParserDiagnosticPanel';
+import LogSourcesTable from './LogSourcesTable';
 
 export interface CollectorWorker {
   workerId: string;
@@ -115,6 +121,7 @@ export function CollectorTelemetryDashboard() {
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<'normal' | 'surge' | 'stress'>('normal');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'diagnostics' | 'sources' | 'protocols'>('overview');
 
   const historyMaxPoints = 25;
   const isMountedRef = useRef(true);
@@ -283,6 +290,192 @@ export function CollectorTelemetryDashboard() {
           </div>
         )}
       </div>
+
+      {/* Main Feature Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveMainTab('overview')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'overview'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          即時緩衝與工作池 (Performance & Buffer)
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('diagnostics')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'diagnostics'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Terminal className="w-3.5 h-3.5" />
+          日誌解碼診斷測試 (Parser Diagnostics)
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('sources')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'sources'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Radio className="w-3.5 h-3.5" />
+          進線來源設備矩陣 (Ingestion Sources)
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('protocols')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'protocols'
+              ? 'bg-indigo-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Server className="w-3.5 h-3.5" />
+          通訊協定架構規格 (Protocol Listeners)
+        </button>
+      </div>
+
+      {/* Tab: Parser Diagnostics */}
+      {activeMainTab === 'diagnostics' && (
+        <LogParserDiagnosticPanel />
+      )}
+
+      {/* Tab: Sources Matrix */}
+      {activeMainTab === 'sources' && (
+        <LogSourcesTable />
+      )}
+
+      {/* Tab: Protocols Architecture */}
+      {activeMainTab === 'protocols' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white text-sm flex items-center gap-2">
+                <span className="p-1.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">UDP</span>
+                Syslog UDP 監聽服務 (:5140)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                Listening
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              標準 BSD (RFC 3164) 與 IETF (RFC 5424) 無連線封包接收。採用多執行緒 Goroutine 專屬 Worker 池與 32MB SO_RCVBUF 核心緩衝，避免瞬間爆發流量溢位。
+            </p>
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-xs font-mono text-slate-300">
+              <div className="flex justify-between">
+                <span className="text-slate-400">核心緩衝區:</span>
+                <span className="text-indigo-300">32 MB (SO_RCVBUF)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Worker 數:</span>
+                <span className="text-indigo-300">16 Workers (NumCPU * 2)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">單 IP 流量限制:</span>
+                <span className="text-indigo-300">50,000 EPS (Token-Bucket)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white text-sm flex items-center gap-2">
+                <span className="p-1.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">TCP</span>
+                Syslog TCP 監聽服務 (:5140)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                Listening
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              支援 RFC 6587 (Octet-Counting Framing) 及傳統換行分隔符串流。內建斷線自動重組與 Keep-Alive 心跳機制，適合傳輸長封包日誌與不可遺失之審計軌跡。
+            </p>
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-xs font-mono text-slate-300">
+              <div className="flex justify-between">
+                <span className="text-slate-400">分框標準:</span>
+                <span className="text-indigo-300">RFC 6587 Octet Counting</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">最大行緩衝:</span>
+                <span className="text-indigo-300">1 MB / Line</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">連線維持:</span>
+                <span className="text-indigo-300">TCP Keep-Alive (30s)</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white text-sm flex items-center gap-2">
+                <span className="p-1.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30">TLS</span>
+                Syslog TLS 安全通道 (:6514)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/30">
+                Listening
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              遵循 RFC 5425 標準之 Syslog over TLS 加密接收。支援 TLS 1.3 / 1.2、ECDSA P-256 高效能橢圓曲線金鑰與可選之雙向 mTLS 客戶端憑證校驗。
+            </p>
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-xs font-mono text-slate-300">
+              <div className="flex justify-between">
+                <span className="text-slate-400">通訊標準:</span>
+                <span className="text-indigo-300">RFC 5425 (Syslog TLS)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">加密演算法:</span>
+                <span className="text-indigo-300">ECDHE-ECDSA-AES256-GCM</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">認證防偽:</span>
+                <span className="text-indigo-300">支援 mTLS Client Certs</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white text-sm flex items-center gap-2">
+                <span className="p-1.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">HTTP</span>
+                HTTP 高吞吐批次通道 (:8080)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                Listening
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              相容 VictoriaLogs <code>/insert/jsonline</code>、Grafana Loki <code>/insert/loki/api/v1/push</code> 與 Elasticsearch <code>/_bulk</code> 協定，支援百萬級日誌高速寫入。
+            </p>
+            <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-xs font-mono text-slate-300">
+              <div className="flex justify-between">
+                <span className="text-slate-400">支援端點:</span>
+                <span className="text-indigo-300">/insert/jsonline, /insert/loki</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">診斷測試:</span>
+                <span className="text-indigo-300">/api/v1/collector/test-log</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">批次規模:</span>
+                <span className="text-indigo-300">2,000 筆 / 250ms 自動聚合</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab: Overview (Original Telemetry & Buffer) */}
+      {activeMainTab === 'overview' && (
+        <>
 
       {/* Real-time Circular Buffer Fill-Rate & Pre-Saturation Bottleneck Monitor Panel */}
       {data?.fillRateMonitor && (
@@ -727,6 +920,8 @@ export function CollectorTelemetryDashboard() {
           </pre>
         </details>
       </div>
+      </>
+      )}
     </div>
   );
 }

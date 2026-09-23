@@ -15,24 +15,29 @@ import (
 	"github.com/semor-cyber/semor-collector/pipeline"
 )
 
-// HTTPReceiver 提供 RESTful 與 VictoriaLogs-compatible 批次接收端點
+// HTTPReceiver 提供 RESTful 與 VictoriaLogs / Loki / Elasticsearch 相容寫入端點
 type HTTPReceiver struct {
-	cfg          *config.Config
-	inboundQueue chan<- pipeline.LogEntry
-	pipeline     *pipeline.PipelineProcessor
-	httpRequests uint64
-	logsIngested uint64
+	cfg            *config.Config
+	inboundQueue   chan<- pipeline.LogEntry
+	pipeline       *pipeline.PipelineProcessor
+	syslogRecv     *SyslogReceiver
+	httpRequests   uint64
+	logsIngested   uint64
+	bytesIngested  uint64
+	diagnosticRuns uint64
 }
 
 func NewHTTPReceiver(
 	cfg *config.Config,
 	inbound chan<- pipeline.LogEntry,
 	pipe *pipeline.PipelineProcessor,
+	syslogRecv *SyslogReceiver,
 ) *HTTPReceiver {
 	return &HTTPReceiver{
 		cfg:          cfg,
 		inboundQueue: inbound,
 		pipeline:     pipe,
+		syslogRecv:   syslogRecv,
 	}
 }
 
@@ -42,25 +47,40 @@ func (h *HTTPReceiver) Start() error {
 	// 1. VictoriaLogs 標準 NDJSON 相容寫入端點 (/insert/jsonline)
 	mux.HandleFunc("/insert/jsonline", h.handleVictoriaLogsInsert)
 
-	// 2. SEMOR 專用批次接收端點 (/api/v1/ingest)
+	// 2. Grafana Loki 相容接收端點 (/insert/loki/api/v1/push)
+	mux.HandleFunc("/insert/loki/api/v1/push", h.handleLokiPush)
+
+	// 3. Elasticsearch Bulk 相容接收端點 (/insert/elasticsearch/_bulk)
+	mux.HandleFunc("/insert/elasticsearch/_bulk", h.handleElasticsearchBulk)
+
+	// 4. SEMOR 專用批次接收端點 (/api/v1/ingest)
 	mux.HandleFunc("/api/v1/ingest", h.handleBatchIngest)
 
-	// 3. 解碼器熱重載端點 (/api/v1/decoders/deploy)
+	// 5. 解碼器熱重載端點 (/api/v1/decoders/deploy)
 	mux.HandleFunc("/api/v1/decoders/deploy", h.handleDecoderDeploy)
 
-	// 4. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
+	// 6. 即時日誌解析診斷與測試注入端點 (/api/v1/collector/test-log)
+	mux.HandleFunc("/api/v1/collector/test-log", h.handleDiagnosticTestLog)
+
+	// 7. 來源設備狀態與通訊錄 (/api/v1/collector/sources)
+	mux.HandleFunc("/api/v1/collector/sources", h.handleSources)
+
+	// 8. 收集器動態配置管理 (/api/v1/collector/config)
+	mux.HandleFunc("/api/v1/collector/config", h.handleConfig)
+
+	// 9. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
 	mux.HandleFunc("/api/v1/stats", h.handleStats)
 	mux.HandleFunc("/healthz", h.handleHealthz)
 	mux.HandleFunc("/metrics", h.handleStats)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", h.cfg.HTTPPort)
-	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (端點: /insert/jsonline, /api/v1/ingest, /api/v1/decoders/deploy)\n", addr)
+	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (支援 /insert/jsonline, /insert/loki, /insert/elasticsearch/_bulk, /api/v1/collector/test-log)\n", addr)
 
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
 	}
 
 	go func() {
@@ -72,7 +92,7 @@ func (h *HTTPReceiver) Start() error {
 	return nil
 }
 
-// 支援 VictoriaLogs NDJSON 多行格式
+// handleVictoriaLogsInsert 支援 VictoriaLogs NDJSON 多行格式
 func (h *HTTPReceiver) handleVictoriaLogsInsert(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -90,8 +110,9 @@ func (h *HTTPReceiver) handleVictoriaLogsInsert(w http.ResponseWriter, r *http.R
 			continue
 		}
 
+		atomic.AddUint64(&h.bytesIngested, uint64(len(line)))
 		h.inboundQueue <- pipeline.LogEntry{
-			Timestamp: time.Now().UnixMilli(),
+			Timestamp: time.Now().UnixNano(),
 			RawMsg:    line,
 			Fields: map[string]interface{}{
 				"protocol": "http-ndjson",
@@ -101,11 +122,111 @@ func (h *HTTPReceiver) handleVictoriaLogsInsert(w http.ResponseWriter, r *http.R
 	}
 
 	atomic.AddUint64(&h.logsIngested, uint64(count))
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok","inserted":` + fmt.Sprint(count) + `}`))
+	_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","inserted":%d}`, count)))
 }
 
-// 支援前端 UI 傳遞 JSON Batch
+// handleLokiPush 支援 Grafana Loki 推送格式
+func (h *HTTPReceiver) handleLokiPush(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	atomic.AddUint64(&h.httpRequests, 1)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	atomic.AddUint64(&h.bytesIngested, uint64(len(body)))
+
+	type lokiStream struct {
+		Stream map[string]string `json:"stream"`
+		Values [][]string        `json:"values"`
+	}
+	type lokiPayload struct {
+		Streams []lokiStream `json:"streams"`
+	}
+
+	var payload lokiPayload
+	if err := json.Unmarshal(body, &payload); err == nil && len(payload.Streams) > 0 {
+		count := 0
+		for _, st := range payload.Streams {
+			for _, val := range st.Values {
+				if len(val) >= 2 {
+					msg := val[1]
+					fields := map[string]interface{}{
+						"protocol": "http-loki",
+					}
+					for k, v := range st.Stream {
+						fields["loki."+k] = v
+					}
+					h.inboundQueue <- pipeline.LogEntry{
+						Timestamp: time.Now().UnixNano(),
+						RawMsg:    msg,
+						Fields:    fields,
+					}
+					count++
+				}
+			}
+		}
+		atomic.AddUint64(&h.logsIngested, uint64(count))
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleElasticsearchBulk 支援 Logstash / Filebeat Elasticsearch _bulk 寫入
+func (h *HTTPReceiver) handleElasticsearchBulk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	atomic.AddUint64(&h.httpRequests, 1)
+	scanner := bufio.NewScanner(r.Body)
+	defer r.Body.Close()
+
+	count := 0
+	isActionLine := true
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if len(line) == 0 {
+			continue
+		}
+
+		if isActionLine {
+			// 跳過 index / create 操作指示行
+			isActionLine = false
+			continue
+		}
+
+		// 資料實體行
+		isActionLine = true
+		atomic.AddUint64(&h.bytesIngested, uint64(len(line)))
+		h.inboundQueue <- pipeline.LogEntry{
+			Timestamp: time.Now().UnixNano(),
+			RawMsg:    line,
+			Fields: map[string]interface{}{
+				"protocol": "http-es-bulk",
+			},
+		}
+		count++
+	}
+
+	atomic.AddUint64(&h.logsIngested, uint64(count))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(fmt.Sprintf(`{"took":2,"errors":false,"items":[],"count":%d}`, count)))
+}
+
+// handleBatchIngest 支援前端 UI 傳遞 JSON Batch
 func (h *HTTPReceiver) handleBatchIngest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -119,128 +240,201 @@ func (h *HTTPReceiver) handleBatchIngest(w http.ResponseWriter, r *http.Request)
 	}
 	defer r.Body.Close()
 
-	var payload struct {
-		Stream map[string]string `json:"stream"`
-		Logs   []string          `json:"logs"`
+	atomic.AddUint64(&h.httpRequests, 1)
+	atomic.AddUint64(&h.bytesIngested, uint64(len(body)))
+
+	var rawLogs []string
+	if err := json.Unmarshal(body, &rawLogs); err == nil {
+		for _, raw := range rawLogs {
+			h.inboundQueue <- pipeline.LogEntry{
+				Timestamp: time.Now().UnixNano(),
+				RawMsg:    raw,
+				Fields: map[string]interface{}{
+					"protocol": "http-batch",
+				},
+			}
+		}
+		atomic.AddUint64(&h.logsIngested, uint64(len(rawLogs)))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "success",
+			"ingested": len(rawLogs),
+		})
+		return
 	}
 
-	if err := json.Unmarshal(body, &payload); err != nil {
-		// 嘗試解析為單一字串陣列
-		var simpleLogs []string
-		if err2 := json.Unmarshal(body, &simpleLogs); err2 == nil {
-			payload.Logs = simpleLogs
-		} else {
-			http.Error(w, "Invalid JSON structure", http.StatusBadRequest)
-			return
+	var singleLog map[string]interface{}
+	if err := json.Unmarshal(body, &singleLog); err == nil {
+		rawStr, _ := json.Marshal(singleLog)
+		h.inboundQueue <- pipeline.LogEntry{
+			Timestamp: time.Now().UnixNano(),
+			RawMsg:    string(rawStr),
+			Fields:    singleLog,
 		}
+		atomic.AddUint64(&h.logsIngested, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+		return
 	}
 
-	for _, l := range payload.Logs {
-		entry := pipeline.LogEntry{
-			Timestamp: time.Now().UnixMilli(),
-			RawMsg:    l,
-			Fields: map[string]interface{}{
-				"protocol": "http-batch",
-			},
-		}
-		if len(payload.Stream) > 0 {
-			entry.Fields["stream"] = payload.Stream
-		}
-		h.inboundQueue <- entry
-	}
-
-	atomic.AddUint64(&h.logsIngested, uint64(len(payload.Logs)))
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"ingested": len(payload.Logs),
-	})
+	http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 }
 
-// 接收前端 UI 下發的熱載入解碼器規則
+// handleDecoderDeploy 前端熱下發解碼器規則
 func (h *HTTPReceiver) handleDecoderDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Read Error", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	decoderID := r.URL.Query().Get("id")
+	decoderID := r.URL.Query().Get("decoder_id")
 	if decoderID == "" {
 		decoderID = "default"
 	}
 
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Cannot read payload", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
 	if err := h.pipeline.RegisterOrUpdateDecoder(decoderID, body); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"success":false,"error":"` + err.Error() + `"}`))
+		http.Error(w, fmt.Sprintf("編譯規則失敗: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"success":true,"deployed_id":"` + decoderID + `"}`))
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":     "deployed",
+		"decoder_id": decoderID,
+		"timestamp":  time.Now().UnixMilli(),
+	})
 }
 
-func (h *HTTPReceiver) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	bufferDepth := 0
-	bufferCapacity := h.cfg.ChannelCap
-	// 安全採樣通道佇列深度
-	if h.inboundQueue != nil {
-		bufferDepth = len(h.inboundQueue)
+// handleDiagnosticTestLog 即時解析測試端點，供 UI 即時預覽各協議解碼效果
+func (h *HTTPReceiver) handleDiagnosticTestLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	saturation := float64(0)
-	if bufferCapacity > 0 {
-		saturation = float64(bufferDepth) / float64(bufferCapacity)
+	start := time.Now()
+	atomic.AddUint64(&h.diagnosticRuns, 1)
+
+	type testReq struct {
+		RawLog    string `json:"raw_log"`
+		Protocol  string `json:"protocol"`
+		RemoteIP  string `json:"remote_ip"`
+		DecoderID string `json:"decoder_id"`
 	}
 
-	status := "healthy"
-	if saturation > 0.85 {
-		status = "degraded"
+	var req testReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
 	}
 
-	response := map[string]interface{}{
-		"status": status,
-		"service": "semor-collector-go",
-		"uptime_ms": time.Now().UnixMilli(),
-		"buffer": map[string]interface{}{
-			"depth": bufferDepth,
-			"capacity": bufferCapacity,
-			"depth_percentage": saturation * 100.0,
-		},
-		"worker_pool": map[string]interface{}{
-			"configured_workers": 16,
-			"active_workers": 16,
-			"saturation_ratio": saturation,
-		},
+	if req.Protocol == "" {
+		req.Protocol = "syslog-diagnostic"
+	}
+	if req.RemoteIP == "" {
+		req.RemoteIP = "127.0.0.1"
+	}
+
+	// 1. 執行 Syslog RFC 5424 / RFC 3164 / CEF 解構
+	parsedEntry := h.syslogRecv.ParseSyslogMessage(req.RawLog, req.Protocol, req.RemoteIP)
+
+	// 2. 執行 Pipeline 規則匹配與 ECS 規範化
+	enrichedEntry := h.pipeline.ProcessAndExtract(req.RawLog, req.DecoderID)
+
+	// 合併欄位
+	for k, v := range enrichedEntry.Fields {
+		parsedEntry.Fields[k] = v
+	}
+
+	elapsedMicros := time.Since(start).Microseconds()
+
+	resp := map[string]interface{}{
+		"status":          "ok",
+		"elapsed_micros":  elapsedMicros,
+		"elapsed_ms":      float64(elapsedMicros) / 1000.0,
+		"raw_log":         req.RawLog,
+		"protocol":        req.Protocol,
+		"parsed_format":   parsedEntry.Fields["syslog_format"],
+		"fields_count":    len(parsedEntry.Fields),
+		"extracted_entry": parsedEntry,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleSources 回傳當前所有來源設備連線遙測資料
+func (h *HTTPReceiver) handleSources(w http.ResponseWriter, r *http.Request) {
+	sources := h.syslogRecv.GetSourcesTelemetry()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":        "ok",
+		"total_sources": len(sources),
+		"sources":       sources,
+	})
+}
+
+// handleConfig 回傳與動態更新收集器配置
+func (h *HTTPReceiver) handleConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodGet {
+		_ = json.NewEncoder(w).Encode(h.cfg)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var newCfg config.Config
+		if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		if newCfg.BatchSize > 0 {
+			h.cfg.BatchSize = newCfg.BatchSize
+		}
+		if newCfg.BatchTimeout > 0 {
+			h.cfg.BatchTimeout = newCfg.BatchTimeout
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "updated",
+			"config": h.cfg,
+		})
+		return
+	}
+
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 }
 
 func (h *HTTPReceiver) handleStats(w http.ResponseWriter, r *http.Request) {
-	bufferDepth := 0
-	if h.inboundQueue != nil {
-		bufferDepth = len(h.inboundQueue)
-	}
-	bufferCap := h.cfg.ChannelCap
-
-	stats := map[string]interface{}{
-		"http_requests": atomic.LoadUint64(&h.httpRequests),
-		"logs_ingested": atomic.LoadUint64(&h.logsIngested),
-		"buffer_depth":  bufferDepth,
-		"buffer_capacity": bufferCap,
-		"buffer_utilization": float64(bufferDepth) / float64(bufferCap) * 100.0,
-		"timestamp":     time.Now().UnixMilli(),
-	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(stats)
+	udp, tcp, tlsRecv, bytesTotal, errs := h.syslogRecv.Stats()
+	parsed, dropped, _ := h.pipeline.Stats()
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"http_requests":      atomic.LoadUint64(&h.httpRequests),
+		"logs_ingested":      atomic.LoadUint64(&h.logsIngested),
+		"bytes_ingested":     atomic.LoadUint64(&h.bytesIngested),
+		"diagnostic_runs":    atomic.LoadUint64(&h.diagnosticRuns),
+		"syslog_udp_packets": udp,
+		"syslog_tcp_packets": tcp,
+		"syslog_tls_packets": tlsRecv,
+		"syslog_total_bytes": bytesTotal,
+		"syslog_errors":      errs,
+		"pipeline_parsed":    parsed,
+		"pipeline_dropped":   dropped,
+		"timestamp":          time.Now().UnixMilli(),
+	})
+}
+
+func (h *HTTPReceiver) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
 }
 
 func (h *HTTPReceiver) Stats() (requests uint64, logs uint64) {
