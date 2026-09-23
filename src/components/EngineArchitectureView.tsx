@@ -24,13 +24,15 @@ import {
   FolderTree,
   Sliders,
   Bell,
-  Radio
+  Radio,
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
 import { StorageEngineTelemetryPanel } from './StorageEngineTelemetryPanel';
 import { EngineThresholdConfigView } from './EngineThresholdConfigView';
 import { RegexIpcBridgeView } from './RegexIpcBridgeView';
+import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
 
 interface EngineStatus {
   collector: {
@@ -117,7 +119,7 @@ interface BlockItem {
 }
 
 export function EngineArchitectureView() {
-  const [activeTab, setActiveTab] = useState<'regex_ipc' | 'storage_telemetry' | 'thresholds' | 'telemetry' | 'topology' | 'storage' | 'blocks' | 'tester' | 'code'>('regex_ipc');
+  const [activeTab, setActiveTab] = useState<'vlogs_retry' | 'regex_ipc' | 'storage_telemetry' | 'thresholds' | 'telemetry' | 'topology' | 'storage' | 'blocks' | 'tester' | 'code'>('vlogs_retry');
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   const [blocks, setBlocks] = useState<BlockItem[]>([]);
   const [storageTree, setStorageTree] = useState<StorageTreeData | null>(null);
@@ -133,11 +135,12 @@ export function EngineArchitectureView() {
   const [isTesting, setIsTesting] = useState(false);
 
   // Code viewer state
-  const [selectedFileKey, setSelectedFileKey] = useState<string>('rust_regex_pipeline');
+  const [selectedFileKey, setSelectedFileKey] = useState<string>('go_vlogs_http');
   const [fileContent, setFileContent] = useState<string>('');
   const [isLoadingCode, setIsLoadingCode] = useState(false);
 
   const fileList = [
+    { key: 'go_vlogs_http', name: 'Go: VictoriaLogs HTTP 指數退避重試轉發器與離線保護佇列 (victorialogs_http.go)', lang: 'go' },
     { key: 'rust_regex_pipeline', name: 'Rust Engine: RegexParserPipeline & ECS 正規化 & UDS 控制幀 (regex_pipeline.rs)', lang: 'rust' },
     { key: 'rust_engine_index', name: 'Rust Engine: BlockHeaderIndex 標頭萃取與高速搜尋 (/src/rust_engine/index.rs)', lang: 'rust' },
     { key: 'rust_engine_storage', name: 'Rust Engine: WAL 預寫日誌 & WriteManager & StorageEngine (/src/rust_engine/storage.rs)', lang: 'rust' },
@@ -274,6 +277,7 @@ export function EngineArchitectureView() {
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-800 mt-6 -mb-2 gap-2 overflow-x-auto">
           {[
+            { id: 'vlogs_retry', label: 'VictoriaLogs 指數退避重試與防遺失佇列 (POST Backoff & Outage Buffer)', icon: RotateCcw },
             { id: 'regex_ipc', label: 'Go-Rust IPC 橋接與 Regex 萃取管線 (Stage 3)', icon: Radio },
             { id: 'storage_telemetry', label: '儲存引擎吞吐與磁碟遙測 (Throughput & Disk Usage)', icon: HardDrive },
             { id: 'thresholds', label: '引擎門檻觸發器與推播設定 (Threshold Triggers & Delivery)', icon: Sliders },
@@ -303,6 +307,11 @@ export function EngineArchitectureView() {
           })}
         </div>
       </div>
+
+      {/* TAB: VICTORIALOGS EXPONENTIAL BACKOFF RETRY & OUTAGE QUEUE MONITOR */}
+      {activeTab === 'vlogs_retry' && (
+        <VictoriaLogsRetryMonitorView />
+      )}
 
       {/* TAB: GO-RUST IPC BRIDGE & REGEX EXTRACTION PIPELINE (STAGE 3) */}
       {activeTab === 'regex_ipc' && (

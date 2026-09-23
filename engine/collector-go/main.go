@@ -50,10 +50,27 @@ func main() {
 		fmt.Printf("[IPC Forwarder] 已成功連結 Rust 儲存核心通道 (UDS: %s)\n", cfg.RustEngineUDSPath)
 	}
 
-	// 5. 啟動 VictoriaLogs 設計模式之串流分流與區塊打包聚合 Goroutine
-	go startVictoriaBlockAggregator(ctx, inboundQueue, pipeProcessor, blockAccumulator, rustForwarder)
+	// 5. 初始化 VictoriaLogs HTTP 上游轉發器 (具備指數退避重試與離線暫存佇列保護)
+	var vlogsHTTPForwarder *forwarder.VictoriaLogsHTTPForwarder
+	if cfg.EnableVictoriaLogsHTTP {
+		retryCfg := forwarder.RetryConfig{
+			InitialInterval: time.Duration(cfg.RetryInitialMs) * time.Millisecond,
+			MaxInterval:     time.Duration(cfg.RetryMaxMs) * time.Millisecond,
+			Multiplier:      2.0,
+			JitterFraction:  0.15,
+			MaxRetries:      cfg.RetryMaxAttempts,
+			QueueCapacity:   10000,
+		}
+		vlogsHTTPForwarder = forwarder.NewVictoriaLogsHTTPForwarder(cfg, retryCfg)
+		defer vlogsHTTPForwarder.Close()
+		fmt.Printf("[VictoriaLogs HTTP] 已啟動指數退避重試轉發器 -> %s (初始退避: %dms, 最大退避: %dms, 最大重試: %d 次)\n",
+			cfg.VictoriaLogsURL, cfg.RetryInitialMs, cfg.RetryMaxMs, cfg.RetryMaxAttempts)
+	}
 
-	// 6. 啟動 Syslog 接收器 (UDP + TCP + RFC-5425 TLS)
+	// 6. 啟動 VictoriaLogs 設計模式之串流分流與區塊打包聚合 Goroutine
+	go startVictoriaBlockAggregator(ctx, inboundQueue, pipeProcessor, blockAccumulator, rustForwarder, vlogsHTTPForwarder)
+
+	// 7. 啟動 Syslog 接收器 (UDP + TCP + RFC-5425 TLS)
 	syslogRecv := receiver.NewSyslogReceiver(cfg, inboundQueue)
 	numUDPWorkers := runtime.NumCPU() * 2
 	if err := syslogRecv.StartUDP(ctx, numUDPWorkers); err != nil {
@@ -66,13 +83,13 @@ func main() {
 		fmt.Printf("[錯誤] 啟動 TLS 接收器失敗: %v\n", err)
 	}
 
-	// 7. 啟動 HTTP 接收器 (支援 /insert/jsonline, /insert/loki, /insert/elasticsearch/_bulk 與 /api/v1/collector/test-log)
+	// 8. 啟動 HTTP 接收器 (支援 /insert/jsonline, /insert/loki, /insert/elasticsearch/_bulk 與 /api/v1/collector/test-log)
 	httpRecv := receiver.NewHTTPReceiver(cfg, inboundQueue, pipeProcessor, syslogRecv)
 	if err := httpRecv.Start(); err != nil {
 		fmt.Printf("[錯誤] 啟動 HTTP 接收器失敗: %v\n", err)
 	}
 
-	// 8. 定期輸出 VictoriaLogs 架構模式遙測日誌
+	// 9. 定期輸出 VictoriaLogs 架構模式與指數退避重試遙測日誌
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -89,6 +106,13 @@ func main() {
 
 				fmt.Printf("[VictoriaLogs 遙測] 佇列: %d/%d | 封塊數: %d | 累計行數: %d | 未壓縮: %.2f MB | 預估壓縮: %.2f MB (%s) | 轉發Rust: %d (批次: %d, 失敗: %d, 連線: %t)\n",
 					queueLen, cfg.ChannelCap, sBlocks, sRows, float64(uncomp)/(1024*1024), float64(comp)/(1024*1024), ratio, sent, batches, failed, isConn)
+
+				if vlogsHTTPForwarder != nil {
+					rt := vlogsHTTPForwarder.Telemetry()
+					fmt.Printf("                   └─ [HTTP 指數退避重試] POST發起: %d (成功: %d, 初態失敗: %d) | 重試次數: %d (重試成功: %d) | 離線佇列: %d/%d (已排空: %d) | 目前退避: %dms | 連線可達: %t\n",
+						rt.TotalPostRequests, rt.SuccessfulRequests, rt.InitialFailures, rt.RetryAttemptsTotal, rt.RetrySuccessTotal, rt.CurrentQueueDepth, rt.QueueCapacity, rt.QueueDrainedSuccess, rt.CurrentBackoffMs, rt.IsReachable)
+				}
+
 				fmt.Printf("                   └─ 協定進線: Syslog(UDP:%d, TCP:%d, TLS:%d) | HTTP日誌: %d (請求:%d) | 錯誤: %d | 實體位元組: %.2f MB\n",
 					uRecv, tRecv, tlsRecv, httpLogs, httpReq, errs, float64(bytesTotal)/(1024*1024))
 			}
@@ -117,12 +141,19 @@ func startVictoriaBlockAggregator(
 	pipe *pipeline.PipelineProcessor,
 	acc *pipeline.BlockAccumulator,
 	fwd *forwarder.RustIPCForwarder,
+	vlogsHTTP *forwarder.VictoriaLogsHTTPForwarder,
 ) {
-	// 背景協程：監聽已封裝完成的 VictoriaBlocks 並透過 IPC 送出
+	// 背景協程：監聽已封裝完成的 VictoriaBlocks 並透過 IPC 與 HTTP (具備指數退避重試) 送出
 	go func() {
 		for block := range acc.SealedBlocksChan() {
 			if block != nil {
+				// 1. 本地 Rust 儲存引擎 IPC
 				_ = fwd.SendVictoriaBlock(block)
+
+				// 2. 外部/上游 VictoriaLogs HTTP POST (指數退避重試保護)
+				if vlogsHTTP != nil {
+					_ = vlogsHTTP.PostVictoriaBlock(block)
+				}
 			}
 		}
 	}()

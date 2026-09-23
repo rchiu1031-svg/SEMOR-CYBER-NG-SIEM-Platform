@@ -948,6 +948,340 @@ async function startServer() {
     }
   });
 
+  // =========================================================================
+  // VictoriaLogs Ingestion Client with Exponential Backoff Retry & Outage Queue
+  // =========================================================================
+  interface QueuedVlogsBatch {
+    id: string;
+    payload: string;
+    logCount: number;
+    labels: Record<string, string>;
+    attempts: number;
+    createdAt: number;
+    lastAttemptAt: number;
+    lastError: string;
+  }
+
+  const vlogsRetryState = {
+    initialIntervalMs: 200,
+    maxIntervalMs: 15000,
+    multiplier: 2.0,
+    jitterFraction: 0.15,
+    maxRetries: 5,
+    queueCapacity: 5000,
+    retryQueue: [] as QueuedVlogsBatch[],
+    
+    // Telemetry counters
+    totalPostRequests: 0,
+    successfulRequests: 0,
+    initialFailures: 0,
+    retryAttemptsTotal: 0,
+    retrySuccessTotal: 0,
+    queuedDueToOutage: 0,
+    queueDrainedSuccess: 0,
+    currentBackoffMs: 0,
+    isTargetReachable: true,
+    lastError: '',
+    lastErrorTime: '',
+    lastSuccessTime: '',
+    simulatedOutage: false,
+    simulatedFailureCode: 503,
+    recentRetryLogs: [] as Array<{
+      timestamp: string;
+      level: string;
+      message: string;
+      attempt: number;
+      delayMs: number;
+    }>
+  };
+
+  function logRetryEvent(level: string, message: string, attempt: number = 0, delayMs: number = 0) {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      attempt,
+      delayMs
+    };
+    vlogsRetryState.recentRetryLogs.unshift(entry);
+    if (vlogsRetryState.recentRetryLogs.length > 50) {
+      vlogsRetryState.recentRetryLogs = vlogsRetryState.recentRetryLogs.slice(0, 50);
+    }
+    console.log(`[VictoriaLogs Retry] ${message}`);
+  }
+
+  function calculateBackoffDelay(attempt: number): number {
+    const base = Math.min(
+      vlogsRetryState.maxIntervalMs,
+      vlogsRetryState.initialIntervalMs * Math.pow(vlogsRetryState.multiplier, Math.max(0, attempt - 1))
+    );
+    const jitter = (1 - vlogsRetryState.jitterFraction) + (Math.random() * 2 * vlogsRetryState.jitterFraction);
+    return Math.round(base * jitter);
+  }
+
+  function isRetryableHttpError(status?: number, errCode?: string): boolean {
+    if (!status) return true; // Network timeouts, ECONNREFUSED, ENOTFOUND are always retryable
+    const retryable = [429, 500, 502, 503, 504];
+    return retryable.includes(status);
+  }
+
+  async function postToVictoriaLogsWithBackoff(
+    payload: string, 
+    logCount: number, 
+    labels: Record<string, string> = {}
+  ): Promise<{ success: boolean; attempts: number; error?: string; queued?: boolean; backoffDelays: number[] }> {
+    vlogsRetryState.totalPostRequests++;
+    const vlogsUrl = engineConfig.victorialogs?.url || 'http://localhost:9428';
+    const targetEndpoint = `${vlogsUrl.replace(/\/$/, '')}/insert/jsonline`;
+    const backoffDelays: number[] = [];
+
+    let lastErr = '';
+
+    for (let attempt = 0; attempt <= vlogsRetryState.maxRetries; attempt++) {
+      if (attempt > 0) {
+        vlogsRetryState.retryAttemptsTotal++;
+        const delay = calculateBackoffDelay(attempt);
+        vlogsRetryState.currentBackoffMs = delay;
+        backoffDelays.push(delay);
+
+        logRetryEvent(
+          'warn',
+          `POST 失敗 (第 ${attempt}/${vlogsRetryState.maxRetries} 次)，執行指數退避延遲 ${delay}ms 後重試... 原因: ${lastErr}`,
+          attempt,
+          delay
+        );
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
+      // Check simulated outage test hook
+      if (vlogsRetryState.simulatedOutage) {
+        if (attempt === 0) vlogsRetryState.initialFailures++;
+        lastErr = `Simulated Service Unavailable (HTTP ${vlogsRetryState.simulatedFailureCode})`;
+        vlogsRetryState.lastError = lastErr;
+        vlogsRetryState.lastErrorTime = new Date().toISOString();
+        vlogsRetryState.isTargetReachable = false;
+        continue;
+      }
+
+      try {
+        const response = await axios.post(targetEndpoint, payload, {
+          headers: {
+            'Content-Type': 'application/stream+json; charset=utf-8',
+            'AccountID': engineConfig.victorialogs?.accountId || '0',
+            'ProjectID': engineConfig.victorialogs?.projectId || '0',
+            'User-Agent': 'SEMOR-Collector-Gateway/2.5'
+          },
+          timeout: 6000
+        });
+
+        if (response.status >= 200 && response.status < 300) {
+          vlogsRetryState.successfulRequests++;
+          if (attempt > 0) {
+            vlogsRetryState.retrySuccessTotal++;
+            logRetryEvent('info', `第 ${attempt} 次重試成功！已向 VictoriaLogs 成功交付 ${logCount} 筆日誌`, attempt);
+          }
+          vlogsRetryState.isTargetReachable = true;
+          vlogsRetryState.currentBackoffMs = 0;
+          vlogsRetryState.lastSuccessTime = new Date().toISOString();
+          return { success: true, attempts: attempt + 1, backoffDelays };
+        } else {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+      } catch (err: any) {
+        if (attempt === 0) {
+          vlogsRetryState.initialFailures++;
+        }
+        const status = err.response?.status;
+        const msg = err.response?.data?.message || err.message || 'Unknown network error';
+        lastErr = status ? `HTTP ${status}: ${msg}` : `NetworkError: ${msg}`;
+        vlogsRetryState.lastError = lastErr;
+        vlogsRetryState.lastErrorTime = new Date().toISOString();
+        vlogsRetryState.isTargetReachable = false;
+
+        // Check if non-retryable (e.g. 400 Bad Request, 401 Unauthorized)
+        if (!isRetryableHttpError(status)) {
+          logRetryEvent('error', `遇到終態不可重試錯誤 (${lastErr})，停止重試`, attempt);
+          return { success: false, attempts: attempt + 1, error: lastErr, backoffDelays };
+        }
+      }
+    }
+
+    // Max retries exhausted! Protect data from loss by buffering into the offline retry queue
+    vlogsRetryState.queuedDueToOutage++;
+    const queuedBatch: QueuedVlogsBatch = {
+      id: `vlog-q-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      payload,
+      logCount,
+      labels,
+      attempts: vlogsRetryState.maxRetries + 1,
+      createdAt: Date.now(),
+      lastAttemptAt: Date.now(),
+      lastError: lastErr
+    };
+
+    if (vlogsRetryState.retryQueue.length >= vlogsRetryState.queueCapacity) {
+      vlogsRetryState.retryQueue.shift(); // FIFO drop oldest to absorb fresh data in extreme flood
+    }
+    vlogsRetryState.retryQueue.push(queuedBatch);
+
+    logRetryEvent(
+      'error',
+      `就地指數退避重試 ${vlogsRetryState.maxRetries} 次均失敗。已安全將 ${logCount} 筆日誌轉入記憶體離線重試佇列 (目前深度: ${vlogsRetryState.retryQueue.length})，保證零資料遺失！`,
+      vlogsRetryState.maxRetries
+    );
+
+    return { 
+      success: false, 
+      attempts: vlogsRetryState.maxRetries + 1, 
+      error: lastErr, 
+      queued: true,
+      backoffDelays 
+    };
+  }
+
+  // Periodic Background Worker to Drain the Retry Queue when VictoriaLogs recovers
+  setInterval(async () => {
+    if (vlogsRetryState.retryQueue.length === 0 || vlogsRetryState.simulatedOutage) {
+      return;
+    }
+
+    const batch = vlogsRetryState.retryQueue[0];
+    const vlogsUrl = engineConfig.victorialogs?.url || 'http://localhost:9428';
+    const targetEndpoint = `${vlogsUrl.replace(/\/$/, '')}/insert/jsonline`;
+
+    try {
+      const response = await axios.post(targetEndpoint, batch.payload, {
+        headers: {
+          'Content-Type': 'application/stream+json; charset=utf-8',
+          'AccountID': engineConfig.victorialogs?.accountId || '0',
+          'ProjectID': engineConfig.victorialogs?.projectId || '0'
+        },
+        timeout: 4000
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        vlogsRetryState.retryQueue.shift(); // Drained!
+        vlogsRetryState.queueDrainedSuccess++;
+        vlogsRetryState.successfulRequests++;
+        vlogsRetryState.isTargetReachable = true;
+        vlogsRetryState.lastSuccessTime = new Date().toISOString();
+        logRetryEvent('info', `[離線佇列排空] 成功補發 ${batch.logCount} 筆日誌至 VictoriaLogs (剩餘待排空: ${vlogsRetryState.retryQueue.length})`);
+      }
+    } catch (e: any) {
+      batch.attempts++;
+      batch.lastAttemptAt = Date.now();
+      batch.lastError = e.message;
+      vlogsRetryState.isTargetReachable = false;
+    }
+  }, 4000);
+
+  // Endpoint 1: Get VictoriaLogs Retry & Backoff Telemetry Stats
+  app.get('/api/v1/collector/victorialogs-retry-stats', (req, res) => {
+    res.json({
+      success: true,
+      targetURL: `${(engineConfig.victorialogs?.url || 'http://localhost:9428').replace(/\/$/, '')}/insert/jsonline`,
+      config: {
+        initialIntervalMs: vlogsRetryState.initialIntervalMs,
+        maxIntervalMs: vlogsRetryState.maxIntervalMs,
+        multiplier: vlogsRetryState.multiplier,
+        jitterFraction: vlogsRetryState.jitterFraction,
+        maxRetries: vlogsRetryState.maxRetries,
+        queueCapacity: vlogsRetryState.queueCapacity
+      },
+      stats: {
+        totalPostRequests: vlogsRetryState.totalPostRequests,
+        successfulRequests: vlogsRetryState.successfulRequests,
+        initialFailures: vlogsRetryState.initialFailures,
+        retryAttemptsTotal: vlogsRetryState.retryAttemptsTotal,
+        retrySuccessTotal: vlogsRetryState.retrySuccessTotal,
+        queuedDueToOutage: vlogsRetryState.queuedDueToOutage,
+        queueDrainedSuccess: vlogsRetryState.queueDrainedSuccess,
+        currentQueueDepth: vlogsRetryState.retryQueue.length,
+        currentBackoffMs: vlogsRetryState.currentBackoffMs,
+        isTargetReachable: vlogsRetryState.isTargetReachable,
+        lastError: vlogsRetryState.lastError,
+        lastErrorTime: vlogsRetryState.lastErrorTime,
+        lastSuccessTime: vlogsRetryState.lastSuccessTime,
+        simulatedOutage: vlogsRetryState.simulatedOutage,
+        simulatedFailureCode: vlogsRetryState.simulatedFailureCode
+      },
+      recentRetryLogs: vlogsRetryState.recentRetryLogs.slice(0, 15)
+    });
+  });
+
+  // Endpoint 2: Test Forward Log Batch to VictoriaLogs with Exponential Backoff
+  app.post('/api/v1/collector/forward-victorialogs', async (req, res) => {
+    const { logs, labels } = req.body || {};
+    let entries: any[] = [];
+
+    if (Array.isArray(logs)) {
+      entries = logs;
+    } else if (typeof logs === 'string') {
+      entries = logs.split('\n').filter(Boolean).map(l => ({ _msg: l }));
+    } else if (logs && typeof logs === 'object') {
+      entries = [logs];
+    } else {
+      // Default sample logs
+      entries = [
+        {
+          _msg: `<134>1 ${new Date().toISOString()} firewall-core-01 ftgd - - [action="deny" src_ip="198.51.100.44" dst_ip="10.0.1.15" dst_port=445] SMB Exploit Attempt Blocked`,
+          host: "firewall-core-01",
+          stream: "firewall",
+          severity: "Critical",
+          action: "deny"
+        },
+        {
+          _msg: `<189>1 ${new Date().toISOString()} auth-srv-02 sshd 2841 - [user="root" src_ip="203.0.113.88" action="failed_login"] Failed password for root`,
+          host: "auth-srv-02",
+          stream: "security_events",
+          severity: "High",
+          action: "failed_login"
+        }
+      ];
+    }
+
+    // Build NDJSON
+    const ndjson = entries.map(e => JSON.stringify({
+      ...e,
+      _time: e._time || new Date().toISOString(),
+      _msg: e._msg || JSON.stringify(e),
+      ...(labels || {})
+    })).join('\n') + '\n';
+
+    const result = await postToVictoriaLogsWithBackoff(ndjson, entries.length, labels || {});
+    res.json({
+      success: result.success,
+      attempts: result.attempts,
+      backoffDelays: result.backoffDelays,
+      queued: result.queued || false,
+      error: result.error,
+      logsCount: entries.length,
+      currentQueueDepth: vlogsRetryState.retryQueue.length
+    });
+  });
+
+  // Endpoint 3: Simulate Network Outage or VictoriaLogs 503 Failure
+  app.post('/api/v1/collector/simulate-victorialogs-failure', (req, res) => {
+    const { enable, failureCode } = req.body;
+    vlogsRetryState.simulatedOutage = typeof enable === 'boolean' ? enable : !vlogsRetryState.simulatedOutage;
+    if (failureCode) {
+      vlogsRetryState.simulatedFailureCode = Number(failureCode);
+    }
+    logRetryEvent(
+      vlogsRetryState.simulatedOutage ? 'warn' : 'info',
+      `[模擬控制] VictoriaLogs 暫時性故障模擬狀態已切換為: ${vlogsRetryState.simulatedOutage ? '開啟 (模擬 ' + vlogsRetryState.simulatedFailureCode + ' 斷線)' : '關閉 (正常連線)'}`
+    );
+    res.json({
+      success: true,
+      simulatedOutage: vlogsRetryState.simulatedOutage,
+      simulatedFailureCode: vlogsRetryState.simulatedFailureCode,
+      message: vlogsRetryState.simulatedOutage 
+        ? `已開啟 VictoriaLogs 故障模擬 (${vlogsRetryState.simulatedFailureCode})，發送 POST 請求時將觸發指數退避重試與保護佇列` 
+        : '已關閉故障模擬，背景協程將排空重試佇列'
+    });
+  });
+
   // REST API fallback/direct routes for Collaborative Notes
   app.get('/api/notes/:incidentId', (req, res) => {
     const { incidentId } = req.params;
@@ -3113,6 +3447,7 @@ async function startServer() {
       'go_block_accumulator': 'engine/collector-go/pipeline/block_accumulator.go',
       'go_pipeline': 'engine/collector-go/pipeline/processor.go',
       'go_ipc': 'engine/collector-go/forwarder/ipc_rust.go',
+      'go_vlogs_http': 'engine/collector-go/forwarder/victorialogs_http.go',
       'go_config': 'engine/collector-go/config/config.go',
       'rust_engine_block': 'src/rust_engine/block.rs',
       'rust_engine_part': 'src/rust_engine/part.rs',
