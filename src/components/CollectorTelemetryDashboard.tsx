@@ -40,6 +40,7 @@ import {
 } from 'recharts';
 import LogParserDiagnosticPanel from './LogParserDiagnosticPanel';
 import LogSourcesTable from './LogSourcesTable';
+import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
 
 export interface CollectorWorker {
   workerId: string;
@@ -121,7 +122,7 @@ export function CollectorTelemetryDashboard() {
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<'normal' | 'surge' | 'stress'>('normal');
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'diagnostics' | 'sources' | 'protocols'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
 
   const historyMaxPoints = 25;
   const isMountedRef = useRef(true);
@@ -306,6 +307,22 @@ export function CollectorTelemetryDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveMainTab('retry_monitor')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'retry_monitor'
+              ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Zap className="w-3.5 h-3.5 text-cyan-400" />
+          <span>VictoriaLogs POST 退避重試診斷</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            即時串流
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveMainTab('diagnostics')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
             activeMainTab === 'diagnostics'
@@ -341,6 +358,11 @@ export function CollectorTelemetryDashboard() {
           通訊協定架構規格 (Protocol Listeners)
         </button>
       </div>
+
+      {/* Tab: VictoriaLogs Retry & Zero-Loss Diagnostic */}
+      {activeMainTab === 'retry_monitor' && (
+        <VictoriaLogsRetryMonitorView />
+      )}
 
       {/* Tab: Parser Diagnostics */}
       {activeMainTab === 'diagnostics' && (

@@ -33,6 +33,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { EngineArchitectureView } from './EngineArchitectureView';
 import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
 import { EngineThresholdConfigView } from './EngineThresholdConfigView';
+import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
 import { 
   AreaChart, 
   Area, 
@@ -117,8 +118,8 @@ export function PlatformPerformanceView() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
-  // Tabs: 'overview' | 'analytics' | 'engine' | 'telemetry' | 'engine_thresholds'
-  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine' | 'telemetry' | 'engine_thresholds'>('overview');
+  // Tabs: 'overview' | 'analytics' | 'engine' | 'telemetry' | 'retry_monitor' | 'engine_thresholds'
+  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine' | 'telemetry' | 'retry_monitor' | 'engine_thresholds'>('overview');
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configModalTab, setConfigModalTab] = useState<'thresholds' | 'engine_thresholds' | 'notifications' | 'overrides' | 'test'>('thresholds');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -413,6 +414,18 @@ export function PlatformPerformanceView() {
             >
               <Activity size={13} className="text-cyan-400" />
               {isZh ? 'Go 收集器即時遙測' : 'Collector Telemetry (Go)'}
+            </button>
+            <button
+              onClick={() => setActiveViewMode('retry_monitor')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeViewMode === 'retry_monitor'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <RotateCcw size={13} className="text-emerald-400" />
+              <span>{isZh ? 'VictoriaLogs 退避重試診斷' : 'VictoriaLogs Retry Monitor'}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" title="即時串流" />
             </button>
             <button
               onClick={() => setActiveViewMode('engine')}
@@ -1020,6 +1033,11 @@ export function PlatformPerformanceView() {
       {/* MAIN VIEW MODE: Go Collector Telemetry Dashboard */}
       {activeViewMode === 'telemetry' && (
         <CollectorTelemetryDashboard />
+      )}
+
+      {/* MAIN VIEW MODE: VictoriaLogs Retry & Outage Protection Monitor */}
+      {activeViewMode === 'retry_monitor' && (
+        <VictoriaLogsRetryMonitorView />
       )}
 
       {/* MAIN VIEW MODE 3: Core Engine (Go Ingest + Rust Storage) */}

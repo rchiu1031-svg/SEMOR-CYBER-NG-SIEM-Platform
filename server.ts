@@ -967,6 +967,8 @@ async function startServer() {
     lastError: string;
   }
 
+  const engineStartTime = Date.now();
+
   const vlogsRetryState = {
     initialIntervalMs: 200,
     maxIntervalMs: 15000,
@@ -991,29 +993,285 @@ async function startServer() {
     lastSuccessTime: '',
     simulatedOutage: false,
     simulatedFailureCode: 503,
+
+    // 30s Lightweight Heartbeat Probe State
+    heartbeatIntervalSeconds: 30,
+    totalHeartbeatsLogged: 0,
+    lastHeartbeatProbe: {
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: 0,
+      bufferDepth: 1420,
+      bufferCapacity: 50000,
+      bufferDepthPercentage: 2.84,
+      activeWorkers: 8,
+      totalWorkers: 16,
+      throughputEps: 8750,
+      isHealthy: true,
+      victoriaLogsStatus: 'Connected (HTTP 200 OK)',
+      queueDepth: 0,
+      totalPosts: 0
+    },
+
     recentRetryLogs: [] as Array<{
       timestamp: string;
       level: string;
       message: string;
       attempt: number;
       delayMs: number;
+      isHeartbeat?: boolean;
     }>
   };
 
-  function logRetryEvent(level: string, message: string, attempt: number = 0, delayMs: number = 0) {
+  // 60-minute rolling buffer for log ingestion volume per minute over the last hour
+  interface MinuteIngestionPoint {
+    minute: string; // "23:15"
+    timestamp: string; // ISO string
+    volume: number; // Ingested log count in this minute
+    avgEps: number; // Average events per second
+    peakEps: number; // Peak events per second in this minute
+    bytesMB: number; // Volume in Megabytes
+    successRate: number; // Delivery % to storage/VictoriaLogs
+    failureCount: number; // Failures / retries
+  }
+
+  const ingestionHistoryPoints: MinuteIngestionPoint[] = [];
+
+  function initIngestionHistory() {
+    const now = Date.now();
+    for (let i = 59; i >= 0; i--) {
+      const pointTime = new Date(now - i * 60 * 1000);
+      const minStr = pointTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      
+      // Realistic sinusoidal ingestion baseline + realistic micro variations (8000-11000 EPS baseline)
+      const cycle = Math.sin((pointTime.getTime() / (1000 * 60 * 12))) * 55000 + Math.cos((pointTime.getTime() / (1000 * 60 * 28))) * 38000;
+      const baseLogs = 525000 + Math.floor(cycle) + Math.floor(Math.random() * 20000 - 10000);
+      const volume = Math.max(150000, baseLogs);
+      const avgEps = Math.round(volume / 60);
+      const peakEps = Math.round(avgEps * (1.14 + Math.random() * 0.12));
+      const bytesMB = Number(((volume * 340) / (1024 * 1024)).toFixed(1));
+      
+      ingestionHistoryPoints.push({
+        minute: minStr,
+        timestamp: pointTime.toISOString(),
+        volume,
+        avgEps,
+        peakEps,
+        bytesMB,
+        successRate: 100,
+        failureCount: 0
+      });
+    }
+  }
+  initIngestionHistory();
+
+  function updateIngestionVolume(additionalLogs: number = 0, isFailure: boolean = false) {
+    const now = new Date();
+    const currentMinStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const lastPoint = ingestionHistoryPoints[ingestionHistoryPoints.length - 1];
+
+    if (!lastPoint || lastPoint.minute !== currentMinStr) {
+      // Minute rolled over - add new minute point
+      const cycle = Math.sin((now.getTime() / (1000 * 60 * 12))) * 55000 + Math.cos((now.getTime() / (1000 * 60 * 28))) * 38000;
+      const baseLogs = 525000 + Math.floor(cycle) + Math.floor(Math.random() * 20000 - 10000);
+      const volume = Math.max(150000, baseLogs) + additionalLogs;
+      const avgEps = Math.round(volume / 60);
+      const peakEps = Math.round(avgEps * (1.14 + Math.random() * 0.12));
+      const bytesMB = Number(((volume * 340) / (1024 * 1024)).toFixed(1));
+
+      ingestionHistoryPoints.push({
+        minute: currentMinStr,
+        timestamp: now.toISOString(),
+        volume,
+        avgEps,
+        peakEps,
+        bytesMB,
+        successRate: vlogsRetryState.simulatedOutage ? 0 : 100,
+        failureCount: isFailure ? 1 : 0
+      });
+
+      while (ingestionHistoryPoints.length > 60) {
+        ingestionHistoryPoints.shift();
+      }
+    } else {
+      // Accumulate into current minute
+      lastPoint.volume += additionalLogs;
+      lastPoint.avgEps = Math.round(lastPoint.volume / 60);
+      lastPoint.peakEps = Math.max(lastPoint.peakEps, Math.round(lastPoint.avgEps * 1.15));
+      lastPoint.bytesMB = Number(((lastPoint.volume * 340) / (1024 * 1024)).toFixed(1));
+      if (isFailure) {
+        lastPoint.failureCount++;
+      }
+      if (vlogsRetryState.simulatedOutage) {
+        lastPoint.successRate = Number(Math.max(0, 100 - (lastPoint.failureCount / Math.max(1, lastPoint.volume)) * 100).toFixed(1));
+      }
+    }
+  }
+
+  // Periodic roll check every 10 seconds to ensure the rolling 60m window advances
+  setInterval(() => {
+    updateIngestionVolume(0, false);
+  }, 10000);
+
+  // Connected WebSocket clients monitoring collector & VictoriaLogs retry telemetry
+  const collectorWsClients = new Set<WebSocket>();
+
+  function getVlogsRetryStatsSnapshot() {
+    const vlogsUrl = engineConfig.victorialogs?.url || 'http://localhost:9428';
+    
+    // Compute summary metrics for the last hour
+    const totalLogsLastHour = ingestionHistoryPoints.reduce((sum, p) => sum + p.volume, 0);
+    const avgLogsPerMinute = Math.round(totalLogsLastHour / Math.max(1, ingestionHistoryPoints.length));
+    const peakLogsPerMinute = ingestionHistoryPoints.length > 0 ? Math.max(...ingestionHistoryPoints.map(p => p.volume)) : 0;
+    const minLogsPerMinute = ingestionHistoryPoints.length > 0 ? Math.min(...ingestionHistoryPoints.map(p => p.volume)) : 0;
+    const latestPoint = ingestionHistoryPoints[ingestionHistoryPoints.length - 1];
+    const currentLogsPerMinute = latestPoint ? latestPoint.volume : 0;
+    const currentEps = latestPoint ? latestPoint.avgEps : 0;
+    const totalBytesMBLastHour = Number(ingestionHistoryPoints.reduce((sum, p) => sum + p.bytesMB, 0).toFixed(1));
+    const peakEpsLastHour = ingestionHistoryPoints.length > 0 ? Math.max(...ingestionHistoryPoints.map(p => p.peakEps)) : 0;
+
+    return {
+      success: true,
+      targetURL: `${vlogsUrl.replace(/\/$/, '')}/insert/jsonline`,
+      config: {
+        initialIntervalMs: vlogsRetryState.initialIntervalMs,
+        maxIntervalMs: vlogsRetryState.maxIntervalMs,
+        multiplier: vlogsRetryState.multiplier,
+        jitterFraction: vlogsRetryState.jitterFraction,
+        maxRetries: vlogsRetryState.maxRetries,
+        queueCapacity: vlogsRetryState.queueCapacity
+      },
+      stats: {
+        totalPostRequests: vlogsRetryState.totalPostRequests,
+        successfulRequests: vlogsRetryState.successfulRequests,
+        initialFailures: vlogsRetryState.initialFailures,
+        retryAttemptsTotal: vlogsRetryState.retryAttemptsTotal,
+        retrySuccessTotal: vlogsRetryState.retrySuccessTotal,
+        queuedDueToOutage: vlogsRetryState.queuedDueToOutage,
+        queueDrainedSuccess: vlogsRetryState.queueDrainedSuccess,
+        currentQueueDepth: vlogsRetryState.retryQueue.length,
+        currentBackoffMs: vlogsRetryState.currentBackoffMs,
+        isTargetReachable: vlogsRetryState.isTargetReachable,
+        lastError: vlogsRetryState.lastError,
+        lastErrorTime: vlogsRetryState.lastErrorTime,
+        lastSuccessTime: vlogsRetryState.lastSuccessTime,
+        simulatedOutage: vlogsRetryState.simulatedOutage,
+        simulatedFailureCode: vlogsRetryState.simulatedFailureCode
+      },
+      heartbeatProbe: {
+        intervalSeconds: vlogsRetryState.heartbeatIntervalSeconds,
+        totalHeartbeatsLogged: vlogsRetryState.totalHeartbeatsLogged,
+        lastProbe: vlogsRetryState.lastHeartbeatProbe
+      },
+      ingestionVolumeLastHour: {
+        summary: {
+          totalLogsLastHour,
+          avgLogsPerMinute,
+          peakLogsPerMinute,
+          minLogsPerMinute,
+          currentLogsPerMinute,
+          currentEps,
+          totalBytesMBLastHour,
+          peakEpsLastHour
+        },
+        points: ingestionHistoryPoints
+      },
+      recentRetryLogs: vlogsRetryState.recentRetryLogs.slice(0, 35)
+    };
+  }
+
+  function broadcastVlogsRetryStats(eventData?: any) {
+    if (collectorWsClients.size === 0) return;
+    const payload = JSON.stringify({
+      type: 'collector_retry_stats',
+      timestamp: new Date().toISOString(),
+      event: eventData || null,
+      data: getVlogsRetryStatsSnapshot()
+    });
+    for (const client of collectorWsClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(payload);
+        } catch {
+          // ignore error on stale socket
+        }
+      }
+    }
+  }
+
+  // Periodic heartbeat broadcast every 1500ms to keep all live subscribers synced
+  setInterval(() => {
+    if (collectorWsClients.size > 0) {
+      broadcastVlogsRetryStats();
+    }
+  }, 1500);
+
+  function logRetryEvent(level: string, message: string, attempt: number = 0, delayMs: number = 0, isHeartbeat: boolean = false) {
     const entry = {
       timestamp: new Date().toISOString(),
       level,
       message,
       attempt,
-      delayMs
+      delayMs,
+      isHeartbeat
     };
     vlogsRetryState.recentRetryLogs.unshift(entry);
-    if (vlogsRetryState.recentRetryLogs.length > 50) {
-      vlogsRetryState.recentRetryLogs = vlogsRetryState.recentRetryLogs.slice(0, 50);
+    if (vlogsRetryState.recentRetryLogs.length > 60) {
+      vlogsRetryState.recentRetryLogs = vlogsRetryState.recentRetryLogs.slice(0, 60);
     }
     console.log(`[VictoriaLogs Retry] ${message}`);
+    // Real-time WebSocket push on any retry or heartbeat event
+    broadcastVlogsRetryStats({ type: isHeartbeat ? 'heartbeat_probe' : 'retry_log_event', entry });
   }
+
+  // Lightweight 30-Second Collector Internal State Heartbeat Probe
+  function runCollectorHeartbeatProbe() {
+    const uptimeSec = Math.floor((Date.now() - engineStartTime) / 1000);
+    const capacity = 50000;
+    const baseWave = 1420 + Math.sin(Date.now() / 3500) * 850 + Math.cos(Date.now() / 11000) * 600;
+    const currentDepth = Math.max(80, Math.min(capacity - 500, Math.floor(baseWave + (Math.random() * 200 - 100))));
+    const depthPercentage = Number(((currentDepth / capacity) * 100).toFixed(2));
+    const totalWorkers = 16;
+    const activeWorkers = Math.min(totalWorkers, Math.max(4, Math.ceil((currentDepth / 3000) * totalWorkers)));
+    const workerSaturationPct = Number(((activeWorkers / totalWorkers) * 100).toFixed(1));
+    const throughputEps = Math.floor(8500 + (currentDepth * 1.8) + Math.random() * 400);
+
+    const isHealthy = depthPercentage < 85 && !vlogsRetryState.simulatedOutage;
+    const vlogsStatus = vlogsRetryState.simulatedOutage
+      ? `503_SIMULATED (暫態故障模擬)`
+      : vlogsRetryState.isTargetReachable
+      ? 'ONLINE (正常連線)'
+      : 'RETRYING (退避重試中)';
+
+    const queueDepth = vlogsRetryState.retryQueue.length;
+    const totalPosts = vlogsRetryState.totalPostRequests;
+    const successPosts = vlogsRetryState.successfulRequests;
+
+    vlogsRetryState.totalHeartbeatsLogged++;
+    vlogsRetryState.lastHeartbeatProbe = {
+      timestamp: new Date().toISOString(),
+      uptimeSeconds: uptimeSec,
+      bufferDepth: currentDepth,
+      bufferCapacity: capacity,
+      bufferDepthPercentage: depthPercentage,
+      activeWorkers,
+      totalWorkers,
+      throughputEps,
+      isHealthy,
+      victoriaLogsStatus: vlogsStatus,
+      queueDepth,
+      totalPosts
+    };
+
+    const level = (queueDepth > 0 || depthPercentage > 75 || vlogsRetryState.simulatedOutage) ? 'warn' : 'info';
+    const message = `[心跳探針 (Heartbeat 30s)] 收集器內部狀態: ${isHealthy ? 'HEALTHY 正常' : 'DEGRADED 降級'} | 環形緩衝: ${currentDepth.toLocaleString()}/${capacity.toLocaleString()} (${depthPercentage}%) | 工作池: ${activeWorkers}/${totalWorkers} (${workerSaturationPct}%) | 即時吞吐: ${throughputEps.toLocaleString()} EPS | VictoriaLogs: ${vlogsStatus} (累計交付: ${successPosts}/${totalPosts}, 離線防遺失佇列: ${queueDepth})`;
+
+    logRetryEvent(level, message, 0, 0, true);
+  }
+
+  // Schedule lightweight heartbeat probe every 30 seconds
+  setInterval(runCollectorHeartbeatProbe, 30000);
+  // Initial immediate probe on collector startup
+  setTimeout(runCollectorHeartbeatProbe, 1200);
 
   function calculateBackoffDelay(attempt: number): number {
     const base = Math.min(
@@ -1172,47 +1430,20 @@ async function startServer() {
         vlogsRetryState.isTargetReachable = true;
         vlogsRetryState.lastSuccessTime = new Date().toISOString();
         logRetryEvent('info', `[離線佇列排空] 成功補發 ${batch.logCount} 筆日誌至 VictoriaLogs (剩餘待排空: ${vlogsRetryState.retryQueue.length})`);
+        broadcastVlogsRetryStats({ type: 'queue_drained', batchId: batch.id });
       }
     } catch (e: any) {
       batch.attempts++;
       batch.lastAttemptAt = Date.now();
       batch.lastError = e.message;
       vlogsRetryState.isTargetReachable = false;
+      broadcastVlogsRetryStats({ type: 'queue_drain_failed', error: e.message });
     }
   }, 4000);
 
   // Endpoint 1: Get VictoriaLogs Retry & Backoff Telemetry Stats
   app.get('/api/v1/collector/victorialogs-retry-stats', (req, res) => {
-    res.json({
-      success: true,
-      targetURL: `${(engineConfig.victorialogs?.url || 'http://localhost:9428').replace(/\/$/, '')}/insert/jsonline`,
-      config: {
-        initialIntervalMs: vlogsRetryState.initialIntervalMs,
-        maxIntervalMs: vlogsRetryState.maxIntervalMs,
-        multiplier: vlogsRetryState.multiplier,
-        jitterFraction: vlogsRetryState.jitterFraction,
-        maxRetries: vlogsRetryState.maxRetries,
-        queueCapacity: vlogsRetryState.queueCapacity
-      },
-      stats: {
-        totalPostRequests: vlogsRetryState.totalPostRequests,
-        successfulRequests: vlogsRetryState.successfulRequests,
-        initialFailures: vlogsRetryState.initialFailures,
-        retryAttemptsTotal: vlogsRetryState.retryAttemptsTotal,
-        retrySuccessTotal: vlogsRetryState.retrySuccessTotal,
-        queuedDueToOutage: vlogsRetryState.queuedDueToOutage,
-        queueDrainedSuccess: vlogsRetryState.queueDrainedSuccess,
-        currentQueueDepth: vlogsRetryState.retryQueue.length,
-        currentBackoffMs: vlogsRetryState.currentBackoffMs,
-        isTargetReachable: vlogsRetryState.isTargetReachable,
-        lastError: vlogsRetryState.lastError,
-        lastErrorTime: vlogsRetryState.lastErrorTime,
-        lastSuccessTime: vlogsRetryState.lastSuccessTime,
-        simulatedOutage: vlogsRetryState.simulatedOutage,
-        simulatedFailureCode: vlogsRetryState.simulatedFailureCode
-      },
-      recentRetryLogs: vlogsRetryState.recentRetryLogs.slice(0, 15)
-    });
+    res.json(getVlogsRetryStatsSnapshot());
   });
 
   // Endpoint 2: Test Forward Log Batch to VictoriaLogs with Exponential Backoff
@@ -1255,6 +1486,9 @@ async function startServer() {
     })).join('\n') + '\n';
 
     const result = await postToVictoriaLogsWithBackoff(ndjson, entries.length, labels || {});
+    updateIngestionVolume(entries.length, !result.success);
+    broadcastVlogsRetryStats({ type: 'forward_batch_completed', result });
+
     res.json({
       success: result.success,
       attempts: result.attempts,
@@ -1277,6 +1511,8 @@ async function startServer() {
       vlogsRetryState.simulatedOutage ? 'warn' : 'info',
       `[模擬控制] VictoriaLogs 暫時性故障模擬狀態已切換為: ${vlogsRetryState.simulatedOutage ? '開啟 (模擬 ' + vlogsRetryState.simulatedFailureCode + ' 斷線)' : '關閉 (正常連線)'}`
     );
+    broadcastVlogsRetryStats({ type: 'simulated_outage_toggled' });
+
     res.json({
       success: true,
       simulatedOutage: vlogsRetryState.simulatedOutage,
@@ -1284,6 +1520,55 @@ async function startServer() {
       message: vlogsRetryState.simulatedOutage 
         ? `已開啟 VictoriaLogs 故障模擬 (${vlogsRetryState.simulatedFailureCode})，發送 POST 請求時將觸發指數退避重試與保護佇列` 
         : '已關閉故障模擬，背景協程將排空重試佇列'
+    });
+  });
+
+  // Endpoint 4: Trigger or query collector lightweight heartbeat probe (30s cadence)
+  app.post('/api/v1/collector/heartbeat-probe', (req, res) => {
+    runCollectorHeartbeatProbe();
+    res.json({
+      success: true,
+      message: '已立即觸發收集器 30s 內部狀態心跳探針',
+      probe: vlogsRetryState.lastHeartbeatProbe
+    });
+  });
+
+  app.get('/api/v1/collector/heartbeat-probe', (req, res) => {
+    res.json({
+      success: true,
+      intervalSeconds: 30,
+      probe: vlogsRetryState.lastHeartbeatProbe
+    });
+  });
+
+  // Endpoint 5: Get 60-Minute Log Ingestion Volume per Minute History
+  app.get('/api/v1/collector/ingestion-volume-history', (req, res) => {
+    const totalLogsLastHour = ingestionHistoryPoints.reduce((sum, p) => sum + p.volume, 0);
+    const avgLogsPerMinute = Math.round(totalLogsLastHour / Math.max(1, ingestionHistoryPoints.length));
+    const peakLogsPerMinute = ingestionHistoryPoints.length > 0 ? Math.max(...ingestionHistoryPoints.map(p => p.volume)) : 0;
+    const minLogsPerMinute = ingestionHistoryPoints.length > 0 ? Math.min(...ingestionHistoryPoints.map(p => p.volume)) : 0;
+    const latestPoint = ingestionHistoryPoints[ingestionHistoryPoints.length - 1];
+    const currentLogsPerMinute = latestPoint ? latestPoint.volume : 0;
+    const currentEps = latestPoint ? latestPoint.avgEps : 0;
+    const totalBytesMBLastHour = Number(ingestionHistoryPoints.reduce((sum, p) => sum + p.bytesMB, 0).toFixed(1));
+    const peakEpsLastHour = ingestionHistoryPoints.length > 0 ? Math.max(...ingestionHistoryPoints.map(p => p.peakEps)) : 0;
+
+    res.json({
+      success: true,
+      period: 'last_hour',
+      interval: '1m',
+      totalPoints: ingestionHistoryPoints.length,
+      summary: {
+        totalLogsLastHour,
+        avgLogsPerMinute,
+        peakLogsPerMinute,
+        minLogsPerMinute,
+        currentLogsPerMinute,
+        currentEps,
+        totalBytesMBLastHour,
+        peakEpsLastHour
+      },
+      points: ingestionHistoryPoints
     });
   });
 
@@ -1345,7 +1630,6 @@ async function startServer() {
   let totalPipelineLogsParsed = 1450000;
   let totalPipelineLogsMatched = 1441300;
   let lastDeployedAt = new Date().toISOString();
-  const engineStartTime = Date.now();
 
   // Go Ingestion Collector Healthcheck & Telemetry Endpoint (Real-time proxy/direct simulation)
   app.get('/api/engine/collector/healthz', (req, res) => {
@@ -3520,7 +3804,21 @@ async function startServer() {
       try {
         const data = JSON.parse(messageBuffer.toString());
         
-        if (data.type === 'join') {
+        if (data.type === 'subscribe_collector_diagnostics') {
+          collectorWsClients.add(ws);
+          ws.send(JSON.stringify({
+            type: 'collector_retry_stats',
+            timestamp: new Date().toISOString(),
+            data: getVlogsRetryStatsSnapshot()
+          }));
+        }
+        else if (data.type === 'unsubscribe_collector_diagnostics') {
+          collectorWsClients.delete(ws);
+        }
+        else if (data.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        }
+        else if (data.type === 'join') {
           const { incidentId } = data;
           currentRoom = incidentId;
           
@@ -3566,6 +3864,7 @@ async function startServer() {
     });
 
     ws.on('close', () => {
+      collectorWsClients.delete(ws);
       if (currentRoom && rooms.has(currentRoom)) {
         rooms.get(currentRoom)!.delete(ws);
         if (rooms.get(currentRoom)!.size === 0) {
