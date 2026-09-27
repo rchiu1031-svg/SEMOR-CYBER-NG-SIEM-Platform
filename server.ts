@@ -7,6 +7,25 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 
+// Modular SIEM & Cyber Defense Routers
+import { createCollectorRouter } from './server/collectorRouter';
+import { createNdrRouter } from './server/ndrRouter';
+import { createXdrRouter } from './server/xdrRouter';
+import { createIncidentsRouter } from './server/incidentsRouter';
+import { createNetworkRouter } from './server/networkRouter';
+import { createCtiRouter } from './server/ctiRouter';
+import { createMalwareRouter } from './server/malwareRouter';
+import { createFimRouter } from './server/fimRouter';
+import { createVulnRouter } from './server/vulnRouter';
+import { createAiAnalystRouter } from './server/aiAnalystRouter';
+import { createForensicsRouter } from './server/forensicsRouter';
+import { createHoneypotRouter } from './server/honeypotRouter';
+import { createUebaRouter } from './server/uebaRouter';
+import { createSoarRouter } from './server/soarRouter';
+import { createCasesRouter } from './server/casesRouter';
+import { createApmRouter } from './server/apmRouter';
+import { globalCollectorMemoryManager } from './server/collectorMemoryManager';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1707,6 +1726,7 @@ async function startServer() {
         backpressureActive: depthPercentage > 75,
         droppedEvents: 0
       },
+      memoryManagement: globalCollectorMemoryManager.getMetrics(),
       workerPool: {
         totalWorkers: totalWorkers,
         activeWorkers: activeWorkers,
@@ -1831,6 +1851,70 @@ async function startServer() {
       totalSources: list.length,
       totalEPS: list.reduce((acc, curr) => acc + curr.currentEPS, 0),
       sources: list
+    });
+  });
+
+  // Modular Full-Stack SIEM & Cyber Defense Subsystems
+  app.use('/api/engine/collector', createCollectorRouter(vlogsRetryState, broadcastVlogsRetryStats, activeIngestSources));
+  app.use('/api/v1/ndr', createNdrRouter());
+  app.use('/api/v1/xdr', createXdrRouter());
+  app.use('/api/v1/incidents', createIncidentsRouter());
+  app.use('/api/v1/network', createNetworkRouter());
+  app.use('/api/v1/cti', createCtiRouter());
+  app.use('/api/v1/threat-intel', createCtiRouter());
+  app.use('/api/v1/malware', createMalwareRouter());
+  app.use('/api/v1/fim', createFimRouter());
+  app.use('/api/v1/vuln', createVulnRouter());
+  app.use('/api/v1/ai-analyst', createAiAnalystRouter());
+  app.use('/api/v1/forensics', createForensicsRouter());
+  app.use('/api/v1/honeypot', createHoneypotRouter());
+  app.use('/api/v1/wargaming', createHoneypotRouter());
+  app.use('/api/v1/ueba', createUebaRouter());
+  app.use('/api/v1/soar', createSoarRouter());
+  app.use('/api/v1/cases', createCasesRouter());
+  app.use('/api/v1/apm', createApmRouter());
+
+  // Discovered Assets & Inventory API
+  app.get('/api/v1/assets', (req, res) => {
+    res.json({
+      success: true,
+      count: 5,
+      assets: [
+        { id: "ast-01", hostname: "dc01.corp.internal", ip: "192.168.1.100", mac: "00:50:56:c0:00:08", os: "Windows Server 2022 Datacenter", category: "Domain Controller", riskScore: 78, openPorts: [53, 88, 135, 389, 445, 636, 3268], lastSeen: new Date().toISOString() },
+        { id: "ast-02", hostname: "FINANCE-PC03", ip: "10.0.4.15", mac: "bc:d0:74:18:22:90", os: "Windows 11 Enterprise x64", category: "Workstation", riskScore: 94, openPorts: [135, 445, 3389], lastSeen: new Date().toISOString() },
+        { id: "ast-03", hostname: "DEV-MAC-BOOK-12", ip: "10.0.12.44", mac: "f4:d4:88:9a:12:ef", os: "macOS Sonoma 14.5 (Darwin)", category: "Developer Laptop", riskScore: 75, openPorts: [22, 53, 8080], lastSeen: new Date().toISOString() },
+        { id: "ast-04", hostname: "k8s-ingress-prod", ip: "10.0.1.50", mac: "52:54:00:12:34:56", os: "Ubuntu 22.04 LTS (K8s Node)", category: "Container Host", riskScore: 28, openPorts: [80, 443, 6443, 10250], lastSeen: new Date().toISOString() },
+        { id: "ast-05", hostname: "edge-gateway-01", ip: "172.16.0.22", mac: "00:15:5d:01:aa:bb", os: "Alpine Linux 3.19 (Edge Proxy)", category: "Perimeter Gateway", riskScore: 64, openPorts: [22, 514, 5140, 6514, 8080], lastSeen: new Date().toISOString() }
+      ]
+    });
+  });
+
+  // Enterprise License & Entitlements API
+  app.get('/api/v1/license/status', (req, res) => {
+    res.json({
+      success: true,
+      licenseKey: "CYBER-ENTERPRISE-TW-98124-SEC",
+      tier: "Enterprise Unlimited (全模組尊榮旗艦版)",
+      organization: "SEEOR CYBER DEFENSE LABS",
+      authorizedNodes: 99999,
+      activeNodes: 142,
+      issuedAt: "2026-01-01T00:00:00Z",
+      expiresAt: "2029-12-31T23:59:59Z",
+      isPerpetual: false,
+      features: [
+        "Go Ingestion Collector (Syslog/HTTP/NDJSON/Loki/ES)",
+        "Rust Block Storage Engine (ZSTD & Delta-of-Delta)",
+        "NDR & NetFlow / IPFIX Traffic Inspection",
+        "OpenXDR Cross-layer Threat Correlation",
+        "AI Security Analyst & Automated Attack Triage",
+        "SOAR Automated Playbook Orchestration",
+        "Digital Forensics & Artifact Vault",
+        "Honeypot Decoy Management & Cyber Wargaming",
+        "UEBA Behavioral Analytics & Watchlist",
+        "FIM File Integrity Monitoring",
+        "VANS Government Compliance Integration",
+        "APM Microservice Distributed Tracing"
+      ]
     });
   });
 
@@ -2728,6 +2812,14 @@ async function startServer() {
       mitre_tactic: mitre_tactic,
       ai_analysis: ai_analysis
     };
+
+    // Track through Circular Buffer Memory Manager to minimize GC pressure and maintain ring buffer metrics
+    globalCollectorMemoryManager.push(raw, {
+      protocol,
+      remoteIP,
+      source: meta.source || host,
+      stream
+    });
 
     runtimeLogCorpus.unshift(record);
     if (runtimeLogCorpus.length > 2500) {

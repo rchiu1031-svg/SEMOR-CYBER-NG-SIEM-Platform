@@ -578,3 +578,130 @@ export function exportSessionsToPcap(
     byteSize: binaryData.byteLength
   };
 }
+
+/**
+ * Trigger CSV download in the browser with UTF-8 BOM.
+ */
+export function downloadCsvFile(content: string, filename: string) {
+  // Prepend UTF-8 Byte Order Mark (\uFEFF) for seamless Excel & forensic tool compatibility
+  const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/**
+ * Forensic CSV Flow Log Exporter.
+ * Generates an RFC 4180 standard CSV containing complete flow telemetry,
+ * 5-tuple, protocol flags, JA3 fingerprint, threat attribution, and payload synopsis.
+ */
+export function exportSessionsToCsv(
+  sessions: any[],
+  customFilename?: string
+): { filename: string; rowCount: number; byteSize: number } {
+  const headers = [
+    'Session_ID',
+    'Stream_ID',
+    'Timestamp',
+    'Source_IP',
+    'Source_Port',
+    'Destination_IP',
+    'Destination_Port',
+    'Transport_Protocol',
+    'Application_Protocol',
+    'TCP_Flags',
+    'JA3_Fingerprint',
+    'Bytes_In',
+    'Bytes_Out',
+    'Total_Bytes_Num',
+    'Packets_Count',
+    'Duration_ms',
+    'Threat_Level',
+    'Threat_Description',
+    'Enforcement_Action',
+    'Source_Country',
+    'Destination_Country',
+    'Messages_Count',
+    'Payload_Synopsis'
+  ];
+
+  const escapeCsv = (val: any): string => {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const rows = sessions.map(s => {
+    // Generate concise payload synopsis
+    let payloadSynopsis = '';
+    if (s.messages && Array.isArray(s.messages) && s.messages.length > 0) {
+      payloadSynopsis = s.messages
+        .map((m: any) => `[${m.dir === 'out' ? 'OUT' : 'IN'}:${m.msg_type || 'DATA'}] ${m.payload_preview || ''}`)
+        .join(' | ');
+    } else if (s.decoded_summary?.protocol_stack) {
+      payloadSynopsis = `Stack: ${s.decoded_summary.protocol_stack.join(' > ')}`;
+    } else if (s.hex_dump && Array.isArray(s.hex_dump) && s.hex_dump.length > 0) {
+      payloadSynopsis = s.hex_dump.map((h: any) => h.ascii || '').filter(Boolean).join(' ');
+    }
+
+    const geoSrc = s.geo_src ? `${s.geo_src.country || ''} ${s.geo_src.flag || ''}`.trim() : '';
+    const geoDst = s.geo_dst ? `${s.geo_dst.country || ''} ${s.geo_dst.flag || ''}`.trim() : '';
+    const msgCount = s.messages && Array.isArray(s.messages) ? s.messages.length : (s.packets || 0);
+
+    return [
+      escapeCsv(s.id),
+      escapeCsv(s.stream_id),
+      escapeCsv(s.time || ''),
+      escapeCsv(s.src_ip),
+      escapeCsv(s.src_port),
+      escapeCsv(s.dst_ip),
+      escapeCsv(s.dst_port),
+      escapeCsv(s.proto),
+      escapeCsv(s.app_proto || s.proto),
+      escapeCsv(s.tcp_flags || ''),
+      escapeCsv(s.ja3_hash || ''),
+      escapeCsv(s.bytes_in || '0 B'),
+      escapeCsv(s.bytes_out || '0 B'),
+      escapeCsv(s.total_bytes_num || 0),
+      escapeCsv(s.packets || 0),
+      escapeCsv(s.duration_ms || 0),
+      escapeCsv(s.threat_level || 'Clean'),
+      escapeCsv(s.threat_desc || 'Normal Traffic'),
+      escapeCsv(s.action || 'Allowed'),
+      escapeCsv(geoSrc),
+      escapeCsv(geoDst),
+      escapeCsv(msgCount),
+      escapeCsv(payloadSynopsis)
+    ].join(',');
+  });
+
+  const csvContent = [headers.join(','), ...rows].join('\r\n');
+  const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const defaultFilename = sessions.length === 1
+    ? `${sessions[0].stream_id}_flow_forensics_${timestamp}.csv`
+    : `semor_flow_filtered_${sessions.length}records_${timestamp}.csv`;
+
+  const finalFilename = customFilename?.trim()
+    ? (customFilename.trim().endsWith('.csv') ? customFilename.trim() : `${customFilename.trim()}.csv`)
+    : defaultFilename;
+
+  downloadCsvFile(csvContent, finalFilename);
+
+  const encoder = new TextEncoder();
+  const byteSize = encoder.encode('\uFEFF' + csvContent).length;
+
+  return {
+    filename: finalFilename,
+    rowCount: sessions.length,
+    byteSize
+  };
+}
+

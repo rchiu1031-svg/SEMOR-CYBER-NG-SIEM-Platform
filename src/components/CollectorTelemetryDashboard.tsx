@@ -41,6 +41,7 @@ import {
 import LogParserDiagnosticPanel from './LogParserDiagnosticPanel';
 import LogSourcesTable from './LogSourcesTable';
 import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
+import { CollectorMemoryManagementPanel } from './CollectorMemoryManagementPanel';
 
 export interface CollectorWorker {
   workerId: string;
@@ -73,6 +74,7 @@ export interface CollectorHealthData {
   timestamp: number;
   uptimeSeconds: number;
   fillRateMonitor?: FillRateMonitorData;
+  memoryManagement?: any;
   buffer: {
     depth: number;
     capacity: number;
@@ -122,7 +124,7 @@ export function CollectorTelemetryDashboard() {
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<'normal' | 'surge' | 'stress'>('normal');
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'memory_strategy' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
 
   const historyMaxPoints = 25;
   const isMountedRef = useRef(true);
@@ -307,6 +309,21 @@ export function CollectorTelemetryDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveMainTab('memory_strategy')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'memory_strategy'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5 text-emerald-400" />
+          <span>記憶體管理與環形緩衝區 (Circular Buffer & GC)</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+            Zero-GC
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveMainTab('retry_monitor')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
             activeMainTab === 'retry_monitor'
@@ -358,6 +375,11 @@ export function CollectorTelemetryDashboard() {
           通訊協定架構規格 (Protocol Listeners)
         </button>
       </div>
+
+      {/* Tab: Memory Management & Circular Buffer Architecture */}
+      {activeMainTab === 'memory_strategy' && (
+        <CollectorMemoryManagementPanel />
+      )}
 
       {/* Tab: VictoriaLogs Retry & Zero-Loss Diagnostic */}
       {activeMainTab === 'retry_monitor' && (
