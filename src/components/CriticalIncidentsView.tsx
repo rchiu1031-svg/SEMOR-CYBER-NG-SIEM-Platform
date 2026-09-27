@@ -337,6 +337,8 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
   const [expandedRow, setExpandedRow] = useState<string | null>(DEFAULT_INCIDENTS[0].id);
   const [selectedIncident, setSelectedIncident] = useState<CriticalIncidentItem | null>(DEFAULT_INCIDENTS[0]);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAnalyzingAi, setIsAnalyzingAi] = useState(false);
   
   // Sub-tabs inside expanded row
   const [activeSubTab, setActiveSubTab] = useState<'ai' | 'payload' | 'topology' | 'soar' | 'notes'>('ai');
@@ -357,7 +359,37 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
 
   // Export Dossier Modal
   const [showDossierModal, setShowDossierModal] = useState(false);
+  const [dossierData, setDossierData] = useState<any>(null);
   const [copiedHex, setCopiedHex] = useState(false);
+
+  // Fetch Live Incidents from Backend
+  const fetchIncidents = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch('/api/v1/incidents');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.incidents) && data.incidents.length > 0) {
+          setIncidents(data.incidents);
+          if (!selectedIncident) {
+            setSelectedIncident(data.incidents[0]);
+            setExpandedRow(data.incidents[0].id);
+          } else {
+            const freshSelected = data.incidents.find((i: any) => i.id === selectedIncident.id);
+            if (freshSelected) setSelectedIncident(freshSelected);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Backend incidents API unavailable, using resilient fallback:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchIncidents();
+  }, []);
 
   // Handle outside click for dropdown
   useEffect(() => {
@@ -393,7 +425,25 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
   });
 
   // Action: Acknowledge All
-  const handleAcknowledgeAll = () => {
+  const handleAcknowledgeAll = async () => {
+    try {
+      const res = await fetch('/api/v1/incidents/acknowledge-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operator: currentUser?.username || 'Current Analyst' })
+      });
+      const data = await res.json();
+      if (data.success && data.incidents) {
+        setIncidents(data.incidents);
+        setSuccessToast(data.message || (isZh ? '已全數確認知悉並轉入調查階段' : 'All incidents acknowledged and marked under investigation.'));
+        setTimeout(() => setSuccessToast(null), 3500);
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to acknowledge incidents via API:', err);
+    }
+
+    // Local fallback
     setIncidents((prev) =>
       prev.map((item) => (item.status === 'active' ? { ...item, status: 'investigating' } : item))
     );
@@ -406,6 +456,22 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
     setExecutingPlaybook(playbookTitle);
     setPlaybookCountdown(3);
 
+    // Call backend API in parallel
+    const apiCall = fetch(`/api/v1/incidents/${incidentId}/playbooks/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playbookTitle,
+        type,
+        operator: currentUser?.username || 'Current Analyst'
+      })
+    })
+      .then(res => res.json())
+      .catch(err => {
+        console.warn('Backend playbook execution API error:', err);
+        return null;
+      });
+
     const interval = setInterval(() => {
       setPlaybookCountdown((prev) => {
         if (prev && prev <= 1) {
@@ -413,31 +479,106 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
           setExecutingPlaybook(null);
           setPlaybookCountdown(null);
 
-          // Update Incident status
-          setIncidents((prevIncidents) =>
-            prevIncidents.map((inc) => {
-              if (inc.id === incidentId) {
-                return {
-                  ...inc,
-                  status: type === 'isolate' || type === 'block' ? 'contained' : 'resolved',
-                  riskScore: Math.max(2.0, inc.riskScore - 3.5)
-                };
+          apiCall.then((data) => {
+            if (data && data.success && data.incident) {
+              setIncidents((prevIncidents) =>
+                prevIncidents.map((inc) => (inc.id === incidentId ? data.incident : inc))
+              );
+              if (selectedIncident?.id === incidentId) {
+                setSelectedIncident(data.incident);
               }
-              return inc;
-            })
-          );
+              setSuccessToast(data.message);
+            } else {
+              // Local state update
+              setIncidents((prevIncidents) =>
+                prevIncidents.map((inc) => {
+                  if (inc.id === incidentId) {
+                    return {
+                      ...inc,
+                      status: type === 'isolate' || type === 'block' ? 'contained' : 'resolved',
+                      riskScore: Math.max(2.0, inc.riskScore - 3.5)
+                    };
+                  }
+                  return inc;
+                })
+              );
+              setSuccessToast(
+                isZh
+                  ? `【自動化 SOAR 指令成功】已對 ${incidentId} 執行：${playbookTitle}`
+                  : `SOAR Playbook [${playbookTitle}] executed successfully for ${incidentId}`
+              );
+            }
+            setTimeout(() => setSuccessToast(null), 4000);
+          });
 
-          setSuccessToast(
-            isZh
-              ? `【自動化 SOAR 指令成功】已對 ${incidentId} 執行：${playbookTitle}`
-              : `SOAR Playbook [${playbookTitle}] executed successfully for ${incidentId}`
-          );
-          setTimeout(() => setSuccessToast(null), 4000);
           return null;
         }
         return prev ? prev - 1 : null;
       });
     }, 1000);
+  };
+
+  // Action: Update Incident Status
+  const handleUpdateStatus = async (incidentId: string, newStatus: 'active' | 'investigating' | 'contained' | 'resolved') => {
+    try {
+      const res = await fetch(`/api/v1/incidents/${incidentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: newStatus,
+          operator: currentUser?.username || 'Current Analyst'
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.incident) {
+        setIncidents((prev) => prev.map((i) => (i.id === incidentId ? data.incident : i)));
+        if (selectedIncident?.id === incidentId) setSelectedIncident(data.incident);
+        setSuccessToast(data.message || `事件 ${incidentId} 已成功標記為 ${newStatus}`);
+        setTimeout(() => setSuccessToast(null), 3000);
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to update incident status via API:', err);
+    }
+
+    setIncidents((prev) => prev.map((i) => (i.id === incidentId ? { ...i, status: newStatus } : i)));
+    setSuccessToast(isZh ? `已將 ${incidentId} 標記為 ${newStatus}` : `Incident ${incidentId} marked as ${newStatus}.`);
+    setTimeout(() => setSuccessToast(null), 3000);
+  };
+
+  // Action: AI Re-Analysis
+  const handleRunAiTriage = async (incidentId: string) => {
+    try {
+      setIsAnalyzingAi(true);
+      const res = await fetch(`/api/v1/incidents/${incidentId}/ai-analyze`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success && data.analysis) {
+        setSuccessToast(isZh ? `AI 深度威脅研判完成 (${incidentId})` : `AI Threat Analysis complete for ${incidentId}`);
+        setTimeout(() => setSuccessToast(null), 3500);
+      }
+    } catch (err) {
+      console.warn('AI Triage API error:', err);
+    } finally {
+      setIsAnalyzingAi(false);
+    }
+  };
+
+  // Action: Open Dossier Modal
+  const handleOpenDossier = async () => {
+    try {
+      const res = await fetch('/api/v1/incidents/export/dossier');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.dossier) {
+          setDossierData(data.dossier);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch dossier report:', err);
+    }
+    setShowDossierModal(true);
   };
 
   // Stats Calculations
@@ -495,7 +636,16 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
           {/* Quick Action Buttons */}
           <div className="flex items-center gap-2.5">
             <button
-              onClick={() => setShowDossierModal(true)}
+              onClick={fetchIncidents}
+              disabled={isLoading}
+              className="px-3.5 py-2.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-200 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isLoading ? 'animate-spin text-red-400' : 'text-gray-400'} />
+              <span>{isZh ? '重新整理' : 'Refresh'}</span>
+            </button>
+
+            <button
+              onClick={handleOpenDossier}
               className="px-4 py-2.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-200 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg"
             >
               <FileText size={15} className="text-blue-400" />
@@ -845,12 +995,8 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                               <button
                                 className="w-full px-3.5 py-2 text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 flex items-center gap-2.5"
                                 onClick={() => {
-                                  setIncidents((prev) =>
-                                    prev.map((i) => (i.id === incident.id ? { ...i, status: 'resolved' } : i))
-                                  );
+                                  handleUpdateStatus(incident.id, 'resolved');
                                   setOpenDropdown(null);
-                                  setSuccessToast(isZh ? `已將 ${incident.id} 標記為已結案` : `Incident ${incident.id} marked as resolved.`);
-                                  setTimeout(() => setSuccessToast(null), 3000);
                                 }}
                               >
                                 <CheckCircle2 size={14} />
@@ -929,9 +1075,19 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                                             <Brain size={16} />
                                             <span>{isZh ? 'S.E.M.O.R AI 智慧情資研判與戰術評估' : 'S.E.M.O.R AI Threat Assessment'}</span>
                                           </div>
-                                          <span className="text-[10px] font-mono px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded border border-blue-500/40">
-                                            Confidence: {incident.confidence}%
-                                          </span>
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              onClick={() => handleRunAiTriage(incident.id)}
+                                              disabled={isAnalyzingAi}
+                                              className="px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 transition flex items-center gap-1.5 disabled:opacity-50"
+                                            >
+                                              <Sparkles size={11} className={isAnalyzingAi ? 'animate-spin' : ''} />
+                                              <span>{isAnalyzingAi ? (isZh ? '研判中...' : 'Analyzing...') : (isZh ? '重新研判' : 'AI Re-Analyze')}</span>
+                                            </button>
+                                            <span className="text-[10px] font-mono px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded border border-blue-500/40">
+                                              Confidence: {incident.confidence}%
+                                            </span>
+                                          </div>
                                         </div>
                                         <p className="text-xs text-blue-100 leading-relaxed">{incident.aiSummary}</p>
                                       </div>
@@ -1255,18 +1411,55 @@ function CollaborativeNotesPanel({ incidentId, currentUser }: { incidentId: stri
     }
   ]);
   const [newNoteText, setNewNoteText] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleAddNote = (e: React.FormEvent) => {
+  useEffect(() => {
+    fetch(`/api/v1/incidents/${incidentId}/notes`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && Array.isArray(data.notes) && data.notes.length > 0) {
+          setNotes(data.notes);
+        }
+      })
+      .catch(err => console.warn('Failed to load incident notes:', err));
+  }, [incidentId]);
+
+  const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNoteText.trim()) return;
 
+    const noteContent = newNoteText.trim();
+    const authorName = currentUser?.username || 'Current Analyst';
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch(`/api/v1/incidents/${incidentId}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: noteContent,
+          author: authorName
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.note) {
+        setNotes((prev) => [...prev, data.note]);
+        setNewNoteText('');
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to post note via API:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
+
+    // Fallback local append
     const newNote = {
       id: `n-${Date.now()}`,
-      author: currentUser?.username || 'Current Analyst',
+      author: authorName,
       timestamp: new Date().toLocaleTimeString(),
-      content: newNoteText.trim()
+      content: noteContent
     };
-
     setNotes((prev) => [...prev, newNote]);
     setNewNoteText('');
   };
