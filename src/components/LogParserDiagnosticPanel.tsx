@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CollectorThroughputIndicator } from './CollectorThroughputIndicator';
 import {
   Zap,
   Terminal,
@@ -514,6 +515,11 @@ export function LogParserDiagnosticPanel() {
           )}
         </div>
       )}
+
+      {/* Visual Ingestion Throughput Indicator & Bottleneck Identifier */}
+      <div className="pt-4 border-t border-slate-800">
+        <CollectorThroughputIndicator />
+      </div>
     </div>
   );
 }

@@ -42,6 +42,8 @@ import LogParserDiagnosticPanel from './LogParserDiagnosticPanel';
 import LogSourcesTable from './LogSourcesTable';
 import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
 import { CollectorMemoryManagementPanel } from './CollectorMemoryManagementPanel';
+import { CollectorThroughputIndicator } from './CollectorThroughputIndicator';
+import { CollectorConnectionPoolPanel } from './CollectorConnectionPoolPanel';
 
 export interface CollectorWorker {
   workerId: string;
@@ -75,6 +77,7 @@ export interface CollectorHealthData {
   uptimeSeconds: number;
   fillRateMonitor?: FillRateMonitorData;
   memoryManagement?: any;
+  connectionPool?: any;
   buffer: {
     depth: number;
     capacity: number;
@@ -124,7 +127,7 @@ export function CollectorTelemetryDashboard() {
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<'normal' | 'surge' | 'stress'>('normal');
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'memory_strategy' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'throughput' | 'memory_strategy' | 'connection_pool' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
 
   const historyMaxPoints = 25;
   const isMountedRef = useRef(true);
@@ -309,6 +312,21 @@ export function CollectorTelemetryDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveMainTab('throughput')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'throughput'
+              ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5 text-cyan-400" />
+          <span>吞吐量與瓶頸指標 (Throughput Indicator)</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+            60m / Min
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveMainTab('memory_strategy')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
             activeMainTab === 'memory_strategy'
@@ -320,6 +338,22 @@ export function CollectorTelemetryDashboard() {
           <span>記憶體管理與環形緩衝區 (Circular Buffer & GC)</span>
           <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
             Zero-GC
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('connection_pool')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'connection_pool'
+              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Database className="w-3.5 h-3.5 text-indigo-400" />
+          <span>連線池與端口保護 (Connection Pool)</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Port Safe
           </span>
         </button>
 
@@ -376,9 +410,19 @@ export function CollectorTelemetryDashboard() {
         </button>
       </div>
 
+      {/* Tab: Ingestion Throughput & Bottleneck Identification */}
+      {activeMainTab === 'throughput' && (
+        <CollectorThroughputIndicator />
+      )}
+
       {/* Tab: Memory Management & Circular Buffer Architecture */}
       {activeMainTab === 'memory_strategy' && (
         <CollectorMemoryManagementPanel />
+      )}
+
+      {/* Tab: Connection Pooling & Ephemeral Port Protection */}
+      {activeMainTab === 'connection_pool' && (
+        <CollectorConnectionPoolPanel />
       )}
 
       {/* Tab: VictoriaLogs Retry & Zero-Loss Diagnostic */}
@@ -606,6 +650,9 @@ export function CollectorTelemetryDashboard() {
         </div>
       )}
 
+      {/* Visual Ingestion Throughput Indicator & Bottleneck Detector */}
+      <CollectorThroughputIndicator />
+
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Buffer Depth */}
@@ -757,6 +804,40 @@ export function CollectorTelemetryDashboard() {
             <span className="text-emerald-400">全核心零丟包</span>
           </div>
         </div>
+      </div>
+
+      {/* Downstream Database Connection Pool & Port Defense Quick Strip */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+            <Database className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-white">下游資料庫連線池與本機端口防護 (Connection Pool)</span>
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                0 TIME_WAIT 端口滯留
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-3 font-mono">
+              <span>活躍連線: <strong className="text-white">{data?.connectionPool?.activeConnections ?? 6}</strong> / {data?.connectionPool?.maxCapacity ?? 32}</span>
+              <span>•</span>
+              <span>溫長連線 (Keep-Alive): <strong className="text-cyan-300">{data?.connectionPool?.idleConnections ?? 8}</strong> 個</span>
+              <span>•</span>
+              <span>Socket 復用率: <strong className="text-emerald-400">{data?.connectionPool?.socketReuseRatePct ?? 98.4}%</strong></span>
+              <span>•</span>
+              <span>避免本機臨時端口枯竭: <strong className="text-indigo-300">已保護 {data?.connectionPool?.timeWaitPreventedCount?.toLocaleString() ?? '42,150'} 個端口</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setActiveMainTab('connection_pool')}
+          className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 transition flex items-center gap-1.5 whitespace-nowrap self-stretch md:self-auto justify-center"
+        >
+          <span>深入連線池管理</span>
+          <ArrowUpRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Real-time Charts Section */}

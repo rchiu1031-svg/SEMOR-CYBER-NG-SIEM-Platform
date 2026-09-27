@@ -25,6 +25,9 @@ import { createSoarRouter } from './server/soarRouter';
 import { createCasesRouter } from './server/casesRouter';
 import { createApmRouter } from './server/apmRouter';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager';
+import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor';
+import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker';
+import { globalCollectorConnectionPool } from './server/collectorConnectionPool';
 
 dotenv.config();
 
@@ -1194,7 +1197,8 @@ async function startServer() {
         },
         points: ingestionHistoryPoints
       },
-      recentRetryLogs: vlogsRetryState.recentRetryLogs.slice(0, 35)
+      recentRetryLogs: vlogsRetryState.recentRetryLogs.slice(0, 35),
+      healthMonitor: globalVictoriaLogsHealthMonitor.getMetrics()
     };
   }
 
@@ -1292,6 +1296,74 @@ async function startServer() {
   // Initial immediate probe on collector startup
   setTimeout(runCollectorHeartbeatProbe, 1200);
 
+  // --- Proactive VictoriaLogs Health Monitor Integration ---
+  const vlogsBaseUrl = engineConfig.victorialogs?.url || 'http://localhost:9428';
+  globalVictoriaLogsHealthMonitor.updateConfig({
+    endpoint: `${vlogsBaseUrl.replace(/\/$/, '')}/health`
+  });
+
+  async function drainVlogsQueueNow() {
+    if (vlogsRetryState.retryQueue.length === 0 || vlogsRetryState.simulatedOutage || globalVictoriaLogsHealthMonitor.isBufferOnlyMode()) {
+      return;
+    }
+
+    const vlogsUrl = engineConfig.victorialogs?.url || 'http://localhost:9428';
+    const targetEndpoint = `${vlogsUrl.replace(/\/$/, '')}/insert/jsonline`;
+
+    while (vlogsRetryState.retryQueue.length > 0 && !vlogsRetryState.simulatedOutage && !globalVictoriaLogsHealthMonitor.isBufferOnlyMode()) {
+      const batch = vlogsRetryState.retryQueue[0];
+      try {
+        const response = await axios.post(targetEndpoint, batch.payload, {
+          headers: {
+            'Content-Type': 'application/stream+json; charset=utf-8',
+            'AccountID': engineConfig.victorialogs?.accountId || '0',
+            'ProjectID': engineConfig.victorialogs?.projectId || '0'
+          },
+          timeout: 4000
+        });
+
+        if (response.status >= 200 && response.status < 300) {
+          vlogsRetryState.retryQueue.shift();
+          vlogsRetryState.queueDrainedSuccess++;
+          vlogsRetryState.successfulRequests++;
+          vlogsRetryState.isTargetReachable = true;
+          vlogsRetryState.lastSuccessTime = new Date().toISOString();
+          logRetryEvent('info', `[連線復原自動排空] 成功補發 ${batch.logCount} 筆離線日誌至 VictoriaLogs (剩餘待排空: ${vlogsRetryState.retryQueue.length})`);
+          broadcastVlogsRetryStats({ type: 'queue_drained', batchId: batch.id });
+        } else {
+          break;
+        }
+      } catch (e: any) {
+        batch.attempts++;
+        batch.lastAttemptAt = Date.now();
+        batch.lastError = e.message;
+        vlogsRetryState.isTargetReachable = false;
+        broadcastVlogsRetryStats({ type: 'queue_drain_failed', error: e.message });
+        break;
+      }
+    }
+  }
+
+  globalVictoriaLogsHealthMonitor.setCallbacks({
+    onOutage: (reason) => {
+      vlogsRetryState.isTargetReachable = false;
+      logRetryEvent('error', `[主動健康監控] VictoriaLogs 端點異常 (${reason})！收集器已主動切換至「純緩衝模式 (BUFFER-ONLY MODE)」，保護下游連線免於阻塞`);
+      broadcastVlogsRetryStats({ type: 'vlogs_outage_flagged', reason, mode: 'buffer_only' });
+    },
+    onRecovery: () => {
+      vlogsRetryState.isTargetReachable = true;
+      vlogsRetryState.lastSuccessTime = new Date().toISOString();
+      logRetryEvent('info', `[主動健康監控] VictoriaLogs 端點連線已恢復正常！收集器切換回「線上串流模式 (NORMAL MODE)」，立即啟動離線暫存佇列排空`);
+      broadcastVlogsRetryStats({ type: 'vlogs_connection_restored', mode: 'normal' });
+      drainVlogsQueueNow();
+    },
+    onProbeCompleted: (result, metrics) => {
+      if (result.status !== 'healthy' || metrics.outageFlagged) {
+        broadcastVlogsRetryStats({ type: 'vlogs_probe_completed', probe: result, monitor: metrics });
+      }
+    }
+  });
+
   function calculateBackoffDelay(attempt: number): number {
     const base = Math.min(
       vlogsRetryState.maxIntervalMs,
@@ -1311,8 +1383,45 @@ async function startServer() {
     payload: string, 
     logCount: number, 
     labels: Record<string, string> = {}
-  ): Promise<{ success: boolean; attempts: number; error?: string; queued?: boolean; backoffDelays: number[] }> {
+  ): Promise<{ success: boolean; attempts: number; error?: string; queued?: boolean; mode?: string; backoffDelays: number[] }> {
     vlogsRetryState.totalPostRequests++;
+
+    // Proactive Outage / Buffer-Only Mode Protection:
+    // If the periodic health monitor detected an outage, do NOT burn sockets or stall in backoff retries!
+    // Directly enqueue the batch into the retry protection queue and circular buffer.
+    if (globalVictoriaLogsHealthMonitor.isBufferOnlyMode()) {
+      vlogsRetryState.queuedDueToOutage++;
+      const queuedBatch: QueuedVlogsBatch = {
+        id: `vlog-q-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        payload,
+        logCount,
+        labels,
+        attempts: 0,
+        createdAt: Date.now(),
+        lastAttemptAt: Date.now(),
+        lastError: `主動健康監控保護中: ${globalVictoriaLogsHealthMonitor.getMetrics().outageReason || 'VictoriaLogs 端點離線'}`
+      };
+
+      if (vlogsRetryState.retryQueue.length >= vlogsRetryState.queueCapacity) {
+        vlogsRetryState.retryQueue.shift();
+      }
+      vlogsRetryState.retryQueue.push(queuedBatch);
+
+      logRetryEvent(
+        'warn',
+        `[純緩衝保護模式] VictoriaLogs 端點目前不可用，主動健康監控已將 ${logCount} 筆日誌直接存入保護佇列 (無重試阻塞, 佇列深度: ${vlogsRetryState.retryQueue.length})`
+      );
+
+      return {
+        success: false,
+        attempts: 0,
+        error: 'VictoriaLogs 端點離線 (主動健康監控已切換純緩衝模式)',
+        queued: true,
+        mode: 'buffer_only',
+        backoffDelays: []
+      };
+    }
+
     const vlogsUrl = engineConfig.victorialogs?.url || 'http://localhost:9428';
     const targetEndpoint = `${vlogsUrl.replace(/\/$/, '')}/insert/jsonline`;
     const backoffDelays: number[] = [];
@@ -1347,7 +1456,8 @@ async function startServer() {
       }
 
       try {
-        const response = await axios.post(targetEndpoint, payload, {
+        const pooledClient = globalCollectorConnectionPool.getAxiosClient();
+        const response = await pooledClient.post(targetEndpoint, payload, {
           headers: {
             'Content-Type': 'application/stream+json; charset=utf-8',
             'AccountID': engineConfig.victorialogs?.accountId || '0',
@@ -1526,9 +1636,12 @@ async function startServer() {
     if (failureCode) {
       vlogsRetryState.simulatedFailureCode = Number(failureCode);
     }
+    // Sync simulated outage with proactive health monitor
+    globalVictoriaLogsHealthMonitor.setSimulatedOutage(vlogsRetryState.simulatedOutage, vlogsRetryState.simulatedFailureCode);
+
     logRetryEvent(
       vlogsRetryState.simulatedOutage ? 'warn' : 'info',
-      `[模擬控制] VictoriaLogs 暫時性故障模擬狀態已切換為: ${vlogsRetryState.simulatedOutage ? '開啟 (模擬 ' + vlogsRetryState.simulatedFailureCode + ' 斷線)' : '關閉 (正常連線)'}`
+      `[模擬控制] VictoriaLogs 暫時性故障模擬狀態已切換為: ${vlogsRetryState.simulatedOutage ? '開啟 (模擬 ' + vlogsRetryState.simulatedFailureCode + ' 斷線, 主動切換純緩衝模式)' : '關閉 (正常連線, 自動排空佇列)'}`
     );
     broadcastVlogsRetryStats({ type: 'simulated_outage_toggled' });
 
@@ -1727,6 +1840,8 @@ async function startServer() {
         droppedEvents: 0
       },
       memoryManagement: globalCollectorMemoryManager.getMetrics(),
+      throughputSummary: globalCollectorThroughputTracker.getHistorySummary(60).summary,
+      connectionPool: globalCollectorConnectionPool.getMetrics(),
       workerPool: {
         totalWorkers: totalWorkers,
         activeWorkers: activeWorkers,
@@ -2820,6 +2935,15 @@ async function startServer() {
       source: meta.source || host,
       stream
     });
+
+    // Record in Hourly Throughput & Bottleneck Tracker
+    globalCollectorThroughputTracker.recordIngest(
+      1,
+      Buffer.byteLength(raw, 'utf8'),
+      protocol,
+      globalCollectorMemoryManager.getMetrics().currentDepth,
+      50
+    );
 
     runtimeLogCorpus.unshift(record);
     if (runtimeLogCorpus.length > 2500) {

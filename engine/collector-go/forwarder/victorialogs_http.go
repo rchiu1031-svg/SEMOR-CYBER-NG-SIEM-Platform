@@ -86,6 +86,14 @@ type VictoriaLogsHTTPForwarder struct {
 	currentBackoffMs   int64
 	isTargetReachable  bool
 	circuitBreakerOpen bool
+
+	// 主動健康檢查與純緩衝模式 (Proactive Health Check & Buffer-Only Mode)
+	operatingMode        string // "normal" | "buffer_only"
+	healthCheckURL       string
+	consecutiveFailures  int
+	consecutiveSuccesses int
+	outageReason         string
+	healthCheckInterval  time.Duration
 }
 
 func NewVictoriaLogsHTTPForwarder(cfg *config.Config, retryCfg RetryConfig) *VictoriaLogsHTTPForwarder {
@@ -95,6 +103,12 @@ func NewVictoriaLogsHTTPForwarder(cfg *config.Config, retryCfg RetryConfig) *Vic
 	}
 	if !strings.HasSuffix(targetURL, "/insert/jsonline") && !strings.Contains(targetURL, "/insert/") {
 		targetURL = strings.TrimRight(targetURL, "/") + "/insert/jsonline"
+	}
+
+	// 根據 targetURL 衍生主動健康檢查端點 (例如 http://localhost:9428/health)
+	healthURL := strings.Replace(targetURL, "/insert/jsonline", "/health", 1)
+	if healthURL == targetURL {
+		healthURL = strings.TrimRight(targetURL, "/") + "/health"
 	}
 
 	transport := &http.Transport{
@@ -112,21 +126,25 @@ func NewVictoriaLogsHTTPForwarder(cfg *config.Config, retryCfg RetryConfig) *Vic
 	ctx, cancel := context.WithCancel(context.Background())
 
 	fwd := &VictoriaLogsHTTPForwarder{
-		cfg:               cfg,
-		retryCfg:          retryCfg,
-		httpClient:        &http.Client{Transport: transport, Timeout: 10 * time.Second},
-		targetURL:         targetURL,
-		accountID:         cfg.VictoriaLogsAccountID,
-		projectID:         cfg.VictoriaLogsProjectID,
-		retryQueue:        make(chan QueuedBatch, retryCfg.QueueCapacity),
-		ctx:               ctx,
-		cancel:            cancel,
-		isTargetReachable: true,
+		cfg:                 cfg,
+		retryCfg:            retryCfg,
+		httpClient:          &http.Client{Transport: transport, Timeout: 10 * time.Second},
+		targetURL:           targetURL,
+		healthCheckURL:      healthURL,
+		operatingMode:       "normal",
+		healthCheckInterval: 5 * time.Second,
+		accountID:           cfg.VictoriaLogsAccountID,
+		projectID:           cfg.VictoriaLogsProjectID,
+		retryQueue:          make(chan QueuedBatch, retryCfg.QueueCapacity),
+		ctx:                 ctx,
+		cancel:              cancel,
+		isTargetReachable:   true,
 	}
 
 	// 啟動背景離線重試佇列排空處理協程 (Draining Worker)
-	fwd.wg.Add(1)
+	fwd.wg.Add(2)
 	go fwd.startRetryQueueWorker()
+	go fwd.startHealthCheckMonitor()
 
 	return fwd
 }
@@ -188,6 +206,18 @@ func (f *VictoriaLogsHTTPForwarder) PostVictoriaBlock(block *pipeline.VictoriaBl
 // 依據 Exponential Backoff with Jitter 逐次延遲重試，防止突發斷線遺失數據
 func (f *VictoriaLogsHTTPForwarder) postWithExponentialBackoff(payload []byte, logCount int, labels map[string]string) error {
 	atomic.AddUint64(&f.totalPostRequests, 1)
+
+	// 主動健康檢查純緩衝模式判斷：若端點已知離線，直接轉存佇列，避免無謂 HTTP 重試阻塞！
+	f.mu.RLock()
+	isBufferOnly := f.operatingMode == "buffer_only"
+	outageReason := f.outageReason
+	f.mu.RUnlock()
+
+	if isBufferOnly {
+		atomic.AddUint64(&f.queuedDueToOutage, 1)
+		f.enqueueOfflineBatch(payload, logCount, labels, 0)
+		return fmt.Errorf("主動健康監控生效: VictoriaLogs 端點離線 (%s)，已切換純緩衝模式直接入列保護", outageReason)
+	}
 
 	var lastErr error
 	var attempt int
@@ -434,9 +464,76 @@ func (f *VictoriaLogsHTTPForwarder) drainRetryQueue() {
 	}
 }
 
+// startHealthCheckMonitor 週期性健康檢查守護協程：主動探測 VictoriaLogs 端點狀態
+func (f *VictoriaLogsHTTPForwarder) startHealthCheckMonitor() {
+	defer f.wg.Done()
+	ticker := time.NewTicker(f.healthCheckInterval)
+	defer ticker.Stop()
+
+	// 立即執行首次探測
+	f.probeEndpoint()
+
+	for {
+		select {
+		case <-f.ctx.Done():
+			return
+		case <-ticker.C:
+			f.probeEndpoint()
+		}
+	}
+}
+
+func (f *VictoriaLogsHTTPForwarder) probeEndpoint() {
+	req, err := http.NewRequestWithContext(f.ctx, http.MethodGet, f.healthCheckURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", "SEMOR-VictoriaLogs-ProactiveHealthMonitor/2.5")
+
+	resp, err := f.httpClient.Do(req)
+	isHealthy := err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400
+	if resp != nil {
+		resp.Body.Close()
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if isHealthy {
+		f.consecutiveSuccesses++
+		f.consecutiveFailures = 0
+		f.isTargetReachable = true
+		f.lastSuccessTime = time.Now()
+
+		if f.operatingMode == "buffer_only" && f.consecutiveSuccesses >= 2 {
+			f.operatingMode = "normal"
+			fmt.Printf("[VictoriaLogs 主動健康監控] 端點連線已恢復 (連續健康檢查通過)！收集器切換回正常串流模式 (NORMAL)，排空離線重試佇列...\n")
+			go f.drainRetryQueue()
+		}
+	} else {
+		f.consecutiveFailures++
+		f.consecutiveSuccesses = 0
+		f.isTargetReachable = false
+		if err != nil {
+			f.outageReason = err.Error()
+		} else {
+			f.outageReason = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		}
+		f.lastError = f.outageReason
+		f.lastErrorTime = time.Now()
+
+		if f.operatingMode == "normal" && f.consecutiveFailures >= 2 {
+			f.operatingMode = "buffer_only"
+			fmt.Printf("[VictoriaLogs 主動健康監控] 警報: 偵測到 VictoriaLogs 端點故障 (%s)！收集器主動切換至「純緩衝模式 (BUFFER-ONLY MODE)」，保護日誌進線免於阻塞。\n", f.outageReason)
+		}
+	}
+}
+
 // RetryTelemetryStats 輸出退避重試與佇列保護遙測指標
 type RetryTelemetryStats struct {
 	TargetURL           string    `json:"target_url"`
+	OperatingMode       string    `json:"operating_mode"`
+	OutageReason        string    `json:"outage_reason,omitempty"`
 	IsReachable         bool      `json:"is_reachable"`
 	TotalPostRequests   uint64    `json:"total_post_requests"`
 	SuccessfulRequests  uint64    `json:"successful_requests"`
@@ -460,6 +557,8 @@ func (f *VictoriaLogsHTTPForwarder) Telemetry() RetryTelemetryStats {
 
 	return RetryTelemetryStats{
 		TargetURL:           f.targetURL,
+		OperatingMode:       f.operatingMode,
+		OutageReason:        f.outageReason,
 		IsReachable:         f.isTargetReachable,
 		TotalPostRequests:   atomic.LoadUint64(&f.totalPostRequests),
 		SuccessfulRequests:  atomic.LoadUint64(&f.successfulRequests),

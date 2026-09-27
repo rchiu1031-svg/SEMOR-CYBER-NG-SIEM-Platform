@@ -27,7 +27,9 @@ import {
   HeartPulse,
   Gauge,
   BarChart3,
-  TrendingDown
+  TrendingDown,
+  ShieldAlert,
+  Sliders
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -41,9 +43,45 @@ import {
   Legend
 } from 'recharts';
 
+export interface HealthMonitorData {
+  mode: 'normal' | 'buffer_only';
+  outageFlagged: boolean;
+  outageReason: string;
+  outageStartedAt: string | null;
+  outageDurationSec: number;
+  restorationAt: string | null;
+  consecutiveFailures: number;
+  consecutiveSuccesses: number;
+  totalProbes: number;
+  successfulProbes: number;
+  failedProbes: number;
+  lastProbeTime: string;
+  lastProbeLatencyMs: number;
+  lastProbeStatus: 'healthy' | 'unhealthy' | 'timeout' | 'simulated_outage';
+  lastProbeMessage: string;
+  config: {
+    endpoint: string;
+    intervalMs: number;
+    timeoutMs: number;
+    failureThreshold: number;
+    recoveryThreshold: number;
+    enabled: boolean;
+    manualOverride: 'auto' | 'force_buffer_only' | 'force_normal';
+  };
+  recentProbes: Array<{
+    timestamp: string;
+    status: string;
+    statusCode?: number;
+    latencyMs: number;
+    message: string;
+    mode: string;
+  }>;
+}
+
 interface RetryStatsResponse {
   success: boolean;
   targetURL: string;
+  healthMonitor?: HealthMonitorData;
   config: {
     initialIntervalMs: number;
     maxIntervalMs: number;
@@ -139,6 +177,67 @@ export function VictoriaLogsRetryMonitorView() {
   const [wsLatencyMs, setWsLatencyMs] = useState<number | null>(null);
   const [logFilter, setLogFilter] = useState<'all' | 'error' | 'warn' | 'heartbeat' | 'info'>('all');
   const [isTriggeringHeartbeat, setIsTriggeringHeartbeat] = useState(false);
+  const [isProbingNow, setIsProbingNow] = useState(false);
+  const [isTogglingMode, setIsTogglingMode] = useState(false);
+  const [showMonitorSettings, setShowMonitorSettings] = useState(false);
+  const [monitorConfigInput, setMonitorConfigInput] = useState({
+    intervalMs: 5000,
+    failureThreshold: 2,
+    recoveryThreshold: 2
+  });
+
+  const hm = data?.healthMonitor;
+
+  const handleProbeNow = async () => {
+    setIsProbingNow(true);
+    try {
+      const res = await fetch('/api/engine/collector/vlogs-health-monitor/probe', { method: 'POST' });
+      const json = await res.json();
+      if (json.metrics && isMountedRef.current) {
+        setData(prev => prev ? { ...prev, healthMonitor: json.metrics } : null);
+      }
+    } catch (e) {
+      console.error('Failed to trigger manual probe:', e);
+    } finally {
+      setIsProbingNow(false);
+    }
+  };
+
+  const handleToggleBufferOnly = async () => {
+    setIsTogglingMode(true);
+    try {
+      const res = await fetch('/api/engine/collector/vlogs-health-monitor/toggle-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const json = await res.json();
+      if (json.metrics && isMountedRef.current) {
+        setData(prev => prev ? { ...prev, healthMonitor: json.metrics } : null);
+      }
+    } catch (e) {
+      console.error('Failed to toggle buffer mode:', e);
+    } finally {
+      setIsTogglingMode(false);
+    }
+  };
+
+  const handleSaveMonitorConfig = async () => {
+    try {
+      const res = await fetch('/api/engine/collector/vlogs-health-monitor/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(monitorConfigInput)
+      });
+      const json = await res.json();
+      if (json.metrics && isMountedRef.current) {
+        setData(prev => prev ? { ...prev, healthMonitor: json.metrics } : null);
+      }
+      setShowMonitorSettings(false);
+    } catch (e) {
+      console.error('Failed to update monitor config:', e);
+    }
+  };
 
   // 60-Minute Log Ingestion Volume Line Chart controls
   const [chartMetricMode, setChartMetricMode] = useState<'volume' | 'eps' | 'dual'>('volume');
@@ -801,6 +900,193 @@ export function VictoriaLogsRetryMonitorView() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Proactive Health Check Monitor & Buffer-Only Mode Control Banner */}
+      <div className={`rounded-xl border p-4 transition-all duration-300 shadow-md ${
+        hm?.mode === 'buffer_only'
+          ? 'bg-gradient-to-r from-rose-950/70 via-slate-900 to-amber-950/50 border-rose-500/60 shadow-rose-950/40'
+          : 'bg-gradient-to-r from-slate-900 via-emerald-950/30 to-slate-900 border-emerald-500/40'
+      }`}>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className={`p-2.5 rounded-xl border mt-0.5 ${
+              hm?.mode === 'buffer_only'
+                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse'
+                : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+            }`}>
+              {hm?.mode === 'buffer_only' ? (
+                <ShieldAlert className="w-6 h-6 text-rose-400" />
+              ) : (
+                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+              )}
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
+                  VictoriaLogs 端點主動健康監控與模式控制 (Proactive Health Check Monitor)
+                </span>
+                
+                {/* Mode Badge */}
+                <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded border uppercase flex items-center gap-1 ${
+                  hm?.mode === 'buffer_only'
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${hm?.mode === 'buffer_only' ? 'bg-rose-400 animate-ping' : 'bg-emerald-400'}`} />
+                  運行模式: {hm?.mode === 'buffer_only' ? '純緩衝模式 (BUFFER-ONLY MODE)' : '線上即時串流 (ONLINE STREAMING)'}
+                </span>
+
+                {/* Override Flag */}
+                {hm?.config?.manualOverride !== 'auto' && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    管理員手動覆寫中 ({hm?.config?.manualOverride})
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-300 mt-1 max-w-4xl leading-relaxed">
+                {hm?.mode === 'buffer_only' ? (
+                  <>
+                    <strong className="text-rose-300 font-semibold">⚠️ 觸發離線保護：</strong>
+                    端點探針偵測到 VictoriaLogs 服務中斷（<code className="text-rose-200 bg-rose-950/60 px-1 py-0.5 rounded font-mono">{hm.outageReason || '端點連線異常'}</code>）。
+                    收集器已全面切換至純緩衝模式，<strong>停止一切下游 HTTP 發送與重試超時等待</strong>，以杜絕連線阻塞與 CPU 耗竭；所有進線日誌安全寫入環形緩衝區與防遺失佇列。
+                    已持續保護: <span className="text-amber-300 font-mono font-bold">{hm.outageDurationSec} 秒</span>。
+                    端點連續通過 <span className="text-cyan-300 font-mono font-bold">{hm.config?.recoveryThreshold || 2} 次</span> 健康檢查後將自動切換回線上模式並排空佇列（目前通過: {hm.consecutiveSuccesses}/{hm.config?.recoveryThreshold || 2}）。
+                  </>
+                ) : (
+                  <>
+                    <strong className="text-emerald-300 font-semibold">✓ 監控狀態正常：</strong>
+                    週期性探針以每 <span className="text-white font-mono font-bold">{hm?.config?.intervalMs ? hm.config.intervalMs / 1000 : 5} 秒</span> 頻率主動檢測端點健康。
+                    最近一次探測於 <span className="text-slate-200 font-mono">{hm?.lastProbeTime ? new Date(hm.lastProbeTime).toLocaleTimeString() : '---'}</span> 完成，
+                    延遲 <span className="text-emerald-300 font-mono font-bold">{hm?.lastProbeLatencyMs || 0}ms</span>，累計通過 <span className="text-cyan-300 font-mono font-bold">{hm?.consecutiveSuccesses || 0} 次</span> 連續探測。
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Control Actions */}
+          <div className="flex flex-wrap items-center gap-2 self-start lg:self-center shrink-0">
+            <button
+              onClick={handleProbeNow}
+              disabled={isProbingNow}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+              title="立即對 VictoriaLogs /health 發起一次主動 HTTP 健康檢查"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isProbingNow ? 'animate-spin' : ''}`} />
+              {isProbingNow ? '探測中...' : '立即主動探測'}
+            </button>
+
+            <button
+              onClick={handleToggleBufferOnly}
+              disabled={isTogglingMode}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 shadow-sm ${
+                hm?.mode === 'buffer_only'
+                  ? 'bg-emerald-950/80 hover:bg-emerald-900 border-emerald-500/50 text-emerald-300'
+                  : 'bg-amber-950/80 hover:bg-amber-900 border-amber-500/50 text-amber-300'
+              } disabled:opacity-50`}
+              title="強制切換收集器運作模式"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              {hm?.mode === 'buffer_only' ? '切換為自動/正常模式' : '手動切換至純緩衝模式'}
+            </button>
+
+            <button
+              onClick={() => setShowMonitorSettings(!showMonitorSettings)}
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              title="調校健康探針週期與失敗門檻"
+            >
+              <Sliders className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable Monitor Settings */}
+        {showMonitorSettings && (
+          <div className="mt-4 pt-3 border-t border-slate-800/80 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs bg-slate-950/60 p-3 rounded-lg">
+            <div>
+              <label className="text-slate-400 block mb-1">主動探測週期 (Probe Interval):</label>
+              <select
+                value={monitorConfigInput.intervalMs}
+                onChange={(e) => setMonitorConfigInput({ ...monitorConfigInput, intervalMs: Number(e.target.value) })}
+                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs"
+              >
+                <option value={2000}>2 秒 (高頻敏感)</option>
+                <option value={5000}>5 秒 (標準推薦)</option>
+                <option value={10000}>10 秒</option>
+                <option value={30000}>30 秒</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-slate-400 block mb-1">斷線判定門檻 (Failure Threshold):</label>
+              <select
+                value={monitorConfigInput.failureThreshold}
+                onChange={(e) => setMonitorConfigInput({ ...monitorConfigInput, failureThreshold: Number(e.target.value) })}
+                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs"
+              >
+                <option value={1}>連續 1 次失敗 (立即切換純緩衝)</option>
+                <option value={2}>連續 2 次失敗 (防突發抖動)</option>
+                <option value={3}>連續 3 次失敗</option>
+                <option value={5}>連續 5 次失敗</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-slate-400 block mb-1">連線復原門檻 (Recovery Threshold):</label>
+              <select
+                value={monitorConfigInput.recoveryThreshold}
+                onChange={(e) => setMonitorConfigInput({ ...monitorConfigInput, recoveryThreshold: Number(e.target.value) })}
+                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-slate-200 font-mono text-xs"
+              >
+                <option value={1}>連續 1 次成功 (快速復原)</option>
+                <option value={2}>連續 2 次成功 (穩定復原)</option>
+                <option value={3}>連續 3 次成功</option>
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={handleSaveMonitorConfig}
+                className="w-full py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-bold transition text-xs shadow-sm"
+              >
+                套用門檻設定
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Recent Probes History Tape */}
+        {hm?.recentProbes && hm.recentProbes.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-slate-800/60 flex items-center gap-2 overflow-x-auto text-[11px] font-mono py-1">
+            <span className="text-slate-500 shrink-0 font-sans text-xs flex items-center gap-1">
+              <HeartPulse className="w-3.5 h-3.5 text-cyan-400" />
+              探針足跡:
+            </span>
+            {hm.recentProbes.slice(0, 8).map((p, idx) => (
+              <div
+                key={idx}
+                className={`px-2 py-0.5 rounded border shrink-0 flex items-center gap-1 ${
+                  p.status === 'healthy'
+                    ? 'bg-emerald-950/50 border-emerald-500/30 text-emerald-300'
+                    : p.status === 'simulated_outage'
+                    ? 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                    : 'bg-amber-950/50 border-amber-500/30 text-amber-300'
+                }`}
+                title={`${new Date(p.timestamp).toLocaleTimeString()}: ${p.message}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  p.status === 'healthy' ? 'bg-emerald-400' : 'bg-rose-400'
+                }`} />
+                <span>{new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                <span className="text-[10px] text-slate-400">({p.latencyMs}ms)</span>
+                <span className="font-bold">{p.statusCode ? `HTTP ${p.statusCode}` : p.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 4 Metric Cards with Real-time Live Counters */}
