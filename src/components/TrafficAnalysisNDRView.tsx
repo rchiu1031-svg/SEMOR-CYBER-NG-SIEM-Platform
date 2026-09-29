@@ -7,8 +7,9 @@ import {
   RefreshCw, Cpu, HardDrive, Database, Globe, Layers, Eye, FileText, Code, 
   Upload, Sliders, Zap, Server, Lock, Unlock, Radio, Crosshair, AlertCircle,
   FileCode, ExternalLink, HelpCircle, Bookmark, Sparkles, Check, X, Copy,
-  Wifi, BarChart2, TrendingUp, Info, FileSpreadsheet
+  Wifi, BarChart2, TrendingUp, Info, FileSpreadsheet, Flame
 } from 'lucide-react';
+import NDRTrafficHeatmap24h from './NDRTrafficHeatmap24h';
 import { 
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, 
   Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend
@@ -413,7 +414,7 @@ export default function TrafficAnalysisNDRView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation Subtabs
-  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'topology' | 'bandwidth' | 'replay'>('forensics');
+  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'topology' | 'bandwidth' | 'heatmap' | 'replay'>('forensics');
   
   // Forensics states
   const [pcapFilterQuery, setPcapFilterQuery] = useState('');
@@ -878,6 +879,7 @@ export default function TrafficAnalysisNDRView() {
             { id: 'forensics', label: isZh ? '🔬 封包鑑識與 PCAP 串流' : 'PCAP Forensics', icon: FileCode },
             { id: 'suricata', label: isZh ? '🛡️ Suricata IDS & 威脅檢測' : 'Suricata IDS & Zeek', icon: Shield },
             { id: 'topology', label: isZh ? '🌐 即時連線流量拓撲' : 'Traffic Topology', icon: Network },
+            { id: 'heatmap', label: isZh ? '🔥 24H 流量熱力圖 (D3.js)' : '24h D3 Heatmap', icon: Flame },
             { id: 'bandwidth', label: isZh ? '📈 頻寬趨勢與 Top Talkers' : 'Bandwidth & Top Talkers', icon: BarChart2 },
             { id: 'replay', label: isZh ? '🧪 PCAP 重放與沙盒測試' : 'PCAP Replay & Simulator', icon: Radio }
           ].map(tab => {
@@ -1530,9 +1532,17 @@ export default function TrafficAnalysisNDRView() {
         <TrafficD3Topology sessions={liveSessions} isZh={isZh} showToast={showToast} onCaptureNode={handleCaptureNode} />
       )}
 
+      {/* SUBTAB 3.5: 🔥 24 小時流量時態熱力圖 (D3.JS 24-HOUR HEATMAP) */}
+      {activeTab === 'heatmap' && (
+        <NDRTrafficHeatmap24h isZh={isZh} showToast={showToast} onIsolateHost={handleBlockIp} />
+      )}
+
       {/* SUBTAB 4: 📈 頻寬趨勢與 TOP TALKERS 分析 (BANDWIDTH) */}
       {activeTab === 'bandwidth' && (
         <div className="flex flex-col gap-6">
+          {/* 24-Hour D3.js Heatmap for Peak Periods & Anomaly Flow Clusters */}
+          <NDRTrafficHeatmap24h isZh={isZh} showToast={showToast} onIsolateHost={handleBlockIp} />
+
           {/* Bandwidth Area Chart */}
           <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-5 shadow-2xl">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-800">

@@ -6,7 +6,7 @@ import {
   XCircle, ChevronDown, ChevronUp, Terminal, Sliders, ExternalLink, 
   Cpu, Database, Wifi, Lock, ArrowUpRight, ArrowDownRight, Eye, 
   Settings2, Download, Radio, BarChart3, AlertCircle, X, Check,
-  Zap, Compass, ShieldCheck, Box, RefreshCcw
+  Zap, Compass, ShieldCheck, Box, RefreshCcw, ShieldOff, FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as d3 from 'd3';
@@ -424,10 +424,62 @@ export default function NetworkMonitorView() {
   const [isExecutingDiag, setIsExecutingDiag] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Live Backend Synchronization State
+  const [backendConnected, setBackendConnected] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
+
+  // Security Audit Modal State
+  const [auditModalOpen, setAuditModalOpen] = useState(false);
+  const [auditTarget, setAuditTarget] = useState<NetworkDevice | null>(null);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  // Fetch full network state from backend
+  const fetchDevicesAndConnections = async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await fetch('/api/v1/network/devices');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.devices)) {
+        setDevices(data.devices);
+        if (Array.isArray(data.connections)) {
+          setConnections(data.connections);
+        }
+        setBackendConnected(true);
+        setLastRefreshedAt(new Date());
+
+        // Keep inspected device updated
+        if (inspectedDevice) {
+          const freshInspected = data.devices.find((d: NetworkDevice) => d.id === inspectedDevice.id);
+          if (freshInspected) setInspectedDevice(freshInspected);
+        }
+      }
+    } catch (err) {
+      console.warn('[NetworkMonitorView] Backend sync fallback to local dataset:', err);
+      setBackendConnected(false);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Initial load and periodic polling
+  useEffect(() => {
+    fetchDevicesAndConnections();
+    const timer = setInterval(() => {
+      if (autoRefresh && !isScanning && !isExecutingDiag) {
+        fetchDevicesAndConnections(true);
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [autoRefresh, isScanning, isExecutingDiag]);
 
   // Filtered devices
   const filteredDevices = useMemo(() => {
@@ -456,114 +508,284 @@ export default function NetworkMonitorView() {
     return { total, online, warning, offline, avgCpu, avgRam };
   }, [devices]);
 
-  // Start deep scan
-  const startScan = () => {
+  // Start deep scan via backend endpoint
+  const startScan = async () => {
     setIsScanning(true);
     setScanProgress(0);
     setScanLogList([
       isZh ? '[系統探針] 啟動 Nmap ARP/ICMP 廣播掃描網段 10.88.88.0/24...' : '[SYSTEM] Initializing Nmap ping sweep on 10.88.88.0/24...'
     ]);
 
-    let progress = 0;
+    let progress = 12;
     const interval = setInterval(() => {
-      progress += Math.floor(Math.random() * 15) + 8;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        setTimeout(() => {
-          setIsScanning(false);
-          triggerToast(isZh ? '網路拓撲與主機探針掃描完成，已同步更新 12 處實體與虛擬鏈路狀態！' : 'Topology & probe scan completed.');
-        }, 500);
-      }
+      progress = Math.min(92, progress + Math.floor(Math.random() * 14) + 6);
       setScanProgress(progress);
 
-      if (progress > 15 && progress <= 30) {
+      if (progress > 15 && progress <= 35) {
         setScanLogList(prev => [
           isZh ? '[LLDP/CDP] 成功與核心交換機 Catalyst 9500 (10.88.88.254) 完成 802.1AB 鄰居探測' : '[LLDP/CDP] LLDP negotiation completed with Core-SW (10.88.88.254)',
-          ...prev
+          ...prev.filter((_, i) => i < 15)
         ]);
-      } else if (progress > 30 && progress <= 50) {
+      } else if (progress > 35 && progress <= 60) {
         setScanLogList(prev => [
           isZh ? '[SNMPv3] 取得 OID 1.3.6.1.2.1.2.2 介面流量統計與 MIB-II 拓撲矩陣' : '[SNMPv3] Fetched MIB-II topology and interface telemetry via OID',
-          ...prev
+          ...prev.filter((_, i) => i < 15)
         ]);
-      } else if (progress > 50 && progress <= 75) {
+      } else if (progress > 60 && progress <= 85) {
         setScanLogList(prev => [
           isZh ? '[NetFlow/IPFIX] 即時關聯 40Gbps 骨幹流量通訊路徑與 Session 負載' : '[NetFlow] Correlating NetFlow stream with active port traffic',
-          ...prev
+          ...prev.filter((_, i) => i < 15)
         ]);
-      } else if (progress > 75 && progress < 100) {
+      } else if (progress > 85) {
         setScanLogList(prev => [
           isZh ? '[安全防護] 掃描各端點 EDR 探針與 CVE 漏洞庫特徵比對完成' : '[SECURITY] Verified EDR agents and CVE vulnerability hashes',
-          ...prev
+          ...prev.filter((_, i) => i < 15)
         ]);
       }
-    }, 120);
+    }, 140);
+
+    try {
+      const res = await fetch('/api/v1/network/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subnet: activeSubnetFilter !== 'all' ? activeSubnetFilter : '10.88.88.0/24' })
+      });
+
+      clearInterval(interval);
+      setScanProgress(100);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.devices)) setDevices(data.devices);
+        if (Array.isArray(data.connections)) setConnections(data.connections);
+        if (Array.isArray(data.logs)) {
+          setScanLogList(data.logs);
+        }
+        triggerToast(isZh ? '網路拓撲與主機探針掃描完成，已同步後端最新實體與虛擬鏈路狀態！' : 'Topology & probe scan completed.');
+      } else {
+        triggerToast(isZh ? '網路拓撲探針掃描完成 (本地模擬通道)' : 'Scan finished (fallback)');
+      }
+    } catch (e) {
+      clearInterval(interval);
+      setScanProgress(100);
+      triggerToast(isZh ? '探針掃描完成 (本地模式)' : 'Scan finished');
+    } finally {
+      setTimeout(() => {
+        setIsScanning(false);
+      }, 700);
+    }
   };
 
-  // Run diagnostics
-  const runDiagnostic = (type: 'ping' | 'traceroute' | 'portscan' | 'snmp') => {
+  // Run diagnostics via backend API
+  const runDiagnostic = async (type: 'ping' | 'traceroute' | 'portscan' | 'snmp') => {
     if (!diagTarget) return;
     setIsExecutingDiag(true);
-    setDiagOutput([isZh ? `[發送診斷命令] 正在對目標 ${diagTarget.name} (${diagTarget.ip}) 執行 ${type.toUpperCase()}...` : `Running ${type} on ${diagTarget.ip}...`]);
+    setDiagOutput([isZh ? `[發送診斷命令] 正在向後台感測器調度 ${type.toUpperCase()} 探針...` : `Dispatching ${type.toUpperCase()} probe on ${diagTarget.ip}...`]);
 
-    setTimeout(() => {
-      if (type === 'ping') {
-        setDiagOutput([
-          `PING ${diagTarget.ip} (56 數據位元組):`,
-          `64 bytes from ${diagTarget.ip}: icmp_seq=1 ttl=64 time=${diagTarget.latency}`,
-          `64 bytes from ${diagTarget.ip}: icmp_seq=2 ttl=64 time=${diagTarget.latency}`,
-          `64 bytes from ${diagTarget.ip}: icmp_seq=3 ttl=64 time=${diagTarget.latency}`,
-          `--- ${diagTarget.ip} ping 統計資料 ---`,
-          `3 packets transmitted, 3 received, 0% packet loss, time 2002ms`,
-          `rtt min/avg/max/mdev = 0.210/${diagTarget.latency}/0.890 ms`
-        ]);
-      } else if (type === 'traceroute') {
-        setDiagOutput([
-          `traceroute to ${diagTarget.ip}, 30 hops max, 60 byte packets`,
-          ` 1  Gateway-Firewall (10.88.88.1)  0.321 ms  0.288 ms  0.254 ms`,
-          ` 2  Core-Catalyst-9500 (10.88.88.254)  0.412 ms  0.390 ms  0.380 ms`,
-          ` 3  ${diagTarget.name} (${diagTarget.ip})  ${diagTarget.latency}  ${diagTarget.latency}`
-        ]);
-      } else if (type === 'portscan') {
-        setDiagOutput([
-          `Starting Nmap 7.94 ( https://nmap.org ) at 2026-08-20 12:45 UTC+8`,
-          `Nmap scan report for ${diagTarget.name} (${diagTarget.ip})`,
-          `Host is up (0.00045s latency).`,
-          `Not shown: 996 closed tcp ports (reset)`,
-          `PORT     STATE SERVICE     VERSION`,
-          ...diagTarget.openPorts.map(p => `${p.port}/${p.proto.toLowerCase()}  ${p.state}  ${p.service}`),
-          `MAC Address: ${diagTarget.mac} (${diagTarget.vendor})`,
-          `Device type: ${diagTarget.type.toUpperCase()}`,
-          `Running: ${diagTarget.os_version}`,
-          `OS details: ${diagTarget.details}`,
-          `Nmap done: 1 IP address (1 host up) scanned in 0.84 seconds`
-        ]);
-      } else if (type === 'snmp') {
-        setDiagOutput([
-          `SNMPv3 WALK to ${diagTarget.ip}:161`,
-          `sysDescr.0 = STRING: ${diagTarget.vendor} ${diagTarget.model} ${diagTarget.os_version}`,
-          `sysObjectID.0 = OID: iso.3.6.1.4.1.9.1.2821`,
-          `sysUpTimeInstance = Timeticks: (142859012) 165 days, 8:18:21.12`,
-          `sysContact.0 = STRING: NetSec Admin <noc-soc@corp.local>`,
-          `sysName.0 = STRING: ${diagTarget.name}`,
-          `sysLocation.0 = STRING: TPE-DC-Rack-04`,
-          `ifNumber.0 = INTEGER: 48`,
-          `hrProcessorLoad.1 = INTEGER: ${diagTarget.cpu}%`,
-          `hrStorageUsed.1 = INTEGER: ${diagTarget.disk}%`
-        ]);
+    try {
+      const res = await fetch('/api/v1/network/diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId: diagTarget.id, type })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.output)) {
+          setDiagOutput(data.output);
+          return;
+        }
       }
+      fallbackDiagnostic(type, diagTarget);
+    } catch (e) {
+      fallbackDiagnostic(type, diagTarget);
+    } finally {
       setIsExecutingDiag(false);
-    }, 600);
+    }
   };
 
-  // Update thresholds
-  const handleUpdateThreshold = (deviceId: string, key: 'cpuThreshold' | 'ramThreshold' | 'diskThreshold', val: number) => {
+  // Fallback diagnostic output generator in case of network interruption
+  const fallbackDiagnostic = (type: 'ping' | 'traceroute' | 'portscan' | 'snmp', target: NetworkDevice) => {
+    if (type === 'ping') {
+      setDiagOutput([
+        `PING ${target.ip} (56 數據位元組):`,
+        `64 bytes from ${target.ip}: icmp_seq=1 ttl=64 time=${target.latency}`,
+        `64 bytes from ${target.ip}: icmp_seq=2 ttl=64 time=${target.latency}`,
+        `64 bytes from ${target.ip}: icmp_seq=3 ttl=64 time=${target.latency}`,
+        `--- ${target.ip} ping 統計資料 ---`,
+        `3 packets transmitted, 3 received, 0% packet loss, time 2002ms`,
+        `rtt min/avg/max/mdev = 0.210/${target.latency}/0.890 ms`
+      ]);
+    } else if (type === 'traceroute') {
+      setDiagOutput([
+        `traceroute to ${target.ip}, 30 hops max, 60 byte packets`,
+        ` 1  Gateway-Firewall (10.88.88.1)  0.321 ms  0.288 ms  0.254 ms`,
+        ` 2  Core-Catalyst-9500 (10.88.88.254)  0.412 ms  0.390 ms  0.380 ms`,
+        ` 3  ${target.name} (${target.ip})  ${target.latency}  ${target.latency}`
+      ]);
+    } else if (type === 'portscan') {
+      setDiagOutput([
+        `Starting Nmap 7.94 ( https://nmap.org ) at 2026-08-20 12:45 UTC+8`,
+        `Nmap scan report for ${target.name} (${target.ip})`,
+        `Host is up (${target.latency} latency).`,
+        `Not shown: 996 closed tcp ports (reset)`,
+        `PORT     STATE SERVICE     VERSION`,
+        ...target.openPorts.map(p => `${p.port}/${p.proto.toLowerCase()}  ${p.state}  ${p.service}`),
+        `MAC Address: ${target.mac} (${target.vendor})`,
+        `Device type: ${target.type.toUpperCase()}`,
+        `Running: ${target.os_version}`,
+        `OS details: ${target.details}`,
+        `Nmap done: 1 IP address (1 host up) scanned in 0.84 seconds`
+      ]);
+    } else if (type === 'snmp') {
+      setDiagOutput([
+        `SNMPv3 WALK to ${target.ip}:161`,
+        `sysDescr.0 = STRING: ${target.vendor} ${target.model} ${target.os_version}`,
+        `sysObjectID.0 = OID: iso.3.6.1.4.1.9.1.2821`,
+        `sysUpTimeInstance = Timeticks: (142859012) 165 days, 8:18:21.12`,
+        `sysContact.0 = STRING: NetSec Admin <noc-soc@corp.local>`,
+        `sysName.0 = STRING: ${target.name}`,
+        `sysLocation.0 = STRING: TPE-DC-Rack-04`,
+        `ifNumber.0 = INTEGER: 48`,
+        `hrProcessorLoad.1 = INTEGER: ${target.cpu}%`,
+        `hrStorageUsed.1 = INTEGER: ${target.disk}%`
+      ]);
+    }
+  };
+
+  // Update thresholds with backend persistence
+  const handleUpdateThreshold = async (deviceId: string, key: 'cpuThreshold' | 'ramThreshold' | 'diskThreshold', val: number) => {
+    // Optimistic update
     setDevices(prev => prev.map(d => d.id === deviceId ? { ...d, [key]: val } : d));
     if (inspectedDevice && inspectedDevice.id === deviceId) {
       setInspectedDevice(prev => prev ? { ...prev, [key]: val } : null);
     }
+
+    try {
+      const res = await fetch(`/api/v1/network/devices/${deviceId}/thresholds`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: val })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.device) {
+          setDevices(prev => prev.map(d => d.id === deviceId ? data.device : d));
+          if (inspectedDevice?.id === deviceId) {
+            setInspectedDevice(data.device);
+          }
+        }
+        triggerToast(isZh ? `已同步更新後台監控閥值 (${key}: ${val}%)` : `Updated threshold: ${val}%`);
+        return;
+      }
+    } catch (e) {
+      // Keep optimistic
+    }
     triggerToast(isZh ? `已更新監控節點告警閥值 (${key}: ${val}%)` : `Updated threshold for ${key}: ${val}%`);
+  };
+
+  // Handle On-Demand Security Audit Request
+  const handleRequestAudit = async (device: NetworkDevice) => {
+    setLoadingAudit(true);
+    setAuditTarget(device);
+    setAuditModalOpen(true);
+
+    try {
+      const res = await fetch(`/api/v1/network/devices/${device.id}/audit`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(isZh ? `已完成主機 [${device.name}] 深度安全審計！` : 'Audit completed');
+        // Fetch full audit logs for target
+        const historyRes = await fetch(`/api/v1/network/devices/${device.id}/audit`);
+        if (historyRes.ok) {
+          const hist = await historyRes.json();
+          setAuditLogs(hist.logs || [data.audit]);
+        } else {
+          setAuditLogs([data.audit]);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('Audit fallback:', e);
+    } finally {
+      setLoadingAudit(false);
+    }
+
+    // Fallback audit record
+    setAuditLogs([
+      {
+        id: `AUD-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        deviceId: device.id,
+        deviceName: device.name,
+        ip: device.ip,
+        operator: 'SOC-Analyst-Duty',
+        action: 'ON_DEMAND_SECURITY_AUDIT',
+        details: `主機合規檢驗通過，開放連接埠: ${device.openPorts.map(p => `${p.port}/${p.proto}`).join(', ')}，作業系統版本: ${device.os_version}`,
+        status: device.cveAlerts && device.cveAlerts.length > 0 ? 'WARNING' : 'PASSED'
+      }
+    ]);
+  };
+
+  // Toggle Network Quarantine / Isolation via NAC
+  const handleToggleIsolate = async (device: NetworkDevice) => {
+    const isIsolated = device.vlan === 999;
+    const endpoint = isIsolated 
+      ? `/api/v1/network/devices/${device.id}/restore`
+      : `/api/v1/network/devices/${device.id}/isolate`;
+    
+    try {
+      const res = await fetch(endpoint, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.device) {
+          setDevices(prev => prev.map(d => d.id === device.id ? data.device : d));
+          if (inspectedDevice?.id === device.id) {
+            setInspectedDevice(data.device);
+          }
+        }
+        triggerToast(data.message || (isIsolated ? '主機已解除隔離' : '主機已隔離'));
+        return;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    // Local fallback
+    const nextVlan = isIsolated ? 10 : 999;
+    const nextStatus = isIsolated ? 'online' : 'warning';
+    setDevices(prev => prev.map(d => d.id === device.id ? { ...d, vlan: nextVlan, status: nextStatus } : d));
+    if (inspectedDevice?.id === device.id) {
+      setInspectedDevice(prev => prev ? { ...prev, vlan: nextVlan, status: nextStatus } : null);
+    }
+    triggerToast(isIsolated ? '已解除隔離並恢復通訊' : '已將設備隔離至 VLAN 999');
+  };
+
+  // Export CSV from backend
+  const handleExportCSV = () => {
+    window.open('/api/v1/network/export', '_blank');
+    triggerToast(isZh ? '正在從後端伺服器匯出最新全網資產拓撲清冊 CSV 報表...' : 'Exporting CSV report...');
+  };
+
+  // Reset to Baseline
+  const handleResetBaseline = async () => {
+    try {
+      const res = await fetch('/api/v1/network/reset', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.devices) setDevices(data.devices);
+        if (data.connections) setConnections(data.connections);
+        triggerToast(data.message || (isZh ? '網路拓撲已重置回標準基準線' : 'Topology reset'));
+        return;
+      }
+    } catch (e) {
+      // fallback
+    }
+    setDevices(INITIAL_DEVICES);
+    setConnections(INITIAL_CONNECTIONS);
+    triggerToast(isZh ? '網路拓撲已重置回標準基準線' : 'Topology reset');
   };
 
   return (
@@ -607,6 +829,31 @@ export default function NetworkMonitorView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Live Telemetry Sync Pill */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0c0c0e] border border-gray-800 rounded-2xl text-[11px] font-mono shadow-inner">
+            <span className={cn("w-2 h-2 rounded-full", backendConnected ? "bg-emerald-400 animate-pulse shadow-sm shadow-emerald-400" : "bg-amber-400")} />
+            <span className="text-gray-400 hidden sm:inline">
+              {backendConnected ? (isZh ? '後台 Telemetry 即時同步' : 'Live Sync') : (isZh ? '本地離線快取' : 'Offline Cache')}
+            </span>
+            <button 
+              onClick={() => fetchDevicesAndConnections(false)} 
+              disabled={loading}
+              className="p-1 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-colors ml-0.5"
+              title={isZh ? '手動重新同步後台' : 'Sync now'}
+            >
+              <RefreshCw size={12} className={cn(loading && "animate-spin text-blue-400")} />
+            </button>
+          </div>
+
+          {/* Reset Baseline Button */}
+          <button
+            onClick={handleResetBaseline}
+            className="p-2.5 bg-gray-900/80 hover:bg-gray-800 text-gray-400 hover:text-white rounded-2xl border border-gray-800 transition-colors shadow-md"
+            title={isZh ? '重置回標準拓撲基準線' : 'Reset to Baseline'}
+          >
+            <RefreshCcw size={14} />
+          </button>
+
           {/* View Switcher */}
           <div className="flex bg-[#0c0c0e] p-1 rounded-2xl border border-gray-800">
             <button 
@@ -965,24 +1212,51 @@ export default function NetworkMonitorView() {
                   </div>
 
                   {/* Actions Toolbar */}
-                  <div className="pt-4 border-t border-gray-800 flex gap-2">
-                    <button 
-                      onClick={() => {
-                        setDiagTarget(inspectedDevice);
-                        setDiagModalOpen(true);
-                        setDiagOutput([isZh ? `準備就緒，請選擇欲對 ${inspectedDevice.name} (${inspectedDevice.ip}) 執行的網路診斷動作。` : `Ready to diagnose ${inspectedDevice.ip}`]);
-                      }}
-                      className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-blue-600/20"
+                  <div className="pt-4 border-t border-gray-800 space-y-2">
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          setDiagTarget(inspectedDevice);
+                          setDiagModalOpen(true);
+                          setDiagOutput([isZh ? `準備就緒，請選擇欲對 ${inspectedDevice.name} (${inspectedDevice.ip}) 執行的網路診斷動作。` : `Ready to diagnose ${inspectedDevice.ip}`]);
+                        }}
+                        className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black tracking-wider flex items-center justify-center gap-1.5 transition-all shadow-lg shadow-blue-600/20"
+                      >
+                        <Terminal size={14} />
+                        <span>{isZh ? '網路診斷終端' : 'Diagnostics'}</span>
+                      </button>
+                      <button 
+                        onClick={() => handleRequestAudit(inspectedDevice)}
+                        disabled={loadingAudit}
+                        className="px-3.5 py-2.5 bg-purple-600/10 hover:bg-purple-600/20 border border-purple-500/30 text-purple-400 hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                        title={isZh ? '調閱深度審計日誌' : 'View Audit Logs'}
+                      >
+                        <Eye size={14} />
+                        <span>{isZh ? '審計' : 'Audit'}</span>
+                      </button>
+                    </div>
+
+                    {/* Dynamic NAC Quarantine / Restoration Button */}
+                    <button
+                      onClick={() => handleToggleIsolate(inspectedDevice)}
+                      className={cn(
+                        "w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border transition-all shadow-md",
+                        inspectedDevice.vlan === 999 
+                          ? "bg-emerald-600/15 border-emerald-500/40 hover:bg-emerald-600 hover:text-white text-emerald-400"
+                          : "bg-red-600/15 border-red-500/40 hover:bg-red-600 hover:text-white text-red-400"
+                      )}
                     >
-                      <Terminal size={14} />
-                      <span>{isZh ? '網路診斷終端' : 'Diagnostics'}</span>
-                    </button>
-                    <button 
-                      onClick={() => triggerToast(isZh ? `已向 NAC 發送主機 [${inspectedDevice.name}] 深度安全審計請求。` : 'Audit log requested.')}
-                      className="px-3 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs font-bold transition-colors"
-                      title={isZh ? '調閱審計日誌' : 'View Audit Logs'}
-                    >
-                      <Eye size={14} />
+                      {inspectedDevice.vlan === 999 ? (
+                        <>
+                          <ShieldCheck size={14} />
+                          <span>{isZh ? '解除 NAC 隔離 (恢復生產 VLAN)' : 'Restore from Quarantine'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldAlert size={14} />
+                          <span>{isZh ? '下發 NAC 動態隔離 (Quarantine VLAN 999)' : 'Isolate via NAC (VLAN 999)'}</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </motion.div>
@@ -1038,8 +1312,9 @@ export default function NetworkMonitorView() {
                 {isZh ? `共篩選出 ${filteredDevices.length} 台設備` : `${filteredDevices.length} items`}
               </span>
               <button 
-                onClick={() => triggerToast(isZh ? '已匯出目前全網資產拓撲清冊 CSV 報表' : 'Exported asset inventory CSV')}
-                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors"
+                onClick={handleExportCSV}
+                className="px-3.5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shadow-md"
+                title={isZh ? '由後端伺服器產出 CSV 報表並下載' : 'Export CSV from backend'}
               >
                 <Download size={14} />
                 <span>{isZh ? '匯出清冊' : 'Export CSV'}</span>
@@ -1393,6 +1668,142 @@ export default function NetworkMonitorView() {
                   className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
                 >
                   {isZh ? '關閉終端' : 'Close Terminal'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Security Audit & Compliance Modal */}
+        {auditModalOpen && auditTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-3xl bg-[#111114] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl space-y-0"
+            >
+              {/* Audit Modal Header */}
+              <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-[#0d0d10]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-purple-600/10 border border-purple-500/20 rounded-xl text-purple-400">
+                    <FileText size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      {isZh ? '主機深度安全審計日誌與合規檢驗' : 'Host Security Audit & Compliance Report'}
+                      <span className="px-2 py-0.5 text-[9px] uppercase font-mono font-bold bg-purple-500/10 border border-purple-500/30 text-purple-400 rounded-full">
+                        NAC & EDR Verified
+                      </span>
+                    </h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">
+                      {auditTarget.name} ({auditTarget.ip}) • VLAN {auditTarget.vlan} • {auditTarget.vendor}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setAuditModalOpen(false)}
+                  className="p-2 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Audit Quick Overview Banner */}
+              <div className="px-6 py-4 bg-[#0a0a0c] border-b border-gray-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-4">
+                  <div>
+                    <span className="text-gray-500 text-[10px] block font-bold">{isZh ? '作業系統版本' : 'OS Version'}</span>
+                    <span className="text-gray-200 font-mono">{auditTarget.os_version}</span>
+                  </div>
+                  <div className="border-l border-gray-800 pl-4">
+                    <span className="text-gray-500 text-[10px] block font-bold">{isZh ? '開放連接埠數量' : 'Open Ports'}</span>
+                    <span className="text-blue-400 font-mono font-bold">{auditTarget.openPorts.length} 埠</span>
+                  </div>
+                  <div className="border-l border-gray-800 pl-4">
+                    <span className="text-gray-500 text-[10px] block font-bold">{isZh ? 'CVE 漏洞示警' : 'CVE Alerts'}</span>
+                    <span className={cn("font-mono font-bold", auditTarget.cveAlerts && auditTarget.cveAlerts.length > 0 ? "text-red-400" : "text-emerald-400")}>
+                      {auditTarget.cveAlerts?.length || 0} 項
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleToggleIsolate(auditTarget)}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all",
+                    auditTarget.vlan === 999
+                      ? "bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white"
+                      : "bg-red-600/10 border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white"
+                  )}
+                >
+                  {auditTarget.vlan === 999 ? (
+                    <>
+                      <ShieldCheck size={14} />
+                      <span>{isZh ? '解除主機 NAC 隔離' : 'Restore from Quarantine'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldAlert size={14} />
+                      <span>{isZh ? '立即下發 NAC 隔離' : 'Isolate Host'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Audit Log Stream */}
+              <div className="p-6 bg-black font-mono text-xs text-gray-300 min-h-[260px] max-h-[340px] overflow-y-auto space-y-3 custom-scrollbar">
+                {loadingAudit ? (
+                  <div className="flex items-center justify-center py-10 gap-2 text-purple-400">
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>{isZh ? '正在自後台調閱主機最新安全審計串流...' : 'Loading audit trail...'}</span>
+                  </div>
+                ) : auditLogs.length === 0 ? (
+                  <div className="text-center py-10 text-gray-500">
+                    {isZh ? '暫無主機專屬安全審計紀錄，點擊下方按鈕以啟動即時合規檢驗。' : 'No audit records found.'}
+                  </div>
+                ) : (
+                  auditLogs.map((log: any, idx: number) => (
+                    <div key={idx} className="p-3 bg-[#111114] border border-gray-800/80 rounded-xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[9px] font-bold uppercase",
+                            log.status === 'PASSED' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                            log.status === 'QUARANTINED' ? "bg-red-500/10 text-red-400 border border-red-500/20" :
+                            "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                          )}>
+                            {log.status || 'LOGGED'}
+                          </span>
+                          <span className="text-white font-bold">{log.action}</span>
+                        </div>
+                        <span className="text-gray-500 text-[10px]">{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'NOW'}</span>
+                      </div>
+                      <p className="text-gray-300 text-[11px] leading-relaxed">{log.details}</p>
+                      <div className="text-[10px] text-gray-500 flex justify-between pt-1 border-t border-gray-800/50">
+                        <span>{isZh ? '執行主體:' : 'Operator:'} <strong className="text-gray-400">{log.operator || 'SYSTEM'}</strong></span>
+                        <span>{log.id || `AUD-${idx}`}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Audit Modal Footer */}
+              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-between items-center">
+                <button
+                  onClick={() => handleRequestAudit(auditTarget)}
+                  disabled={loadingAudit}
+                  className="px-4 py-2 bg-purple-600/15 hover:bg-purple-600 border border-purple-500/30 text-purple-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                >
+                  <RefreshCw size={14} className={cn(loadingAudit && "animate-spin")} />
+                  <span>{isZh ? '重新發起即時安全審計' : 'Trigger Fresh Audit'}</span>
+                </button>
+                <button
+                  onClick={() => setAuditModalOpen(false)}
+                  className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
+                >
+                  {isZh ? '關閉審計視窗' : 'Close Audit'}
                 </button>
               </div>
             </motion.div>

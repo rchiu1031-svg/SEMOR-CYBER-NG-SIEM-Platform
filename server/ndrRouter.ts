@@ -889,6 +889,208 @@ export function createNdrRouter() {
     res.json({ success: true, hourly });
   });
 
+  // 9.1 24-Hour Traffic Density & Anomaly Flow Clusters Heatmap Dataset
+  router.get('/bandwidth/heatmap-24h', (req: Request, res: Response) => {
+    const dimension = (req.query.dimension as string) || 'zones'; // 'zones' | 'protocols' | 'days'
+
+    const zonesList = [
+      { id: 'wan', labelZh: 'WAN 邊界出口網閘', labelEn: 'WAN Gateway', baseLoad: 750, weight: 1.3 },
+      { id: 'dmz', labelZh: 'DMZ 對外應用伺服群', labelEn: 'DMZ Web Farm', baseLoad: 680, weight: 1.2 },
+      { id: 'core', labelZh: '40G 高速核心骨幹', labelEn: 'Core Backbone 40G', baseLoad: 1450, weight: 2.1 },
+      { id: 'k8s', labelZh: 'K8s 容器微服務網格', labelEn: 'K8s Microservices', baseLoad: 820, weight: 1.4 },
+      { id: 'db', labelZh: '資料庫主備叢集 (DB)', labelEn: 'Database Cluster', baseLoad: 560, weight: 1.0 },
+      { id: 'endpoints', labelZh: 'SOC 終端分析工作站', labelEn: 'Workstations / Endpoints', baseLoad: 390, weight: 0.8 },
+      { id: 'vpn', labelZh: 'VPN 遠端安全通道', labelEn: 'VPN Remote Ingress', baseLoad: 320, weight: 0.6 }
+    ];
+
+    const protocolsList = [
+      { id: 'tls', labelZh: 'TLS 1.3 / HTTPS', labelEn: 'TLS 1.3 / HTTPS', baseLoad: 980, weight: 1.6 },
+      { id: 'quic', labelZh: 'QUIC / HTTP3', labelEn: 'QUIC / HTTP3', baseLoad: 340, weight: 0.7 },
+      { id: 'dns', labelZh: 'DNS 查詢 (UDP 53)', labelEn: 'DNS (UDP 53)', baseLoad: 210, weight: 0.5 },
+      { id: 'smb', labelZh: 'SMBv3 / RPC 傳輸', labelEn: 'SMBv3 / RPC', baseLoad: 180, weight: 0.4 },
+      { id: 'dbproto', labelZh: 'PostgreSQL Wire 協定', labelEn: 'PostgreSQL Wire', baseLoad: 290, weight: 0.6 },
+      { id: 'ssh', labelZh: 'SSH 遠端管理 (TCP 22)', labelEn: 'SSH Admin', baseLoad: 85, weight: 0.2 },
+      { id: 'other', labelZh: 'ICMP / SNMP / NetFlow', labelEn: 'Other / Management', baseLoad: 60, weight: 0.15 }
+    ];
+
+    const daysList = [
+      { id: 'mon', labelZh: '週一 (Mon)', labelEn: 'Monday', baseLoad: 720, weight: 1.0 },
+      { id: 'tue', labelZh: '週二 (Tue)', labelEn: 'Tuesday', baseLoad: 850, weight: 1.15 },
+      { id: 'wed', labelZh: '週三 (Wed)', labelEn: 'Wednesday', baseLoad: 920, weight: 1.25 },
+      { id: 'thu', labelZh: '週四 (Thu)', labelEn: 'Thursday', baseLoad: 880, weight: 1.2 },
+      { id: 'fri', labelZh: '週五 (Fri)', labelEn: 'Friday', baseLoad: 790, weight: 1.1 },
+      { id: 'sat', labelZh: '週六 (Sat)', labelEn: 'Saturday', baseLoad: 380, weight: 0.55 },
+      { id: 'sun', labelZh: '週日 (Sun)', labelEn: 'Sunday', baseLoad: 340, weight: 0.5 }
+    ];
+
+    const targetCategories = dimension === 'protocols' 
+      ? protocolsList 
+      : (dimension === 'days' ? daysList : zonesList);
+
+    // Current hour index in 24h
+    const currentHour = new Date().getHours();
+
+    const abnormalClusters = [
+      {
+        clusterId: 'AC-01',
+        timeRange: '02:00 - 04:00',
+        hourStart: 2,
+        hourEnd: 3,
+        targetZoneId: 'db',
+        targetProtoId: 'smb',
+        targetDayId: 'tue',
+        threatType: '離峰異常橫向漫延與資料外洩 (Off-Hours Lateral SMB Movement & Exfiltration)',
+        severity: 'Critical',
+        anomalyScore: 96,
+        confidencePct: 98.4,
+        peakMbps: 680,
+        normalBaselineMbps: 95,
+        deviationPct: '+615%',
+        affectedHosts: ['10.88.88.106', '10.88.88.200', '10.88.88.202'],
+        description: '在凌晨 02:00 至 04:00 期間，終端工作站 WS07 對核心資料庫發起高頻未授權 SMB 檔案讀取及 RPC 注入呼叫，偏離常態基線 615%。'
+      },
+      {
+        clusterId: 'AC-02',
+        timeRange: '12:00 - 13:00',
+        hourStart: 12,
+        hourEnd: 12,
+        targetZoneId: 'wan',
+        targetProtoId: 'dns',
+        targetDayId: 'wed',
+        threatType: '高熵值 Base64 子網域 DNS 隱蔽隧道 (High-Entropy DNS Exfiltration Tunnel)',
+        severity: 'High',
+        anomalyScore: 92,
+        confidencePct: 94.7,
+        peakMbps: 380,
+        normalBaselineMbps: 45,
+        deviationPct: '+744%',
+        affectedHosts: ['10.88.88.102', '8.8.8.8'],
+        description: '午間時段內網端點 WS02 出現持續高頻超長子域名 TXT 查詢請求，檢測出資訊熵值 4.88 之加密外洩資料載荷。'
+      },
+      {
+        clusterId: 'AC-03',
+        timeRange: '17:00 - 18:00',
+        hourStart: 17,
+        hourEnd: 17,
+        targetZoneId: 'wan',
+        targetProtoId: 'tls',
+        targetDayId: 'thu',
+        threatType: '國家級 Lazarus APT 加密 C2 反向連線特徵 (TLS Encrypted C2 Beaconing)',
+        severity: 'Critical',
+        anomalyScore: 99,
+        confidencePct: 99.2,
+        peakMbps: 1240,
+        normalBaselineMbps: 480,
+        deviationPct: '+158%',
+        affectedHosts: ['10.88.88.106', '185.220.101.45'],
+        description: '下午 17:00 出口網閘命中已知荷蘭出口暗網 C2 節點 TLS JA3 指紋 (ada70206e40642a3e4461f35503241d5)，出現異常巨量封包重傳。'
+      },
+      {
+        clusterId: 'AC-04',
+        timeRange: '20:00 - 21:00',
+        hourStart: 20,
+        hourEnd: 20,
+        targetZoneId: 'dmz',
+        targetProtoId: 'other',
+        targetDayId: 'fri',
+        threatType: 'Log4j JNDI 漏洞掃描探測風暴 (Exploit Probe Storm)',
+        severity: 'High',
+        anomalyScore: 89,
+        confidencePct: 91.5,
+        peakMbps: 840,
+        normalBaselineMbps: 210,
+        deviationPct: '+300%',
+        affectedHosts: ['198.51.100.89', '10.88.88.201'],
+        description: '境外掃描源對 DMZ 邊界入口發起短時間爆量 TCP SYN 與 LDAP 協定探測，意圖觸發 JNDI 遠端代碼執行。'
+      }
+    ];
+
+    // Build 24 hours matrix
+    const matrix: any[] = [];
+
+    targetCategories.forEach(cat => {
+      for (let h = 0; h < 24; h++) {
+        const hourStr = `${h.toString().padStart(2, '0')}:00`;
+        
+        // Realistic diurnal curve: low at 01:00-05:00, ramping at 08:00, peak at 11:00-16:00, gentle taper
+        let timeFactor = 0.25;
+        if (h >= 0 && h < 6) {
+          timeFactor = 0.15 + (Math.sin(h) * 0.05);
+        } else if (h >= 6 && h < 9) {
+          timeFactor = 0.35 + ((h - 6) / 3) * 0.5;
+        } else if (h >= 9 && h <= 17) {
+          timeFactor = 0.85 + Math.sin((h - 9) / 8 * Math.PI) * 0.35;
+        } else if (h > 17 && h <= 21) {
+          timeFactor = 0.65 - ((h - 17) / 4) * 0.25;
+        } else {
+          timeFactor = 0.3 - ((h - 21) / 3) * 0.1;
+        }
+
+        // Add subtle real-time jitter
+        const jitter = (Math.sin(Date.now() / 8000 + h + cat.baseLoad) * 0.08) + ((Math.random() - 0.5) * 0.04);
+        let trafficMbps = Math.max(15, Math.round(cat.baseLoad * (timeFactor + jitter) * cat.weight));
+
+        // Baseline anomaly score: low during normal traffic, naturally higher in off-hours anomalies
+        let anomalyScore = Math.floor(Math.random() * 22) + 5;
+        let isAbnormal = false;
+        let matchedCluster: any = null;
+
+        // Check if this hour & category matches any abnormal clusters
+        for (const cluster of abnormalClusters) {
+          const matchCat = dimension === 'protocols' 
+            ? (cluster.targetProtoId === cat.id)
+            : (dimension === 'days' ? cluster.targetDayId === cat.id : cluster.targetZoneId === cat.id);
+
+          if (matchCat && h >= cluster.hourStart && h <= cluster.hourEnd) {
+            isAbnormal = true;
+            anomalyScore = cluster.anomalyScore;
+            trafficMbps = Math.round(trafficMbps * 1.8 + 240);
+            matchedCluster = cluster;
+            break;
+          }
+        }
+
+        const totalBytesGB = Number(((trafficMbps * 3600) / (8 * 1024)).toFixed(2));
+        const sessionCount = Math.round(trafficMbps * (isAbnormal ? 32 : 18) + Math.floor(Math.random() * 120));
+
+        matrix.push({
+          hour: h,
+          timeLabel: hourStr,
+          categoryId: cat.id,
+          categoryLabelZh: cat.labelZh,
+          categoryLabelEn: cat.labelEn,
+          trafficMbps,
+          totalBytesGB,
+          sessionCount,
+          anomalyScore,
+          isAbnormal,
+          isCurrentHour: h === currentHour,
+          abnormalCluster: matchedCluster
+        });
+      }
+    });
+
+    const maxMbps = Math.max(...matrix.map(m => m.trafficMbps));
+    const minMbps = Math.min(...matrix.map(m => m.trafficMbps));
+    const total24hVolumeGB = Math.round(matrix.reduce((sum, m) => sum + m.totalBytesGB, 0));
+
+    res.json({
+      success: true,
+      dimension,
+      currentHour,
+      summary: {
+        total24hVolumeGB,
+        maxThroughputMbps: maxMbps,
+        minThroughputMbps: minMbps,
+        peakPeriod: '12:00 - 14:00 (1,850 Mbps Peak)',
+        totalAnomaliesDetected: matrix.filter(m => m.isAbnormal).length,
+        activeAbnormalClustersCount: abnormalClusters.length
+      },
+      abnormalClusters,
+      matrix
+    });
+  });
+
   // 10. Top Talkers & Top Destinations
   router.get('/top-talkers', (req: Request, res: Response) => {
     const topTalkers = [
