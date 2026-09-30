@@ -773,6 +773,22 @@ export default function TrafficAnalysisNDRView() {
 
           {/* Quick Engine Telemetry Status */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('heatmap')}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 border rounded-xl text-xs font-bold transition-all shadow-sm",
+                activeTab === 'heatmap' 
+                  ? "bg-amber-600/20 border-amber-500/50 text-amber-400" 
+                  : "bg-[#111114] hover:bg-gray-800 border-gray-800 text-gray-300 hover:text-white"
+              )}
+              title={isZh ? '切換至 24 小時流量時態熱力圖 (D3.js)' : 'View 24h D3 Traffic Heatmap'}
+            >
+              <Flame size={14} className="text-amber-400 animate-pulse" />
+              <span>{isZh ? '24H 流量熱力圖' : '24h Heatmap'}</span>
+              <span className="px-1.5 py-0.2 text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-full">
+                4 異常叢集
+              </span>
+            </button>
             <button 
               onClick={handleRefreshProbes}
               disabled={isRefreshing}
@@ -953,6 +969,36 @@ export default function TrafficAnalysisNDRView() {
       {/* SUBTAB 1: 🔬 封包鑑識與 PCAP 串流 (FORENSICS) */}
       {activeTab === 'forensics' && (
         <div className="flex flex-col gap-6">
+          {/* 24H Heatmap Anomaly Alert Notification Banner */}
+          <div className="bg-gradient-to-r from-rose-950/40 via-[#111114] to-amber-950/30 border border-rose-500/30 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-rose-500/20 text-rose-400 rounded-xl border border-rose-500/40">
+                <Flame size={18} className="animate-pulse" />
+              </div>
+              <div className="text-xs">
+                <span className="font-bold text-white flex items-center gap-2">
+                  {isZh ? '24 小時 D3 流量熱力圖即時偵測到 4 個異常離群流叢集' : '4 Abnormal Flow Clusters Detected in 24h Heatmap'}
+                  <span className="px-1.5 py-0.2 text-[10px] bg-rose-500/20 text-rose-300 rounded font-mono border border-rose-500/30">
+                    Critical Outliers
+                  </span>
+                </span>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {isZh 
+                    ? '包含 02:00-04:00 離峰 SMB 橫向資料外洩 (+615%)、12:00 高熵 DNS 隱蔽通道 (+744%)' 
+                    : 'Off-hours lateral SMB exfiltration (+615%) and high-entropy DNS tunnel (+744%)'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveTab('heatmap')}
+              className="px-3.5 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 hover:text-white border border-rose-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap self-start sm:self-auto shadow-sm"
+            >
+              <span>{isZh ? '調閱 24H 時態熱力圖' : 'View in 24h Heatmap'}</span>
+              <ArrowUpRight size={13} />
+            </button>
+          </div>
+
           {/* Wireshark / BPF Filter Search Bar */}
           <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-5 shadow-2xl backdrop-blur-md flex flex-col gap-3.5">
             <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
@@ -1534,14 +1580,32 @@ export default function TrafficAnalysisNDRView() {
 
       {/* SUBTAB 3.5: 🔥 24 小時流量時態熱力圖 (D3.JS 24-HOUR HEATMAP) */}
       {activeTab === 'heatmap' && (
-        <NDRTrafficHeatmap24h isZh={isZh} showToast={showToast} onIsolateHost={handleBlockIp} />
+        <NDRTrafficHeatmap24h 
+          isZh={isZh} 
+          showToast={showToast} 
+          onIsolateHost={handleBlockIp}
+          onJumpToForensics={(query) => {
+            setPcapFilterQuery(query);
+            setActiveTab('forensics');
+            showToast(isZh ? `已自動套用鑑識篩選語法: ${query}` : `Applied filter: ${query}`);
+          }}
+        />
       )}
 
       {/* SUBTAB 4: 📈 頻寬趨勢與 TOP TALKERS 分析 (BANDWIDTH) */}
       {activeTab === 'bandwidth' && (
         <div className="flex flex-col gap-6">
           {/* 24-Hour D3.js Heatmap for Peak Periods & Anomaly Flow Clusters */}
-          <NDRTrafficHeatmap24h isZh={isZh} showToast={showToast} onIsolateHost={handleBlockIp} />
+          <NDRTrafficHeatmap24h 
+            isZh={isZh} 
+            showToast={showToast} 
+            onIsolateHost={handleBlockIp}
+            onJumpToForensics={(query) => {
+              setPcapFilterQuery(query);
+              setActiveTab('forensics');
+              showToast(isZh ? `已自動套用鑑識篩選語法: ${query}` : `Applied filter: ${query}`);
+            }}
+          />
 
           {/* Bandwidth Area Chart */}
           <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-5 shadow-2xl">

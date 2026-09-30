@@ -1074,6 +1074,41 @@ export function createNdrRouter() {
     const minMbps = Math.min(...matrix.map(m => m.trafficMbps));
     const total24hVolumeGB = Math.round(matrix.reduce((sum, m) => sum + m.totalBytesGB, 0));
 
+    // Calculate hourly aggregate totals across all categories (0..23)
+    const hourlyTotals = [];
+    for (let h = 0; h < 24; h++) {
+      const hourCells = matrix.filter(m => m.hour === h);
+      const totalMbps = hourCells.reduce((acc, c) => acc + c.trafficMbps, 0);
+      const totalGB = Number(hourCells.reduce((acc, c) => acc + c.totalBytesGB, 0).toFixed(2));
+      const totalSessions = hourCells.reduce((acc, c) => acc + c.sessionCount, 0);
+      const avgAnomalyScore = Math.round(hourCells.reduce((acc, c) => acc + c.anomalyScore, 0) / (hourCells.length || 1));
+      const hasAbnormal = hourCells.some(c => c.isAbnormal);
+      const isPeak = h >= 11 && h <= 16;
+      hourlyTotals.push({
+        hour: h,
+        timeLabel: `${h.toString().padStart(2, '0')}:00`,
+        totalMbps,
+        totalGB,
+        totalSessions,
+        avgAnomalyScore,
+        hasAbnormal,
+        isPeakHour: isPeak,
+        isCurrentHour: h === currentHour
+      });
+    }
+
+    // Identify busiest & quietest periods
+    const sortedHours = [...hourlyTotals].sort((a, b) => b.totalMbps - a.totalMbps);
+    const busiest = sortedHours[0];
+    const quietest = sortedHours[sortedHours.length - 1];
+
+    // Compute peak window average vs off-peak window average
+    const peakHours = hourlyTotals.filter(ht => ht.isPeakHour);
+    const offPeakHours = hourlyTotals.filter(ht => ht.hour >= 1 && ht.hour <= 5);
+    const peakAvgMbps = Math.round(peakHours.reduce((acc, c) => acc + c.totalMbps, 0) / (peakHours.length || 1));
+    const offPeakAvgMbps = Math.max(1, Math.round(offPeakHours.reduce((acc, c) => acc + c.totalMbps, 0) / (offPeakHours.length || 1)));
+    const peakToBaselineRatio = (peakAvgMbps / offPeakAvgMbps).toFixed(1);
+
     res.json({
       success: true,
       dimension,
@@ -1082,13 +1117,86 @@ export function createNdrRouter() {
         total24hVolumeGB,
         maxThroughputMbps: maxMbps,
         minThroughputMbps: minMbps,
-        peakPeriod: '12:00 - 14:00 (1,850 Mbps Peak)',
+        peakPeriod: '11:00 - 16:00 (日間企業業務常態高峰)',
+        peakWindowTime: '11:00 - 16:00',
+        peakAvgMbps,
+        offPeakPeriod: '01:00 - 05:00 (深夜離峰深層鑑識窗口)',
+        offPeakAvgMbps,
+        peakToBaselineRatio: `${peakToBaselineRatio}x`,
+        busiestHour: `${busiest.timeLabel} (${busiest.totalMbps.toLocaleString()} Mbps)`,
+        quietestHour: `${quietest.timeLabel} (${quietest.totalMbps.toLocaleString()} Mbps)`,
         totalAnomaliesDetected: matrix.filter(m => m.isAbnormal).length,
-        activeAbnormalClustersCount: abnormalClusters.length
+        activeAbnormalClustersCount: abnormalClusters.length,
+        dataFreshnessTimestamp: new Date().toISOString()
       },
+      hourlyTotals,
       abnormalClusters,
       matrix
     });
+  });
+
+  // 9.2 Isolate all hosts in an abnormal cluster at once
+  router.post('/bandwidth/heatmap-24h/isolate-cluster', (req: Request, res: Response) => {
+    const { clusterId, hosts, reason } = req.body;
+    const isolatedHosts = Array.isArray(hosts) ? hosts : [];
+    
+    // Add audit log entry
+    res.json({
+      success: true,
+      clusterId,
+      isolatedHosts,
+      action: 'NAC_DYNAMIC_QUARANTINE',
+      timestamp: new Date().toISOString(),
+      message: `已針對異常流量叢集 [${clusterId || 'UNKNOWN'}] 內 ${isolatedHosts.length} 台受侵害主機實施 802.1X NAC 隔離封鎖與黑名單阻斷。`,
+      affectedIps: isolatedHosts
+    });
+  });
+
+  // 9.3 Export 24h Heatmap & Abnormal Flow Clusters Forensic CSV Report
+  router.get('/bandwidth/heatmap-24h/export-csv', (req: Request, res: Response) => {
+    const dimension = (req.query.dimension as string) || 'zones';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `NDR_24h_Traffic_Heatmap_${dimension}_${timestamp}.csv`;
+
+    const headers = [
+      'Hour',
+      'Time_Slot',
+      'Category_ID',
+      'Category_Name',
+      'Throughput_Mbps',
+      'Volume_GB',
+      'Session_Count',
+      'Anomaly_Score',
+      'Is_Abnormal_Cluster',
+      'Threat_Classification',
+      'Affected_Hosts'
+    ];
+
+    const rows: string[] = [headers.join(',')];
+
+    // Sample export lines
+    const hours = Array.from({ length: 24 }, (_, i) => i);
+    hours.forEach(h => {
+      const timeStr = `${h.toString().padStart(2, '0')}:00`;
+      const isAbn = h === 2 || h === 12 || h === 17 || h === 20;
+      rows.push([
+        h,
+        `"${timeStr}"`,
+        `"zone_${h}"`,
+        `"Core_Backbone"`,
+        isAbn ? 1680 : 850,
+        isAbn ? 756.0 : 382.5,
+        isAbn ? 32000 : 14200,
+        isAbn ? 96 : 14,
+        isAbn ? 'TRUE' : 'FALSE',
+        isAbn ? '"Off-Hours Data Exfiltration / C2 Beaconing"' : '"Normal Enterprise Traffic"',
+        isAbn ? '"10.88.88.106; 10.88.88.200"' : '""'
+      ].join(','));
+    });
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.status(200).send('\uFEFF' + rows.join('\r\n'));
   });
 
   // 10. Top Talkers & Top Destinations
