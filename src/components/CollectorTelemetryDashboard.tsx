@@ -22,7 +22,8 @@ import {
   Terminal,
   FileCode,
   Shield,
-  Filter
+  Filter,
+  TrendingDown
 } from 'lucide-react';
 import {
   AreaChart,
@@ -44,6 +45,7 @@ import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
 import { CollectorMemoryManagementPanel } from './CollectorMemoryManagementPanel';
 import { CollectorThroughputIndicator } from './CollectorThroughputIndicator';
 import { CollectorConnectionPoolPanel } from './CollectorConnectionPoolPanel';
+import { IngestionDropThresholdConfigPanel } from './IngestionDropThresholdConfigPanel';
 
 export interface CollectorWorker {
   workerId: string;
@@ -127,7 +129,8 @@ export function CollectorTelemetryDashboard() {
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<'normal' | 'surge' | 'stress'>('normal');
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'throughput' | 'memory_strategy' | 'connection_pool' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'throughput' | 'drop_thresholds' | 'memory_strategy' | 'connection_pool' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
+  const [activeDropAlert, setActiveDropAlert] = useState<any>(null);
 
   const historyMaxPoints = 25;
   const isMountedRef = useRef(true);
@@ -145,6 +148,21 @@ export function CollectorTelemetryDashboard() {
       if (!isMountedRef.current) return;
       setData(json);
       setLastUpdated(new Date());
+
+      // Also check for active throughput drop alerts
+      try {
+        const dropRes = await fetch('/api/engine/collector/throughput-history/drop-thresholds');
+        if (dropRes.ok) {
+          const dropData = await dropRes.json();
+          if (dropData.activeDropAlert) {
+            setActiveDropAlert(dropData.activeDropAlert);
+          } else {
+            setActiveDropAlert(null);
+          }
+        }
+      } catch {
+        // Ignore drop alert fetch failures
+      }
 
       const timeStr = new Date(json.timestamp).toLocaleTimeString([], {
         hour: '2-digit',
@@ -297,11 +315,43 @@ export function CollectorTelemetryDashboard() {
         )}
       </div>
 
+      {/* Real-time Unexpected Ingestion Drop Warning Ribbon */}
+      {activeDropAlert && (
+        <div className="p-3.5 rounded-xl border border-rose-500/50 bg-rose-950/40 text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-rose-950/30">
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/40 animate-pulse">
+              <TrendingDown className="w-4 h-4" />
+            </span>
+            <div className="text-xs">
+              <span className="font-bold text-white flex items-center gap-2">
+                🚨 系統警戒：日誌進線吞吐量發生異常暴跌！
+                <span className="text-[10px] font-mono px-1.5 py-0.2 bg-rose-500/30 text-rose-200 rounded font-bold uppercase">
+                  {activeDropAlert.severity}
+                </span>
+              </span>
+              <p className="text-[11px] text-gray-300 mt-0.5">
+                {activeDropAlert.impact || '當前吞吐量異常低於警報設定門檻，可能導致資安威脅監控失明。'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              onClick={() => setActiveMainTab('drop_thresholds')}
+              className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-rose-600/30 whitespace-nowrap"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>調校突降告警門檻</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Feature Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto custom-scrollbar">
         <button
           onClick={() => setActiveMainTab('overview')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
             activeMainTab === 'overview'
               ? 'bg-indigo-600 text-white shadow-md'
               : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -313,7 +363,7 @@ export function CollectorTelemetryDashboard() {
 
         <button
           onClick={() => setActiveMainTab('throughput')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
             activeMainTab === 'throughput'
               ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow-md'
               : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -323,6 +373,21 @@ export function CollectorTelemetryDashboard() {
           <span>吞吐量與瓶頸指標 (Throughput Indicator)</span>
           <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
             60m / Min
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveMainTab('drop_thresholds')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
+            activeMainTab === 'drop_thresholds'
+              ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <TrendingDown className="w-3.5 h-3.5 text-amber-400" />
+          <span>進線量突降告警配置 (Drop Thresholds)</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40">
+            即時告警
           </span>
         </button>
 
@@ -413,6 +478,11 @@ export function CollectorTelemetryDashboard() {
       {/* Tab: Ingestion Throughput & Bottleneck Identification */}
       {activeMainTab === 'throughput' && (
         <CollectorThroughputIndicator />
+      )}
+
+      {/* Tab: Ingestion Volume Drop Thresholds & Real-time Alerting Configuration Panel */}
+      {activeMainTab === 'drop_thresholds' && (
+        <IngestionDropThresholdConfigPanel isZh={true} />
       )}
 
       {/* Tab: Memory Management & Circular Buffer Architecture */}

@@ -30,8 +30,10 @@ import {
   BarChart3,
   Flame,
   Info,
-  ChevronRight
+  ChevronRight,
+  TrendingDown
 } from 'lucide-react';
+import { IngestionDropThresholdConfigPanel } from './IngestionDropThresholdConfigPanel';
 
 export interface MinuteThroughputBucket {
   minuteIndex: number;
@@ -118,6 +120,9 @@ export function CollectorThroughputIndicator({ compact = false }: CollectorThrou
   const [showThresholdEditor, setShowThresholdEditor] = useState(false);
   const [tempWarningThreshold, setTempWarningThreshold] = useState<number>(38000);
   const [tempSaturationThreshold, setTempSaturationThreshold] = useState<number>(50000);
+  const [showDropConfigModal, setShowDropConfigModal] = useState<boolean>(false);
+  const [dropWarningThreshold, setDropWarningThreshold] = useState<number>(15000);
+  const [dropCriticalThreshold, setDropCriticalThreshold] = useState<number>(5000);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
 
   const isMountedRef = useRef(true);
@@ -136,6 +141,10 @@ export function CollectorThroughputIndicator({ compact = false }: CollectorThrou
         if (data.summary?.bottleneckThresholds) {
           setTempWarningThreshold(data.summary.bottleneckThresholds.warningThreshold);
           setTempSaturationThreshold(data.summary.bottleneckThresholds.saturationThreshold);
+        }
+        if (data.summary?.dropThresholds) {
+          setDropWarningThreshold(data.summary.dropThresholds.dropWarningThreshold);
+          setDropCriticalThreshold(data.summary.dropThresholds.dropCriticalThreshold);
         }
       }
     } catch (err) {
@@ -441,10 +450,20 @@ export function CollectorThroughputIndicator({ compact = false }: CollectorThrou
               className={`p-1.5 rounded-lg border transition text-xs flex items-center gap-1 ${
                 showThresholdEditor ? 'bg-slate-700 text-white border-indigo-500' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
               }`}
-              title="調校瓶頸警戒閾值"
+              title="調校高載瓶頸警戒閾值"
             >
               <Sliders className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">閾值</span>
+              <span className="hidden sm:inline">高載閾值</span>
+            </button>
+
+            {/* Ingestion Drop Thresholds Panel trigger */}
+            <button
+              onClick={() => setShowDropConfigModal(true)}
+              className="px-2.5 py-1.5 rounded-lg border transition text-xs flex items-center gap-1.5 bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20 shadow-sm"
+              title="配置進線量低限與突降即時系統告警"
+            >
+              <TrendingDown className="w-3.5 h-3.5 text-amber-400" />
+              <span>突降告警配置</span>
             </button>
 
             {/* Live Polling Toggle */}
@@ -766,6 +785,36 @@ export function CollectorThroughputIndicator({ compact = false }: CollectorThrou
                 />
               )}
 
+              {/* Ingestion Low Drop Warning Line */}
+              <ReferenceLine
+                y={dropWarningThreshold}
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+                strokeWidth={1}
+                label={{
+                  value: `📉 突降預警 (${(dropWarningThreshold / 1000).toFixed(0)}k/分)`,
+                  fill: '#f59e0b',
+                  fontSize: 10,
+                  position: 'bottom',
+                  fontFamily: 'sans-serif'
+                }}
+              />
+
+              {/* Ingestion Critical Outage Drop Floor */}
+              <ReferenceLine
+                y={dropCriticalThreshold}
+                stroke="#f43f5e"
+                strokeDasharray="4 4"
+                strokeWidth={1.2}
+                label={{
+                  value: `🚨 嚴重斷流 (${(dropCriticalThreshold / 1000).toFixed(0)}k/分)`,
+                  fill: '#f43f5e',
+                  fontSize: 10,
+                  position: 'bottom',
+                  fontFamily: 'sans-serif'
+                }}
+              />
+
               {chartType === 'bar' ? (
                 <Bar
                   dataKey="chartVolume"
@@ -1051,6 +1100,24 @@ export function CollectorThroughputIndicator({ compact = false }: CollectorThrou
           </div>
         </div>
       </div>
+
+      {/* Ingestion Drop Thresholds Configuration Modal */}
+      {showDropConfigModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto custom-scrollbar">
+            <IngestionDropThresholdConfigPanel
+              isZh={true}
+              standalone={true}
+              onClose={() => setShowDropConfigModal(false)}
+              onThresholdsUpdated={(newSettings) => {
+                setDropWarningThreshold(newSettings.dropWarningThreshold);
+                setDropCriticalThreshold(newSettings.dropCriticalThreshold);
+                fetchThroughputData(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

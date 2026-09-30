@@ -40,6 +40,27 @@ export interface BottleneckAlert {
   impact: string;
   recommendation: string;
   rootCause: string;
+  type?: 'bottleneck_saturation' | 'unexpected_throughput_drop';
+  dropPercentage?: number;
+  expectedVolume?: number;
+}
+
+export interface DropThresholdSettings {
+  enabled: boolean;
+  dropWarningThreshold: number;       // e.g. 15,000 logs/min (~250 EPS)
+  dropCriticalThreshold: number;      // e.g. 5,000 logs/min (~83 EPS)
+  dropPercentageThreshold: number;    // e.g. 45% drop compared to 5-min moving average
+  consecutiveMinutes: number;         // e.g. 2 minutes
+  channels: {
+    inApp: boolean;
+    email: boolean;
+    webhook: boolean;
+    syslog: boolean;
+    sound: boolean;
+  };
+  emailRecipients: string;
+  webhookUrl: string;
+  autoProbeOnDrop: boolean;
 }
 
 export interface ThroughputHistorySummary {
@@ -59,9 +80,12 @@ export interface ThroughputHistorySummary {
     saturationThreshold: number;   // Default 50,000 logs/min (~833 EPS)
     bufferCapacity: number;        // Default 50,000 logs
   };
-  overallBottleneckStatus: 'HEALTHY' | 'WARNING_ELEVATED' | 'CRITICAL_BOTTLENECK';
+  dropThresholds: DropThresholdSettings;
+  overallBottleneckStatus: 'HEALTHY' | 'WARNING_ELEVATED' | 'CRITICAL_BOTTLENECK' | 'UNEXPECTED_DROP_WARNING' | 'CRITICAL_DROP_OUTAGE';
   activeBottlenecksCount: number;
+  activeDropAlert: BottleneckAlert | null;
   recentAlerts: BottleneckAlert[];
+  recentDropAlerts: BottleneckAlert[];
   protocolDistribution: {
     name: string;
     volume: number;
@@ -74,7 +98,25 @@ export class CollectorThroughputTracker {
   private buckets: MinuteThroughputBucket[] = [];
   private warningThreshold: number = 38000;
   private saturationThreshold: number = 50000;
+  private dropThresholds: DropThresholdSettings = {
+    enabled: true,
+    dropWarningThreshold: 15000,
+    dropCriticalThreshold: 5000,
+    dropPercentageThreshold: 45,
+    consecutiveMinutes: 2,
+    channels: {
+      inApp: true,
+      email: true,
+      webhook: true,
+      syslog: false,
+      sound: true
+    },
+    emailRecipients: 'admin-infra@corp.internal, soc-oncall@corp.internal',
+    webhookUrl: 'https://hooks.slack.com/services/T00/B00/soc-collector-alerts',
+    autoProbeOnDrop: true
+  };
   private alerts: BottleneckAlert[] = [];
+  private dropAlerts: BottleneckAlert[] = [];
   private lastAdvancedMinute: number = 0;
   private intervalTimer: NodeJS.Timeout | null = null;
 
@@ -188,6 +230,7 @@ export class CollectorThroughputTracker {
    */
   private recomputeMovingAveragesAndAlerts() {
     this.alerts = [];
+    this.dropAlerts = [];
 
     for (let idx = 0; idx < this.buckets.length; idx++) {
       const start = Math.max(0, idx - 4);
@@ -196,8 +239,9 @@ export class CollectorThroughputTracker {
       this.buckets[idx].movingAvgVolume = Math.round(sum / window.length);
 
       const b = this.buckets[idx];
-      if (b.isBottleneck && b.bottleneckSeverity === 'critical') {
-        // Only keep distinct alert episodes
+
+      // High Volume / Bottleneck Saturation Check
+      if (b.isBottleneck && b.bottleneckSeverity === 'critical' && b.bottleneckType !== 'upstream_drop') {
         const lastAlert = this.alerts[this.alerts.length - 1];
         if (!lastAlert || (b.timestamp - lastAlert.timestamp > 180000)) {
           this.alerts.push({
@@ -205,6 +249,7 @@ export class CollectorThroughputTracker {
             timestamp: b.timestamp,
             timeLabel: b.timeLabel,
             severity: 'critical',
+            type: 'bottleneck_saturation',
             title: '採集器管線吞吐瓶頸 (Ingestion Saturation)',
             volume: b.volume,
             threshold: this.saturationThreshold,
@@ -212,6 +257,64 @@ export class CollectorThroughputTracker {
             recommendation: '建議動態擴容解碼 Goroutine 工作池至 24 條，或啟用環形緩衝微批次即時排空。',
             rootCause: '突發巨量 Syslog UDP 封包進線，下游解析與 Rust IPC 提交速度暫時低於進線流速。'
           });
+        }
+      }
+
+      // Unexpected Drop / Ingestion Starvation Check
+      if (this.dropThresholds.enabled) {
+        let isDrop = false;
+        let dropSev: 'warning' | 'critical' = 'warning';
+        let dropReason = '';
+        let dropPct = 0;
+
+        if (b.volume <= this.dropThresholds.dropCriticalThreshold && b.volume > 0) {
+          isDrop = true;
+          dropSev = 'critical';
+          dropReason = `進線吞吐量嚴重暴跌至 ${b.volume.toLocaleString()} 筆/分 (低於嚴重中斷門檻 ${this.dropThresholds.dropCriticalThreshold.toLocaleString()} 筆/分)。`;
+        } else if (b.volume === 0) {
+          isDrop = true;
+          dropSev = 'critical';
+          dropReason = '進線吞吐量完全中斷 (0 筆/分)，上游日誌源停止發送。';
+        } else if (b.volume <= this.dropThresholds.dropWarningThreshold) {
+          isDrop = true;
+          dropSev = 'warning';
+          dropReason = `進線吞吐量異常低於預警線 (${b.volume.toLocaleString()} 筆/分 < 門檻 ${this.dropThresholds.dropWarningThreshold.toLocaleString()} 筆/分)。`;
+        }
+
+        // Relative drop compared to rolling moving average
+        if (b.movingAvgVolume > 8000) {
+          dropPct = Math.round(((b.movingAvgVolume - b.volume) / b.movingAvgVolume) * 100);
+          if (dropPct >= this.dropThresholds.dropPercentageThreshold) {
+            isDrop = true;
+            if (dropPct >= 70) dropSev = 'critical';
+            dropReason = `進線吞吐量突發驟降 ${dropPct}% (當前: ${b.volume.toLocaleString()} 筆/分，5分鐘均線: ${b.movingAvgVolume.toLocaleString()} 筆/分)。`;
+          }
+        }
+
+        if (isDrop) {
+          b.isBottleneck = true;
+          b.bottleneckSeverity = dropSev;
+          b.bottleneckType = 'upstream_drop';
+          b.bottleneckReason = dropReason;
+
+          const lastDropAlert = this.dropAlerts[this.dropAlerts.length - 1];
+          if (!lastDropAlert || (b.timestamp - lastDropAlert.timestamp > 120000)) {
+            this.dropAlerts.push({
+              id: `drop-${b.timestamp}`,
+              timestamp: b.timestamp,
+              timeLabel: b.timeLabel,
+              severity: dropSev,
+              type: 'unexpected_throughput_drop',
+              title: dropSev === 'critical' ? '進線吞吐量嚴重暴跌斷流告警' : '進線吞吐量異常偏低預警',
+              volume: b.volume,
+              threshold: dropSev === 'critical' ? this.dropThresholds.dropCriticalThreshold : this.dropThresholds.dropWarningThreshold,
+              dropPercentage: dropPct > 0 ? dropPct : undefined,
+              expectedVolume: b.movingAvgVolume,
+              impact: `進線流速驟降至 ${b.eps} EPS，可能導致即時資安威脅偵測管線失明或離群分析延遲。`,
+              recommendation: '建議立即排查上游 Syslog UDP 5140 / TLS 6514 網路轉發鏈路、核心路由器 ACL 與日誌源 Agent 運行狀態。',
+              rootCause: '上游日誌源未正常送達、網路連線中斷、邊界防火牆誤攔截或代理服務異常終止。'
+            });
+          }
         }
       }
     }
@@ -391,7 +494,7 @@ export class CollectorThroughputTracker {
         b.isBottleneck = true;
         b.bottleneckSeverity = 'warning';
         b.bottleneckType = 'worker_starvation';
-      } else {
+      } else if (b.bottleneckType !== 'upstream_drop') {
         b.isBottleneck = false;
         b.bottleneckSeverity = 'none';
         b.bottleneckType = 'none';
@@ -400,6 +503,78 @@ export class CollectorThroughputTracker {
     }
 
     this.recomputeMovingAveragesAndAlerts();
+  }
+
+  /**
+   * Updates ingestion volume drop thresholds and notification settings.
+   */
+  public updateDropThresholds(settings: Partial<DropThresholdSettings>) {
+    this.dropThresholds = {
+      ...this.dropThresholds,
+      ...settings,
+      channels: {
+        ...this.dropThresholds.channels,
+        ...(settings.channels || {})
+      }
+    };
+    this.recomputeMovingAveragesAndAlerts();
+  }
+
+  /**
+   * Returns current drop threshold settings.
+   */
+  public getDropThresholds(): DropThresholdSettings {
+    return { ...this.dropThresholds };
+  }
+
+  /**
+   * Triggers a live simulated drop alert for testing notification pipelines.
+   */
+  public triggerTestDropAlert(customVolume?: number): BottleneckAlert {
+    const now = Date.now();
+    const d = new Date(now);
+    const timeLabel = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const vol = typeof customVolume === 'number' ? customVolume : 1200;
+    const isCritical = vol <= this.dropThresholds.dropCriticalThreshold;
+
+    const testAlert: BottleneckAlert = {
+      id: `drop-${now}`,
+      timestamp: now,
+      timeLabel,
+      severity: isCritical ? 'critical' : 'warning',
+      type: 'unexpected_throughput_drop',
+      title: isCritical ? '【即時告警】進線吞吐量嚴重暴跌斷流' : '【即時預警】進線吞吐量異常偏低',
+      volume: vol,
+      threshold: isCritical ? this.dropThresholds.dropCriticalThreshold : this.dropThresholds.dropWarningThreshold,
+      dropPercentage: 94,
+      expectedVolume: 24000,
+      impact: `進線吞吐量突降至 ${Math.round(vol / 60)} EPS (遠低於低限警戒門檻 ${this.dropThresholds.dropWarningThreshold.toLocaleString()} 筆/分)。`,
+      recommendation: '請立即檢查邊界防火牆日誌轉發策略、Syslog UDP (:5140) 監聽連線及上游日誌源 Agent 運行狀態。',
+      rootCause: '上游日誌進線異常驟降或傳輸鏈路中斷。'
+    };
+
+    const current = this.buckets[this.buckets.length - 1];
+    if (current) {
+      current.volume = vol;
+      current.eps = Math.round(vol / 60);
+      current.bytesMB = Number(((vol * 420) / (1024 * 1024)).toFixed(2));
+      current.isBottleneck = true;
+      current.bottleneckSeverity = testAlert.severity;
+      current.bottleneckType = 'upstream_drop';
+      current.bottleneckReason = testAlert.impact;
+    }
+
+    this.dropAlerts.unshift(testAlert);
+    this.recomputeMovingAveragesAndAlerts();
+    return testAlert;
+  }
+
+  /**
+   * Acknowledges or dismisses an active alert.
+   */
+  public acknowledgeAlert(alertId: string) {
+    this.dropAlerts = this.dropAlerts.filter(a => a.id !== alertId);
+    this.alerts = this.alerts.filter(a => a.id !== alertId);
   }
 
   /**
@@ -463,8 +638,14 @@ export class CollectorThroughputTracker {
     const currentMinuteVolume = currentBucket ? currentBucket.volume : 0;
     const currentMinuteEps = currentBucket ? currentBucket.eps : 0;
 
+    const activeDrop = this.dropAlerts.length > 0 ? this.dropAlerts[0] : null;
+
     let overallStatus: ThroughputHistorySummary['overallBottleneckStatus'] = 'HEALTHY';
-    if (criticalCount > 0 || (currentBucket && currentBucket.bottleneckSeverity === 'critical')) {
+    if (activeDrop && activeDrop.severity === 'critical') {
+      overallStatus = 'CRITICAL_DROP_OUTAGE';
+    } else if (activeDrop && activeDrop.severity === 'warning') {
+      overallStatus = 'UNEXPECTED_DROP_WARNING';
+    } else if (criticalCount > 0 || (currentBucket && currentBucket.bottleneckSeverity === 'critical')) {
       overallStatus = 'CRITICAL_BOTTLENECK';
     } else if (warningCount > 2 || (currentBucket && currentBucket.bottleneckSeverity === 'warning')) {
       overallStatus = 'WARNING_ELEVATED';
@@ -517,9 +698,12 @@ export class CollectorThroughputTracker {
           saturationThreshold: this.saturationThreshold,
           bufferCapacity: 50000
         },
+        dropThresholds: this.getDropThresholds(),
         overallBottleneckStatus: overallStatus,
         activeBottlenecksCount: criticalCount + warningCount,
+        activeDropAlert: activeDrop,
         recentAlerts: this.alerts.slice(-5),
+        recentDropAlerts: this.dropAlerts.slice(0, 5),
         protocolDistribution
       }
     };

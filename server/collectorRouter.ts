@@ -476,6 +476,73 @@ export function createCollectorRouter(vlogsRetryState: any, broadcastVlogsRetryS
     });
   });
 
+  // 9.1 Ingestion Volume Drop Thresholds & Real-time Alerting Configuration Endpoints
+  router.get('/throughput-history/drop-thresholds', (req: Request, res: Response) => {
+    const summary = globalCollectorThroughputTracker.getHistorySummary(60).summary;
+    res.json({
+      success: true,
+      dropThresholds: summary.dropThresholds,
+      activeDropAlert: summary.activeDropAlert,
+      recentDropAlerts: summary.recentDropAlerts,
+      overallStatus: summary.overallBottleneckStatus
+    });
+  });
+
+  router.put('/throughput-history/drop-thresholds', (req: Request, res: Response) => {
+    const settings = req.body || {};
+    globalCollectorThroughputTracker.updateDropThresholds(settings);
+    const result = globalCollectorThroughputTracker.getHistorySummary(60);
+    broadcastVlogsRetryStats({ 
+      type: 'throughput_drop_thresholds_updated', 
+      dropThresholds: result.summary.dropThresholds,
+      activeDropAlert: result.summary.activeDropAlert
+    });
+
+    res.json({
+      success: true,
+      message: '進線量低限與突降告警閾值配置已成功套用',
+      dropThresholds: result.summary.dropThresholds,
+      summary: result.summary
+    });
+  });
+
+  router.post('/throughput-history/test-drop-alert', (req: Request, res: Response) => {
+    const customVolume = typeof req.body?.volume === 'number' ? req.body.volume : 1200;
+    const alert = globalCollectorThroughputTracker.triggerTestDropAlert(customVolume);
+    const result = globalCollectorThroughputTracker.getHistorySummary(60);
+    broadcastVlogsRetryStats({ 
+      type: 'unexpected_throughput_drop_alert', 
+      alert,
+      summary: result.summary
+    });
+
+    res.json({
+      success: true,
+      message: '已觸發進線量異常暴跌即時系統告警測試訊號',
+      alert,
+      summary: result.summary
+    });
+  });
+
+  router.post('/throughput-history/acknowledge-alert', (req: Request, res: Response) => {
+    const alertId = req.body?.alertId as string;
+    if (alertId) {
+      globalCollectorThroughputTracker.acknowledgeAlert(alertId);
+    }
+    const result = globalCollectorThroughputTracker.getHistorySummary(60);
+    broadcastVlogsRetryStats({ 
+      type: 'throughput_alert_acknowledged', 
+      alertId,
+      summary: result.summary
+    });
+
+    res.json({
+      success: true,
+      message: `告警已確認處理: ${alertId || 'All'}`,
+      summary: result.summary
+    });
+  });
+
   // 10. Connection Pooling & Ephemeral Port Protection Endpoints
   router.get('/connection-pool', (req: Request, res: Response) => {
     res.json({
