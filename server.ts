@@ -3355,6 +3355,13 @@ async function startServer() {
 
   // --- Alert History Ledger Endpoints ---
   app.get('/api/alerts/history', (req, res) => {
+    if (fs.existsSync(ALERT_HISTORY_PATH)) {
+      try {
+        alertHistoryRecords = JSON.parse(fs.readFileSync(ALERT_HISTORY_PATH, 'utf-8'));
+      } catch (e) {
+        // use in-memory
+      }
+    }
     const { status, severity, sourceEngine, category } = req.query;
     let filtered = [...alertHistoryRecords];
 

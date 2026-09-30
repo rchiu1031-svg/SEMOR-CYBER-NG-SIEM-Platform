@@ -51,13 +51,16 @@ import {
   TrendingUp,
   BarChart3,
   Printer,
-  Share2
+  Share2,
+  Flame
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '../lib/utils';
+import { NDRAlertRulesSettingsView } from './NDRAlertRulesSettingsView';
+import { NDRThresholdConfigPanel } from './NDRThresholdConfigPanel';
 
 export interface AlertSettingsViewProps {
   isReadOnly?: boolean;
@@ -758,7 +761,7 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation tab state
-  const [activeTab, setActiveTab] = useState<'rules' | 'live_bench' | 'volume_anomaly' | 'channels' | 'history' | 'simulator'>('rules');
+  const [activeTab, setActiveTab] = useState<'rules' | 'ndr_traffic' | 'live_bench' | 'volume_anomaly' | 'channels' | 'history' | 'simulator'>('rules');
 
   // Rules state
   const [rules, setRules] = useState<ThresholdRule[]>(INITIAL_RULES);
@@ -810,6 +813,28 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
     `[${new Date().toISOString()}] [SYSTEM_READY] Threshold evaluation engine armed and monitoring 10 pipeline targets.`,
     `[${new Date().toISOString()}] [TELEMETRY_STREAM] Heartbeat sync OK: Go Collector (9,420 EPS), VictoriaLogs Block Flush Latency (142ms).`
   ]);
+
+  // Active High-Priority NDR Alert State
+  const [activeNdrAlert, setActiveNdrAlert] = useState<any | null>(null);
+
+  useEffect(() => {
+    const handleNdrAlert = (e: any) => {
+      const detail = e.detail;
+      if (detail && detail.alert) {
+        setActiveNdrAlert(detail.alert);
+        if (detail.historyRecord) {
+          setHistoryRecords(prev => [detail.historyRecord, ...prev.filter(r => r.id !== detail.historyRecord.id)]);
+        }
+        showToast(
+          isZh
+            ? `【NDR 高優先級告警】${detail.alert.ruleName} 偵測到異常流量 (${detail.alert.measuredValue} ${detail.alert.unit})！已觸發通知系統。`
+            : `[HIGH-PRIORITY NDR ALERT] ${detail.alert.ruleName}: ${detail.alert.measuredValue} ${detail.alert.unit} breached critical threshold!`
+        );
+      }
+    };
+    window.addEventListener('ndr_high_priority_alert', handleNdrAlert);
+    return () => window.removeEventListener('ndr_high_priority_alert', handleNdrAlert);
+  }, [isZh]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -2425,6 +2450,80 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
         </div>
       </div>
 
+      {/* HIGH-PRIORITY ACTIVE NDR TRAFFIC ALERT BANNER */}
+      {activeNdrAlert && (
+        <div className="bg-gradient-to-r from-red-950/70 via-[#1a080d] to-rose-950/50 border-2 border-red-500 rounded-2xl p-4 sm:p-5 shadow-2xl shadow-red-950/60 animate-in fade-in slide-in-from-top-2">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 rounded-xl bg-red-600/30 text-red-300 border border-red-500/80 shrink-0 mt-0.5 animate-pulse shadow-lg shadow-red-950/40">
+                <Flame className="w-6 h-6 text-red-400" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-600 text-white shadow-sm flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    高優先級安全警報 (HIGH-PRIORITY NDR ALERT)
+                  </span>
+                  <span className="text-xs font-bold text-white font-mono">
+                    {activeNdrAlert.ruleName}
+                  </span>
+                  <span className="text-[11px] text-red-300 font-mono">
+                    [{new Date(activeNdrAlert.timestamp || Date.now()).toLocaleTimeString()}]
+                  </span>
+                </div>
+                <p className="text-xs text-red-100/90 leading-relaxed">
+                  異常流量特徵即時研判：當前測得流量數值為{' '}
+                  <strong className="text-white font-mono text-sm underline decoration-red-400 font-black">
+                    {typeof activeNdrAlert.measuredValue === 'number' ? activeNdrAlert.measuredValue.toLocaleString() : activeNdrAlert.measuredValue}{' '}
+                    {activeNdrAlert.unit}
+                  </strong>
+                  ，已突破設定之嚴重臨界門檻 (門檻值: <span className="font-mono text-amber-300 font-bold">{activeNdrAlert.thresholdValue} {activeNdrAlert.unit}</span>)！
+                  監控標的: <span className="font-mono text-cyan-300 font-semibold">{activeNdrAlert.targetScope || '全網邊界網關'}</span>
+                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-gray-400 font-mono">
+                  <span className="text-gray-300 font-bold">已同步通報管道:</span>
+                  {(activeNdrAlert.dispatchedChannels || ['inApp', 'sound', 'webhook', 'email', 'syslog']).map((ch: string) => (
+                    <span key={ch} className="px-2 py-0.5 rounded bg-black/60 text-gray-200 border border-gray-800 text-[10px]">
+                      {ch === 'inApp' ? '站內推播' : ch === 'sound' ? '警報音效' : ch === 'webhook' ? 'Slack/Teams' : ch === 'email' ? 'SMTP 郵件' : ch === 'syslog' ? 'Syslog 514' : ch}
+                    </span>
+                  ))}
+                  <span className="text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                    ✓ 已登記至歷史告警審計帳本
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 shrink-0 self-end md:self-auto">
+              <button
+                onClick={() => {
+                  showToast(isZh ? '已透過 SOAR 自動化排程下發 Suricata 阻斷規則與 802.1X 隔離' : 'Triggered SOAR containment action');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-950/50 flex items-center gap-1.5 transition active:scale-95"
+              >
+                <Shield size={14} />
+                <span>下發阻斷 / 隔離</span>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('ndr_traffic');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-xs font-bold transition flex items-center gap-1.5"
+              >
+                <Sliders size={14} />
+                <span>調校門檻</span>
+              </button>
+              <button
+                onClick={() => setActiveNdrAlert(null)}
+                className="px-3.5 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 hover:text-white text-xs font-medium transition"
+              >
+                確認解除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TABS CONTROLLER */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#111115] border border-gray-800 p-1.5 rounded-xl">
         <div className="flex flex-wrap items-center gap-1">
@@ -2441,6 +2540,22 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
             {isZh ? '閥值規則清單與管理' : 'Threshold Rules Matrix'}
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/40 text-gray-300 font-mono">
               {filteredRules.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('ndr_traffic')}
+            className={cn(
+              "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+              activeTab === 'ndr_traffic'
+                ? "bg-amber-600 text-white shadow-md shadow-amber-950/40"
+                : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
+            )}
+          >
+            <Flame size={14} className="text-amber-400" />
+            {isZh ? 'NDR 流量特徵規則' : 'NDR Traffic Rules'}
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-300 font-mono">
+              NDR
             </span>
           </button>
 
@@ -2522,9 +2637,26 @@ export default function AlertSettingsView({ isReadOnly = false }: AlertSettingsV
         </div>
       </div>
 
+      {/* TAB: NDR TRAFFIC PATTERN CUSTOM RULES */}
+      {activeTab === 'ndr_traffic' && (
+        <NDRAlertRulesSettingsView isReadOnly={isReadOnly} />
+      )}
+
       {/* TAB 1: RULES MANAGEMENT */}
       {activeTab === 'rules' && (
         <div className="space-y-4">
+          {/* NDR Traffic Patterns Threshold Configuration Panel */}
+          <NDRThresholdConfigPanel
+            isReadOnly={isReadOnly}
+            onNavigateToFullNDR={() => setActiveTab('ndr_traffic')}
+            onAlertTriggered={(alert, record) => {
+              setActiveNdrAlert(alert);
+              if (record) {
+                setHistoryRecords(prev => [record, ...prev.filter(r => r.id !== record.id)]);
+              }
+            }}
+          />
+
           {/* Controls Bar: Search & Category Chips */}
           <div className="bg-[#111115] border border-gray-800 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
             {/* Search */}

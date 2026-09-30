@@ -1,5 +1,33 @@
 [
   {
+    "id": "ALR-20260930-5254",
+    "triggerTime": "2026-09-30T03:25:17.358Z",
+    "ruleId": "ndr-rule-bandwidth-burst",
+    "ruleName": "【NDR 異常流量特徵】突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)",
+    "category": "log_volume",
+    "metric": "bandwidth_surge",
+    "metricLabel": "突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation) (核心骨幹網 / DMZ 對外閘道 (10.0.0.0/16))",
+    "measuredValue": 1500,
+    "metricUnit": "Mbps",
+    "thresholdValue": 1200,
+    "condition": ">=",
+    "severity": "Critical",
+    "sourceEngine": "suricata-ndr (Traffic Pattern Analyzer)",
+    "resolutionStatus": "Active",
+    "resolvedAt": null,
+    "resolvedBy": null,
+    "resolutionNote": "NDR 網路異常流量研判：監控目標 [核心骨幹網 / DMZ 對外閘道 (10.0.0.0/16)] 偵測到異常特徵 (1500 Mbps)，已超越致命門檻 (1200 Mbps)。已自動觸發高優先級通報鏈路。",
+    "dispatchedChannels": [
+      "inApp",
+      "sound",
+      "email",
+      "webhook",
+      "syslog",
+      "soar"
+    ],
+    "auditHash": "sha256:323032362d30392d33305430333a32353a31372e3335385a2d6e64722d72756c"
+  },
+  {
     "id": "ALR-20260915-0841",
     "triggerTime": "2026-09-15T05:41:20.000Z",
     "ruleId": "rule-log-ingest-surge",

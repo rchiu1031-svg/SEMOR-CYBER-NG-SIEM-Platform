@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sliders, Code } from 'lucide-react';
+import { Sliders, Code, Flame } from 'lucide-react';
 import { 
   Flag,
   Shield, 
@@ -187,6 +187,7 @@ import UserSettingsView from './components/UserSettingsView';
 import AuthenticationSettingsView from './components/AuthenticationSettingsView';
 import UEBASettingsView from './components/UEBASettingsView';
 import AlertSettingsView from './components/AlertSettingsView';
+import NDRAlertRulesSettingsView from './components/NDRAlertRulesSettingsView';
 import DecoderView from './components/DecoderView';
 import { PlatformPerformanceView } from './components/PlatformPerformanceView';
 import NetworkMonitorView from './components/NetworkMonitorView';
@@ -1661,7 +1662,7 @@ export default function App() {
     localStorage.setItem('seeor_user', JSON.stringify(u));
   };
 
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'network' | 'auth' | 'users' | 'general' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'engine_monitoring' | 'update' | 'threat_intel'>('network');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'network' | 'auth' | 'users' | 'general' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'ndr_alerts' | 'engine_monitoring' | 'update' | 'ueba' | 'threat_intel'>('network');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLangOpen, setIsLangOpen] = useState(false);
   const [isUserOpen, setIsUserOpen] = useState(false);
@@ -2239,6 +2240,12 @@ export default function App() {
               label={t('settings.tabs.collection') || "資料採集設定 (Data Collection)"} 
               active={activeTab === 'settings' && activeSettingsTab === 'collection'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('collection'); }}
+              collapsed={!isSidebarOpen}
+            />
+            <SidebarSubItem 
+              label={isZh ? "NDR 流量告警規則" : "NDR Alert Rules"} 
+              active={activeTab === 'settings' && activeSettingsTab === 'ndr_alerts'} 
+              onClick={() => { setActiveTab('settings'); setActiveSettingsTab('ndr_alerts'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
@@ -8130,7 +8137,7 @@ function EngineMonitoringView({ isReadOnly = false }: { isReadOnly?: boolean }) 
   );
 }
 
-function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSubTab: 'general' | 'network' | 'auth' | 'users' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'update' | 'ueba' | 'engine_monitoring' | 'threat_intel', setActiveSubTab: (tab: any) => void, currentUser: any }) {
+function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSubTab: 'general' | 'network' | 'auth' | 'users' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'ndr_alerts' | 'update' | 'ueba' | 'engine_monitoring' | 'threat_intel', setActiveSubTab: (tab: any) => void, currentUser: any }) {
   const { t, i18n } = useTranslation();
   const isZh = !i18n.language || i18n.language.startsWith('zh');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -8230,6 +8237,8 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
         return <DecoderView isReadOnly={isReadOnly} />;
       case 'alert':
         return <AlertSettingsView isReadOnly={isReadOnly} />;
+      case 'ndr_alerts':
+        return <NDRAlertRulesSettingsView isReadOnly={isReadOnly} />;
       case 'nac':
         return <NetworkAccessControlView isReadOnly={isReadOnly} />;
       case 'remotelog':
@@ -8478,6 +8487,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
             {activeSubTab === 'general' && <Settings className="w-6 h-6 text-gray-400" />}
             {activeSubTab === 'decoder' && <Binary className="w-6 h-6 text-cyan-400" />}
             {activeSubTab === 'alert' && <Bell className="w-6 h-6 text-red-400" />}
+            {activeSubTab === 'ndr_alerts' && <Flame className="w-6 h-6 text-amber-400" />}
             {activeSubTab === 'ueba' && <Brain className="w-6 h-6 text-blue-400" />}
           </div>
           <div>
@@ -8491,6 +8501,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
                activeSubTab === 'ueba' ? 'UEBA 使用者與實體行為分析配置 (UEBA Analytics & Profiling)' :
                activeSubTab === 'decoder' ? 'AI 日誌解碼器 (AI Log Decoder)' :
                activeSubTab === 'alert' ? '告警規則配置 (Alert Configuration)' :
+               activeSubTab === 'ndr_alerts' ? (isZh ? 'NDR 網路流量特徵自訂告警規則 (NDR Traffic Alert Rules)' : 'NDR Traffic Pattern Alert Rules') :
                activeSubTab === 'users' ? '使用者帳號與 RBAC 權限管理 (User Access Matrix)' :
                activeSubTab === 'auth' ? '身分認證管理與 SSO 單一登入配置 (Authentication & SSO)' :
                activeSubTab === 'general' ? '平台一般設定與 AI 引擎配置 (General Platform & AI Settings)' :
@@ -8510,6 +8521,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
             { id: 'remotelog', label: '遠端日誌', icon: <Share2 size={14} /> },
             { id: 'decoder', label: '日誌解碼', icon: <Binary size={14} /> },
             { id: 'alert', label: '告警設定', icon: <Bell size={14} /> },
+            { id: 'ndr_alerts', label: isZh ? 'NDR 流量告警' : 'NDR Alerts', icon: <Flame size={14} className="text-amber-400" /> },
             { id: 'ueba', label: 'UEBA', icon: <Brain size={14} /> },
             { id: 'network', label: '系統介面', icon: <Cpu size={14} /> },
             { id: 'auth', label: '認證管理', icon: <Key size={14} /> },
