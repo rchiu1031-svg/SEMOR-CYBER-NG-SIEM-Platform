@@ -441,6 +441,22 @@ export function CollectorTelemetryDashboard() {
         </button>
 
         <button
+          onClick={() => setActiveMainTab('latency_heatmap')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            activeMainTab === 'latency_heatmap'
+              ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md'
+              : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+        >
+          <Flame className="w-3.5 h-3.5 text-amber-400" />
+          <span>VictoriaLogs 延遲熱力圖</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            突波偵測
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveMainTab('diagnostics')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
             activeMainTab === 'diagnostics'
@@ -500,6 +516,11 @@ export function CollectorTelemetryDashboard() {
       {/* Tab: VictoriaLogs Retry & Zero-Loss Diagnostic */}
       {activeMainTab === 'retry_monitor' && (
         <VictoriaLogsRetryMonitorView />
+      )}
+
+      {/* Tab: VictoriaLogs Latency Distribution Heatmap (Transient Spikes) */}
+      {activeMainTab === 'latency_heatmap' && (
+        <VictoriaLogsLatencyHeatmap />
       )}
 
       {/* Tab: Parser Diagnostics */}
