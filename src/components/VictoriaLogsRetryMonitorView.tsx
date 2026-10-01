@@ -42,6 +42,7 @@ import {
   ReferenceLine,
   Legend
 } from 'recharts';
+import { VictoriaLogsLatencyHeatmap } from './VictoriaLogsLatencyHeatmap';
 
 export interface HealthMonitorData {
   mode: 'normal' | 'buffer_only';
@@ -1629,6 +1630,9 @@ export function VictoriaLogsRetryMonitorView() {
           </div>
         </div>
       </div>
+
+      {/* Latency Distribution Heatmap for VictoriaLogs Connection (Transient Network Spikes Detection) */}
+      <VictoriaLogsLatencyHeatmap />
 
       {/* Exponential Backoff Curve Graphic & Interactive Test Bench */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

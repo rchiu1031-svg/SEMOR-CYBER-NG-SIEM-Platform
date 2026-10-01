@@ -23,7 +23,8 @@ import {
   FileCode,
   Shield,
   Filter,
-  TrendingDown
+  TrendingDown,
+  Flame
 } from 'lucide-react';
 import {
   AreaChart,
@@ -42,6 +43,7 @@ import {
 import LogParserDiagnosticPanel from './LogParserDiagnosticPanel';
 import LogSourcesTable from './LogSourcesTable';
 import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
+import { VictoriaLogsLatencyHeatmap } from './VictoriaLogsLatencyHeatmap';
 import { CollectorMemoryManagementPanel } from './CollectorMemoryManagementPanel';
 import { CollectorThroughputIndicator } from './CollectorThroughputIndicator';
 import { CollectorConnectionPoolPanel } from './CollectorConnectionPoolPanel';
@@ -129,7 +131,7 @@ export function CollectorTelemetryDashboard() {
   const [pollIntervalMs, setPollIntervalMs] = useState(2000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [simulatedLoad, setSimulatedLoad] = useState<'normal' | 'surge' | 'stress'>('normal');
-  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'throughput' | 'drop_thresholds' | 'memory_strategy' | 'connection_pool' | 'retry_monitor' | 'diagnostics' | 'sources' | 'protocols'>('overview');
+  const [activeMainTab, setActiveMainTab] = useState<'overview' | 'throughput' | 'drop_thresholds' | 'memory_strategy' | 'connection_pool' | 'retry_monitor' | 'latency_heatmap' | 'diagnostics' | 'sources' | 'protocols'>('overview');
   const [activeDropAlert, setActiveDropAlert] = useState<any>(null);
 
   const historyMaxPoints = 25;

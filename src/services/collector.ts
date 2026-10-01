@@ -1,3 +1,6 @@
+import * as zlibModule from 'zlib';
+const zlib = (zlibModule as any).default || zlibModule;
+
 export interface LogRecord {
   id?: string;
   timestamp?: number | string;
@@ -307,4 +310,126 @@ export class LogCollector {
     this.stopTimer();
     this.buffer = [];
   }
+}
+
+/**
+ * Options for sending log batches to VictoriaLogs ingestion endpoint
+ */
+export interface VictoriaLogsSendOptions {
+  /** Target VictoriaLogs endpoint (default: 'http://localhost:9428/insert/jsonline') */
+  endpoint?: string;
+  /** Account ID header (default: '0') */
+  accountId?: string;
+  /** Project ID header (default: '0') */
+  projectId?: string;
+  /** Whether to enable gzip compression to minimize payload size during bursts (default: true) */
+  useGzip?: boolean;
+  /** Custom User-Agent header (default: 'SEMOR-Collector-Gateway/2.5') */
+  userAgent?: string;
+  /** Additional custom HTTP request headers */
+  customHeaders?: Record<string, string>;
+  /** Transport function hook for custom HTTP clients or mocking */
+  transport?: (url: string, payload: Buffer | string, headers: Record<string, string>) => Promise<any>;
+}
+
+/**
+ * Result returned from a VictoriaLogs send operation
+ */
+export interface VictoriaLogsSendResult {
+  success: boolean;
+  rawBytes: number;
+  compressedBytes: number;
+  compressionRatioPct: number;
+  headers: Record<string, string>;
+  endpoint: string;
+}
+
+/**
+ * Builds standard POST request headers for VictoriaLogs endpoint,
+ * including gzip Content-Encoding when compression is enabled.
+ */
+export function buildVictoriaLogsHeaders(options: VictoriaLogsSendOptions = {}): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/stream+json; charset=utf-8',
+    'AccountID': options.accountId || '0',
+    'ProjectID': options.projectId || '0',
+    'User-Agent': options.userAgent || 'SEMOR-Collector-Gateway/2.5',
+    ...(options.customHeaders || {})
+  };
+
+  if (options.useGzip !== false) {
+    headers['Content-Encoding'] = 'gzip';
+  }
+
+  return headers;
+}
+
+/**
+ * Formats a batch of LogRecord items into VictoriaLogs NDJSON stream payload
+ */
+export function formatVictoriaLogsNDJSON(batch: LogRecord[]): string {
+  return batch.map(e => JSON.stringify({
+    ...e,
+    _time: e.timestamp || e._time || new Date().toISOString(),
+    _msg: e.message || e._msg || JSON.stringify(e)
+  })).join('\n') + '\n';
+}
+
+/**
+ * Compresses an NDJSON payload with gzip to minimize payload size during bursts
+ */
+export function compressWithGzip(payload: string): Buffer {
+  return zlib.gzipSync(Buffer.from(payload, 'utf-8'));
+}
+
+/**
+ * Creates a sendFn specifically configured for sending batches to VictoriaLogs with gzip compression
+ */
+export function createVictoriaLogsSendFn(options: VictoriaLogsSendOptions = {}): (batch: LogRecord[]) => Promise<VictoriaLogsSendResult> {
+  const endpoint = options.endpoint || 'http://localhost:9428/insert/jsonline';
+  const useGzip = options.useGzip !== false;
+  const headers = buildVictoriaLogsHeaders(options);
+
+  return async (batch: LogRecord[]): Promise<VictoriaLogsSendResult> => {
+    const ndjson = formatVictoriaLogsNDJSON(batch);
+    const rawBuffer = Buffer.from(ndjson, 'utf-8');
+    const rawBytes = rawBuffer.length;
+
+    let payload: Buffer | string = ndjson;
+    let compressedBytes = rawBytes;
+
+    if (useGzip) {
+      const gzipped = compressWithGzip(ndjson);
+      payload = gzipped;
+      compressedBytes = gzipped.length;
+    }
+
+    const compressionRatioPct = rawBytes > 0
+      ? Number(((1 - compressedBytes / rawBytes) * 100).toFixed(1))
+      : 0;
+
+    if (options.transport) {
+      await options.transport(endpoint, payload, headers);
+    } else if (typeof fetch !== 'undefined') {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: payload as any
+      });
+      if (!response.ok) {
+        throw new Error(`VictoriaLogs returned HTTP ${response.status}: ${response.statusText}`);
+      }
+    } else {
+      throw new Error('No HTTP transport available (specify options.transport)');
+    }
+
+    return {
+      success: true,
+      rawBytes,
+      compressedBytes,
+      compressionRatioPct,
+      headers,
+      endpoint
+    };
+  };
 }

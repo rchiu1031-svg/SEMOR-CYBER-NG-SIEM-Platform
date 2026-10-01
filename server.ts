@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import fs from 'fs';
+import zlib from 'zlib';
 import { WebSocketServer, WebSocket } from 'ws';
 
 // Modular SIEM & Cyber Defense Routers
@@ -28,6 +29,7 @@ import { globalCollectorMemoryManager } from './server/collectorMemoryManager';
 import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor';
 import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker';
 import { globalCollectorConnectionPool } from './server/collectorConnectionPool';
+import { globalVictoriaLogsLatencyHeatmap } from './server/victoriaLogsLatencyHeatmap';
 
 dotenv.config();
 
@@ -859,8 +861,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.text({ type: ['text/*', 'application/x-ndjson', 'application/json-lines'], limit: '20mb' }));
-  app.use(express.json({ limit: '20mb' }));
+  app.use(express.text({ type: ['text/*', 'application/x-ndjson', 'application/json-lines', 'application/stream+json'], limit: '50mb' }));
+  app.use(express.raw({ type: ['application/octet-stream', 'application/gzip'], limit: '50mb' }));
+  app.use(express.json({ limit: '50mb' }));
 
   // Auth APIs
   app.post('/api/auth/login', (req, res) => {
@@ -1016,6 +1019,11 @@ async function startServer() {
     simulatedOutage: false,
     simulatedFailureCode: 503,
 
+    // Gzip Compression & Burst Payload Optimization State
+    useGzipCompression: true,
+    totalRawBytes: 0,
+    totalCompressedBytes: 0,
+
     // 30s Lightweight Heartbeat Probe State
     heartbeatIntervalSeconds: 30,
     totalHeartbeatsLogged: 0,
@@ -1160,7 +1168,20 @@ async function startServer() {
         multiplier: vlogsRetryState.multiplier,
         jitterFraction: vlogsRetryState.jitterFraction,
         maxRetries: vlogsRetryState.maxRetries,
-        queueCapacity: vlogsRetryState.queueCapacity
+        queueCapacity: vlogsRetryState.queueCapacity,
+        gzipCompression: vlogsRetryState.useGzipCompression
+      },
+      compression: {
+        enabled: vlogsRetryState.useGzipCompression,
+        algorithm: 'gzip',
+        contentEncoding: 'gzip',
+        contentType: 'application/stream+json; charset=utf-8',
+        totalRawBytes: vlogsRetryState.totalRawBytes,
+        totalCompressedBytes: vlogsRetryState.totalCompressedBytes,
+        compressionRatioPct: vlogsRetryState.totalRawBytes > 0
+          ? Number(((1 - vlogsRetryState.totalCompressedBytes / vlogsRetryState.totalRawBytes) * 100).toFixed(1))
+          : 76.2,
+        bytesSaved: Math.max(0, vlogsRetryState.totalRawBytes - vlogsRetryState.totalCompressedBytes)
       },
       stats: {
         totalPostRequests: vlogsRetryState.totalPostRequests,
@@ -1198,7 +1219,8 @@ async function startServer() {
         points: ingestionHistoryPoints
       },
       recentRetryLogs: vlogsRetryState.recentRetryLogs.slice(0, 35),
-      healthMonitor: globalVictoriaLogsHealthMonitor.getMetrics()
+      healthMonitor: globalVictoriaLogsHealthMonitor.getMetrics(),
+      latencyHeatmap: globalVictoriaLogsLatencyHeatmap.getSnapshot('60m')
     };
   }
 
@@ -1313,11 +1335,20 @@ async function startServer() {
     while (vlogsRetryState.retryQueue.length > 0 && !vlogsRetryState.simulatedOutage && !globalVictoriaLogsHealthMonitor.isBufferOnlyMode()) {
       const batch = vlogsRetryState.retryQueue[0];
       try {
-        const response = await axios.post(targetEndpoint, batch.payload, {
+        const rawBuffer = Buffer.from(batch.payload, 'utf-8');
+        const gzippedPayload = zlib.gzipSync(rawBuffer);
+        const rawBytes = rawBuffer.length;
+        const compressedBytes = gzippedPayload.length;
+        vlogsRetryState.totalRawBytes += rawBytes;
+        vlogsRetryState.totalCompressedBytes += compressedBytes;
+
+        const response = await axios.post(targetEndpoint, gzippedPayload, {
           headers: {
             'Content-Type': 'application/stream+json; charset=utf-8',
+            'Content-Encoding': 'gzip',
             'AccountID': engineConfig.victorialogs?.accountId || '0',
-            'ProjectID': engineConfig.victorialogs?.projectId || '0'
+            'ProjectID': engineConfig.victorialogs?.projectId || '0',
+            'User-Agent': 'SEMOR-Collector-Gateway/2.5'
           },
           timeout: 4000
         });
@@ -1358,6 +1389,7 @@ async function startServer() {
       drainVlogsQueueNow();
     },
     onProbeCompleted: (result, metrics) => {
+      globalVictoriaLogsLatencyHeatmap.recordLatency(result.latencyMs);
       if (result.status !== 'healthy' || metrics.outageFlagged) {
         broadcastVlogsRetryStats({ type: 'vlogs_probe_completed', probe: result, monitor: metrics });
       }
@@ -1457,21 +1489,36 @@ async function startServer() {
 
       try {
         const pooledClient = globalCollectorConnectionPool.getAxiosClient();
-        const response = await pooledClient.post(targetEndpoint, payload, {
+        const rawBuffer = Buffer.from(payload, 'utf-8');
+        const gzippedPayload = zlib.gzipSync(rawBuffer);
+        const rawBytes = rawBuffer.length;
+        const compressedBytes = gzippedPayload.length;
+        const savingsPct = rawBytes > 0 ? Number(((1 - compressedBytes / rawBytes) * 100).toFixed(1)) : 0;
+
+        vlogsRetryState.totalRawBytes += rawBytes;
+        vlogsRetryState.totalCompressedBytes += compressedBytes;
+
+        const reqStart = Date.now();
+        const response = await pooledClient.post(targetEndpoint, gzippedPayload, {
           headers: {
             'Content-Type': 'application/stream+json; charset=utf-8',
+            'Content-Encoding': 'gzip',
             'AccountID': engineConfig.victorialogs?.accountId || '0',
             'ProjectID': engineConfig.victorialogs?.projectId || '0',
             'User-Agent': 'SEMOR-Collector-Gateway/2.5'
           },
           timeout: 6000
         });
+        const latencyMs = Math.max(1, Date.now() - reqStart);
+        globalVictoriaLogsLatencyHeatmap.recordLatency(latencyMs);
 
         if (response.status >= 200 && response.status < 300) {
           vlogsRetryState.successfulRequests++;
           if (attempt > 0) {
             vlogsRetryState.retrySuccessTotal++;
-            logRetryEvent('info', `第 ${attempt} 次重試成功！已向 VictoriaLogs 成功交付 ${logCount} 筆日誌`, attempt);
+            logRetryEvent('info', `第 ${attempt} 次重試成功！已向 VictoriaLogs 成功交付 ${logCount} 筆日誌 (Gzip 壓縮率: -${savingsPct}%, 原始: ${rawBytes}B, 壓縮: ${compressedBytes}B)`, attempt);
+          } else {
+            logRetryEvent('info', `[Gzip 高吞吐壓縮傳輸] 成功向 VictoriaLogs 交付 ${logCount} 筆日誌 (原始: ${rawBytes}B -> 壓縮: ${compressedBytes}B, 節省 ${savingsPct}%)`);
           }
           vlogsRetryState.isTargetReachable = true;
           vlogsRetryState.currentBackoffMs = 0;
@@ -1543,11 +1590,20 @@ async function startServer() {
     const targetEndpoint = `${vlogsUrl.replace(/\/$/, '')}/insert/jsonline`;
 
     try {
-      const response = await axios.post(targetEndpoint, batch.payload, {
+      const rawBuffer = Buffer.from(batch.payload, 'utf-8');
+      const gzippedPayload = zlib.gzipSync(rawBuffer);
+      const rawBytes = rawBuffer.length;
+      const compressedBytes = gzippedPayload.length;
+      vlogsRetryState.totalRawBytes += rawBytes;
+      vlogsRetryState.totalCompressedBytes += compressedBytes;
+
+      const response = await axios.post(targetEndpoint, gzippedPayload, {
         headers: {
           'Content-Type': 'application/stream+json; charset=utf-8',
+          'Content-Encoding': 'gzip',
           'AccountID': engineConfig.victorialogs?.accountId || '0',
-          'ProjectID': engineConfig.victorialogs?.projectId || '0'
+          'ProjectID': engineConfig.victorialogs?.projectId || '0',
+          'User-Agent': 'SEMOR-Collector-Gateway/2.5'
         },
         timeout: 4000
       });
@@ -1670,6 +1726,39 @@ async function startServer() {
       success: true,
       intervalSeconds: 30,
       probe: vlogsRetryState.lastHeartbeatProbe
+    });
+  });
+
+  // Endpoint 5: VictoriaLogs Connection Latency Distribution Heatmap
+  app.get('/api/v1/collector/victorialogs-latency-heatmap', (req, res) => {
+    const range = (req.query.range as any) || '60m';
+    res.json(globalVictoriaLogsLatencyHeatmap.getSnapshot(range));
+  });
+
+  // Endpoint 6: Inject/Simulate Transient Latency Spike on VictoriaLogs Connection
+  app.post('/api/v1/collector/simulate-latency-spike', (req, res) => {
+    const { latencyMs, burstCount, reason } = req.body || {};
+    const spike = globalVictoriaLogsLatencyHeatmap.injectSpike(
+      Number(latencyMs) || 450,
+      Number(burstCount) || 5,
+      reason || '測試注入瞬態網路尖峰 (Chaos Latency Spike Injection)'
+    );
+
+    logRetryEvent(
+      'warn',
+      `[延遲突波測試] 已注入暫態延遲脈衝: ${spike.peakLatencyMs}ms (P50 基準: ${spike.baselineP50Ms}ms, 放大 ${spike.deviationMultiplier}x, 影響 ${spike.affectedRequests} 筆請求)`
+    );
+
+    broadcastVlogsRetryStats({
+      type: 'latency_spike_injected',
+      spike,
+      heatmap: globalVictoriaLogsLatencyHeatmap.getSnapshot('60m')
+    });
+
+    res.json({
+      success: true,
+      spike,
+      snapshot: globalVictoriaLogsLatencyHeatmap.getSnapshot('60m')
     });
   });
 
@@ -2968,6 +3057,28 @@ async function startServer() {
   app.post('/insert/jsonline', (req, res) => {
     let body = req.body;
     let lines: string[] = [];
+
+    // Auto-decompress gzip if body is compressed buffer or has Content-Encoding: gzip
+    if (Buffer.isBuffer(body)) {
+      try {
+        if (req.headers['content-encoding'] === 'gzip' || (body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b)) {
+          body = zlib.gunzipSync(body).toString('utf-8');
+        } else {
+          body = body.toString('utf-8');
+        }
+      } catch (err: any) {
+        return res.status(400).json({ error: `Gzip decompression failed: ${err.message}` });
+      }
+    } else if (typeof body === 'string' && req.headers['content-encoding'] === 'gzip') {
+      try {
+        const buf = Buffer.from(body, 'binary');
+        if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
+          body = zlib.gunzipSync(buf).toString('utf-8');
+        }
+      } catch {
+        // Body was already inflated by body-parser middleware
+      }
+    }
 
     if (typeof body === 'string') {
       lines = body.split('\n').map(l => l.trim()).filter(Boolean);

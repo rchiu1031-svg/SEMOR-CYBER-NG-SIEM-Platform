@@ -1,8 +1,14 @@
+import * as zlibModule from 'zlib';
+const zlib = (zlibModule as any).default || zlibModule;
 import {
   LogCollector,
   LogRecord,
   BufferOverflowError,
-  MaxRetriesExceededError
+  MaxRetriesExceededError,
+  buildVictoriaLogsHeaders,
+  formatVictoriaLogsNDJSON,
+  compressWithGzip,
+  createVictoriaLogsSendFn
 } from './collector';
 
 describe('LogCollector Comprehensive Test Suite', () => {
@@ -608,6 +614,172 @@ describe('LogCollector Comprehensive Test Suite', () => {
 
       // Should have terminated early without completing all 5 retries
       expect(sendFn.mock.calls.length).toBeLessThan(6);
+    });
+  });
+
+  // =========================================================================
+  // 4. VictoriaLogs Gzip Compression & Ingestion Transport Tests
+  // =========================================================================
+  describe('VictoriaLogs Gzip Compression & Ingestion Transport', () => {
+    it('should generate headers with Content-Encoding: gzip and Content-Type: application/stream+json', () => {
+      const headers = buildVictoriaLogsHeaders({
+        accountId: '42',
+        projectId: '100',
+        useGzip: true,
+        userAgent: 'SEMOR-Collector-Gateway/2.5',
+        customHeaders: { 'X-Cluster-ID': 'soc-cluster-alpha' }
+      });
+
+      expect(headers['Content-Encoding']).toBe('gzip');
+      expect(headers['Content-Type']).toBe('application/stream+json; charset=utf-8');
+      expect(headers['AccountID']).toBe('42');
+      expect(headers['ProjectID']).toBe('100');
+      expect(headers['User-Agent']).toBe('SEMOR-Collector-Gateway/2.5');
+      expect(headers['X-Cluster-ID']).toBe('soc-cluster-alpha');
+    });
+
+    it('should omit Content-Encoding when useGzip is explicitly disabled', () => {
+      const headers = buildVictoriaLogsHeaders({ useGzip: false });
+
+      expect(headers['Content-Encoding']).toBeUndefined();
+      expect(headers['Content-Type']).toBe('application/stream+json; charset=utf-8');
+      expect(headers['AccountID']).toBe('0');
+      expect(headers['ProjectID']).toBe('0');
+    });
+
+    it('should compress NDJSON payload with valid gzip magic bytes (0x1f, 0x8b) and decompress accurately', () => {
+      const logs: LogRecord[] = [
+        { id: '1', message: 'Failed password for root from 192.168.1.100', level: 'warn', source: 'auth-service' },
+        { id: '2', message: 'User admin logged in from 10.0.0.5', level: 'info', source: 'auth-service' }
+      ];
+
+      const ndjson = formatVictoriaLogsNDJSON(logs);
+      expect(ndjson).toContain('Failed password for root');
+
+      const gzipped = compressWithGzip(ndjson);
+      expect(Buffer.isBuffer(gzipped)).toBe(true);
+
+      // Verify RFC 1952 Gzip magic bytes
+      expect(gzipped[0]).toBe(0x1f);
+      expect(gzipped[1]).toBe(0x8b);
+
+      // Decompress and verify content integrity
+      const decompressed = zlib.gunzipSync(gzipped).toString('utf-8');
+      expect(decompressed).toBe(ndjson);
+    });
+
+    it('should achieve significant payload compression during high-throughput bursts', () => {
+      // Simulate a burst of 100 structured security logs
+      const burstLogs: LogRecord[] = [];
+      for (let i = 0; i < 100; i++) {
+        burstLogs.push({
+          id: `burst-log-${i}`,
+          timestamp: '2026-10-01T01:30:00.000Z',
+          level: i % 5 === 0 ? 'CRITICAL' : 'INFO',
+          message: `Firewall packet dropped from src_ip=203.0.113.${i % 250} dst_ip=10.0.0.1 proto=TCP dst_port=443 action=DENY packet_len=1420 tcp_flags=SYN`,
+          service: 'suricata-sensor-edge-01',
+          cluster: 'production-k8s-apac',
+          environment: 'production'
+        });
+      }
+
+      const ndjson = formatVictoriaLogsNDJSON(burstLogs);
+      const rawBytes = Buffer.byteLength(ndjson, 'utf-8');
+      const gzipped = compressWithGzip(ndjson);
+      const compressedBytes = gzipped.length;
+
+      // During high-throughput bursts, repetitive JSON keys compress by > 65%
+      const savingsPct = ((rawBytes - compressedBytes) / rawBytes) * 100;
+      expect(compressedBytes).toBeLessThan(rawBytes);
+      expect(savingsPct).toBeGreaterThan(60);
+    });
+
+    it('should use createVictoriaLogsSendFn to post gzipped payload with Content-Encoding: gzip', async () => {
+      let capturedUrl = '';
+      let capturedPayload: any = null;
+      let capturedHeaders: Record<string, string> = {};
+
+      const mockTransport = jest.fn(async (url: string, payload: any, headers: Record<string, string>) => {
+        capturedUrl = url;
+        capturedPayload = payload;
+        capturedHeaders = headers;
+        return { status: 200 };
+      });
+
+      const sendFn = createVictoriaLogsSendFn({
+        endpoint: 'http://localhost:9428/insert/jsonline',
+        accountId: '0',
+        projectId: '0',
+        useGzip: true,
+        transport: mockTransport
+      });
+
+      const batch: LogRecord[] = [
+        { id: 'vlog-1', message: 'First test line to VictoriaLogs' },
+        { id: 'vlog-2', message: 'Second test line to VictoriaLogs' }
+      ];
+
+      const result = await sendFn(batch);
+
+      expect(mockTransport).toHaveBeenCalledTimes(1);
+      expect(capturedUrl).toBe('http://localhost:9428/insert/jsonline');
+      expect(capturedHeaders['Content-Encoding']).toBe('gzip');
+      expect(capturedHeaders['Content-Type']).toBe('application/stream+json; charset=utf-8');
+
+      expect(result.success).toBe(true);
+      expect(result.compressedBytes).toBeLessThan(result.rawBytes);
+      expect(result.headers['Content-Encoding']).toBe('gzip');
+
+      // Verify payload received by transport was valid gzip
+      expect(Buffer.isBuffer(capturedPayload)).toBe(true);
+      expect(capturedPayload[0]).toBe(0x1f);
+      expect(capturedPayload[1]).toBe(0x8b);
+
+      const unzipped = zlib.gunzipSync(capturedPayload).toString('utf-8');
+      expect(unzipped).toContain('First test line to VictoriaLogs');
+      expect(unzipped).toContain('Second test line to VictoriaLogs');
+    });
+
+    it('should seamlessly integrate createVictoriaLogsSendFn with LogCollector instance', async () => {
+      const dispatchedBatches: Array<{ payload: Buffer; headers: Record<string, string> }> = [];
+
+      const mockTransport = jest.fn(async (url: string, payload: any, headers: Record<string, string>) => {
+        dispatchedBatches.push({ payload, headers });
+        return { status: 200 };
+      });
+
+      const vlogsSendFn = createVictoriaLogsSendFn({
+        endpoint: 'http://localhost:9428/insert/jsonline',
+        useGzip: true,
+        transport: mockTransport
+      });
+
+      const collector = new LogCollector({
+        batchSize: 10,
+        flushIntervalMs: 0, // Manual flush
+        sendFn: async (batch) => {
+          await vlogsSendFn(batch);
+        }
+      });
+
+      collector.collect({ id: 'collector-vlog-1', message: 'System boot event' });
+      collector.collect({ id: 'collector-vlog-2', message: 'Daemon initialized' });
+
+      // Explicitly flush the batch
+      await collector.flush();
+
+      expect(mockTransport).toHaveBeenCalledTimes(1);
+      expect(dispatchedBatches[0].headers['Content-Encoding']).toBe('gzip');
+      expect(dispatchedBatches[0].headers['Content-Type']).toBe('application/stream+json; charset=utf-8');
+
+      const decompressed = zlib.gunzipSync(dispatchedBatches[0].payload).toString('utf-8');
+      expect(decompressed).toContain('System boot event');
+      expect(decompressed).toContain('Daemon initialized');
+
+      expect(collector.getMetrics().totalSent).toBe(2);
+      expect(collector.getMetrics().totalBatchesSent).toBe(1);
+
+      collector.destroy();
     });
   });
 });
