@@ -12,15 +12,26 @@ use crate::storage::VictoriaStorageEngine;
 use crate::stream::StreamManager;
 
 #[derive(Debug, serde::Deserialize)]
+struct InboundBlockHeader {
+    stream_id: Option<u64>,
+    part_id: Option<String>,
+    block_id: Option<u32>,
+    rows_count: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct InboundBatch {
     stream_id: Option<u64>,
     stream_labels: Option<BTreeMap<String, String>>,
+    header: Option<InboundBlockHeader>,
     entries: Vec<InboundEntry>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct InboundEntry {
+    #[serde(default)]
     timestamp: i64,
+    #[serde(alias = "raw", alias = "message", default)]
     raw_msg: String,
 }
 
@@ -143,8 +154,12 @@ impl IpcServer {
         let batch: InboundBatch = serde_json::from_str(trimmed)?;
         let stream_id = if let Some(labels) = &batch.stream_labels {
             stream_mgr.get_or_create_stream_id(labels)
+        } else if let Some(sid) = batch.stream_id {
+            sid
+        } else if let Some(h) = &batch.header {
+            h.stream_id.unwrap_or(1001)
         } else {
-            batch.stream_id.unwrap_or(1001)
+            1001
         };
 
         // 構建並壓縮成 VictoriaBlock (以 4096 筆或 2MB 為 Block 封裝邊界)

@@ -93,7 +93,7 @@ func (crb *CircularRingBuffer) Push(entry LogEntry) bool {
 	currentDepth := crb.tail - crb.head
 
 	if currentDepth >= crb.capacity {
-		crb.totalOverflows++
+		atomic.AddUint64(&crb.totalOverflows, 1)
 		switch crb.strategy {
 		case StrategyDropOldest:
 			// Advance head cursor to drop oldest element and retain freshest logs
@@ -113,7 +113,7 @@ func (crb *CircularRingBuffer) Push(entry LogEntry) bool {
 	idx := crb.tail & crb.mask
 	crb.slots[idx] = entry
 	crb.tail++
-	crb.totalPushed++
+	atomic.AddUint64(&crb.totalPushed, 1)
 
 	newDepth := crb.tail - crb.head
 	if newDepth > crb.highWatermark {
@@ -153,7 +153,7 @@ func (crb *CircularRingBuffer) PopBatch(dest []LogEntry, maxBatch int) int {
 	}
 
 	crb.head += uint64(drainCount)
-	crb.totalDrained += uint64(drainCount)
+	atomic.AddUint64(&crb.totalDrained, uint64(drainCount))
 	return drainCount
 }
 
@@ -175,16 +175,20 @@ func (crb *CircularRingBuffer) Stats() CircularBufferStats {
 		utilization = (float64(depth) / float64(crb.capacity)) * 100.0
 	}
 
+	totalPushed := atomic.LoadUint64(&crb.totalPushed)
+	totalDrained := atomic.LoadUint64(&crb.totalDrained)
+	totalOverflows := atomic.LoadUint64(&crb.totalOverflows)
+
 	// Average ~400 bytes per log object saved from ephemeral heap churn
-	gcSavingsMB := (float64(crb.totalPushed) * 400.0) / (1024.0 * 1024.0)
+	gcSavingsMB := (float64(totalPushed) * 400.0) / (1024.0 * 1024.0)
 
 	return CircularBufferStats{
 		Capacity:             crb.capacity,
 		CurrentDepth:         depth,
 		HighWatermark:        crb.highWatermark,
-		TotalPushed:          crb.totalPushed,
-		TotalDrained:         crb.totalDrained,
-		TotalOverflows:       crb.totalOverflows,
+		TotalPushed:          totalPushed,
+		TotalDrained:         totalDrained,
+		TotalOverflows:       totalOverflows,
 		UtilizationPct:       utilization,
 		Strategy:             string(crb.strategy),
 		GCSavingsEstimatedMB: gcSavingsMB,

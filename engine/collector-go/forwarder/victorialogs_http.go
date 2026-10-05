@@ -2,6 +2,7 @@ package forwarder
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -19,6 +20,19 @@ import (
 
 	"github.com/semor-cyber/semor-collector/config"
 	"github.com/semor-cyber/semor-collector/pipeline"
+)
+
+var (
+	gzipWriterPool = sync.Pool{
+		New: func() interface{} {
+			return gzip.NewWriter(io.Discard)
+		},
+	}
+	bytesBufferPool = sync.Pool{
+		New: func() interface{} {
+			return new(bytes.Buffer)
+		},
+	}
 )
 
 // RetryConfig 定義 VictoriaLogs POST 指數退避重試參數
@@ -77,6 +91,8 @@ type VictoriaLogsHTTPForwarder struct {
 	queuedDueToOutage   uint64 // 超過就地重試上限轉入佇列之批次數
 	queueDrainedSuccess uint64 // 由後台重試協程成功排空發送之批次數
 	totalDroppedLogs    uint64 // 僅在佇列完全飽和且無法存儲時之丟棄數 (極端保護)
+	totalRawBytes       uint64 // 原始日誌位元組數
+	totalCompressedBytes uint64 // Gzip 壓縮後位元組數
 
 	// 狀態監控
 	mu                 sync.RWMutex
@@ -86,6 +102,7 @@ type VictoriaLogsHTTPForwarder struct {
 	currentBackoffMs   int64
 	isTargetReachable  bool
 	circuitBreakerOpen bool
+	useGzip            bool
 
 	// 主動健康檢查與純緩衝模式 (Proactive Health Check & Buffer-Only Mode)
 	operatingMode        string // "normal" | "buffer_only"
@@ -117,10 +134,12 @@ func NewVictoriaLogsHTTPForwarder(cfg *config.Config, retryCfg RetryConfig) *Vic
 			Timeout:   5 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 30,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 64,
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 5 * time.Second,
+		DisableKeepAlives:   false,
+		ForceAttemptHTTP2:   true,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -139,6 +158,7 @@ func NewVictoriaLogsHTTPForwarder(cfg *config.Config, retryCfg RetryConfig) *Vic
 		ctx:                 ctx,
 		cancel:              cancel,
 		isTargetReachable:   true,
+		useGzip:             true,
 	}
 
 	// 啟動背景離線重試佇列排空處理協程 (Draining Worker)
@@ -302,15 +322,44 @@ func (f *VictoriaLogsHTTPForwarder) postWithExponentialBackoff(payload []byte, l
 	return fmt.Errorf("VictoriaLogs 暫時不可用，批次已安全轉入離線暫存佇列: %w", lastErr)
 }
 
-// doSinglePost 發起單次 HTTP POST 傳輸
+// doSinglePost 發起單次 HTTP POST 傳輸 (支援 Gzip 高吞吐壓縮傳輸)
 func (f *VictoriaLogsHTTPForwarder) doSinglePost(payload []byte) (int, time.Duration, error) {
-	req, err := http.NewRequestWithContext(f.ctx, http.MethodPost, f.targetURL, bytes.NewReader(payload))
+	var bodyReader io.Reader
+	rawLen := len(payload)
+	atomic.AddUint64(&f.totalRawBytes, uint64(rawLen))
+
+	isGzipped := false
+	if f.useGzip && rawLen > 64 {
+		buf := bytesBufferPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		defer bytesBufferPool.Put(buf)
+
+		gz := gzipWriterPool.Get().(*gzip.Writer)
+		gz.Reset(buf)
+		_, _ = gz.Write(payload)
+		_ = gz.Close()
+		gzipWriterPool.Put(gz)
+
+		compLen := buf.Len()
+		atomic.AddUint64(&f.totalCompressedBytes, uint64(compLen))
+		compressedBytes := append([]byte(nil), buf.Bytes()...)
+		bodyReader = bytes.NewReader(compressedBytes)
+		isGzipped = true
+	} else {
+		atomic.AddUint64(&f.totalCompressedBytes, uint64(rawLen))
+		bodyReader = bytes.NewReader(payload)
+	}
+
+	req, err := http.NewRequestWithContext(f.ctx, http.MethodPost, f.targetURL, bodyReader)
 	if err != nil {
 		return 0, 0, err
 	}
 
 	req.Header.Set("Content-Type", "application/stream+json; charset=utf-8")
 	req.Header.Set("User-Agent", "SEMOR-VictoriaLogs-Collector/2.5")
+	if isGzipped {
+		req.Header.Set("Content-Encoding", "gzip")
+	}
 
 	if f.accountID != "" {
 		req.Header.Set("AccountID", f.accountID)
@@ -546,6 +595,9 @@ type RetryTelemetryStats struct {
 	QueueCapacity       int       `json:"queue_capacity"`
 	CurrentBackoffMs    int64     `json:"current_backoff_ms"`
 	TotalDroppedLogs    uint64    `json:"total_dropped_logs"`
+	TotalRawBytes       uint64    `json:"total_raw_bytes"`
+	TotalCompressedBytes uint64   `json:"total_compressed_bytes"`
+	CompressionRatioPct float64   `json:"compression_ratio_pct"`
 	LastError           string    `json:"last_error,omitempty"`
 	LastErrorTime       time.Time `json:"last_error_time,omitempty"`
 	LastSuccessTime     time.Time `json:"last_success_time,omitempty"`
@@ -554,6 +606,13 @@ type RetryTelemetryStats struct {
 func (f *VictoriaLogsHTTPForwarder) Telemetry() RetryTelemetryStats {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+
+	raw := atomic.LoadUint64(&f.totalRawBytes)
+	comp := atomic.LoadUint64(&f.totalCompressedBytes)
+	var ratioPct float64
+	if raw > 0 && comp <= raw {
+		ratioPct = float64(raw-comp) / float64(raw) * 100.0
+	}
 
 	return RetryTelemetryStats{
 		TargetURL:           f.targetURL,
@@ -571,6 +630,9 @@ func (f *VictoriaLogsHTTPForwarder) Telemetry() RetryTelemetryStats {
 		QueueCapacity:       f.retryCfg.QueueCapacity,
 		CurrentBackoffMs:    f.currentBackoffMs,
 		TotalDroppedLogs:    atomic.LoadUint64(&f.totalDroppedLogs),
+		TotalRawBytes:       raw,
+		TotalCompressedBytes: comp,
+		CompressionRatioPct: ratioPct,
 		LastError:           f.lastError,
 		LastErrorTime:       f.lastErrorTime,
 		LastSuccessTime:     f.lastSuccessTime,

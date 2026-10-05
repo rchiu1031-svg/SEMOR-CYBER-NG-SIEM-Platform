@@ -3,6 +3,7 @@ package receiver
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -92,7 +93,7 @@ func (h *HTTPReceiver) Start() error {
 	return nil
 }
 
-// handleVictoriaLogsInsert 支援 VictoriaLogs NDJSON 多行格式
+// handleVictoriaLogsInsert 支援 VictoriaLogs NDJSON 多行格式 (含 Gzip 壓縮自動解壓縮)
 func (h *HTTPReceiver) handleVictoriaLogsInsert(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -100,8 +101,24 @@ func (h *HTTPReceiver) handleVictoriaLogsInsert(w http.ResponseWriter, r *http.R
 	}
 
 	atomic.AddUint64(&h.httpRequests, 1)
-	scanner := bufio.NewScanner(r.Body)
+
+	var reader io.Reader = r.Body
 	defer r.Body.Close()
+
+	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
+		gzReader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Gzip decode error: %v", err), http.StatusBadRequest)
+			return
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	}
+
+	scanner := bufio.NewScanner(reader)
+	// 支援高達 10MB 單行日誌
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	count := 0
 	for scanner.Scan() {
