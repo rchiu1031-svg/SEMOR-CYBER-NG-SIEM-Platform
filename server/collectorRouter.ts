@@ -1,8 +1,9 @@
-import { Router, Request, Response } from 'express';
-import { globalCollectorMemoryManager } from './collectorMemoryManager';
-import { globalVictoriaLogsHealthMonitor } from './victoriaLogsHealthMonitor';
-import { globalCollectorThroughputTracker } from './collectorThroughputTracker';
-import { globalCollectorConnectionPool } from './collectorConnectionPool';
+import express, { type Request, type Response } from 'express';
+const Router = express.Router;
+import { globalCollectorMemoryManager } from './collectorMemoryManager.ts';
+import { globalVictoriaLogsHealthMonitor } from './victoriaLogsHealthMonitor.ts';
+import { globalCollectorThroughputTracker } from './collectorThroughputTracker.ts';
+import { globalCollectorConnectionPool } from './collectorConnectionPool.ts';
 
 export function createCollectorRouter(vlogsRetryState: any, broadcastVlogsRetryStats: (event?: any) => void, activeIngestSources: any[]) {
   const router = Router();

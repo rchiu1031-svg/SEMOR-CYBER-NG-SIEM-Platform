@@ -9,27 +9,28 @@ import zlib from 'zlib';
 import { WebSocketServer, WebSocket } from 'ws';
 
 // Modular SIEM & Cyber Defense Routers
-import { createCollectorRouter } from './server/collectorRouter';
-import { createNdrRouter } from './server/ndrRouter';
-import { createXdrRouter } from './server/xdrRouter';
-import { createIncidentsRouter } from './server/incidentsRouter';
-import { createNetworkRouter } from './server/networkRouter';
-import { createCtiRouter } from './server/ctiRouter';
-import { createMalwareRouter } from './server/malwareRouter';
-import { createFimRouter } from './server/fimRouter';
-import { createVulnRouter } from './server/vulnRouter';
-import { createAiAnalystRouter } from './server/aiAnalystRouter';
-import { createForensicsRouter } from './server/forensicsRouter';
-import { createHoneypotRouter } from './server/honeypotRouter';
-import { createUebaRouter } from './server/uebaRouter';
-import { createSoarRouter } from './server/soarRouter';
-import { createCasesRouter } from './server/casesRouter';
-import { createApmRouter } from './server/apmRouter';
-import { globalCollectorMemoryManager } from './server/collectorMemoryManager';
-import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor';
-import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker';
-import { globalCollectorConnectionPool } from './server/collectorConnectionPool';
-import { globalVictoriaLogsLatencyHeatmap } from './server/victoriaLogsLatencyHeatmap';
+import { createCollectorRouter } from './server/collectorRouter.ts';
+import { createNdrRouter } from './server/ndrRouter.ts';
+import { createXdrRouter } from './server/xdrRouter.ts';
+import { createIncidentsRouter } from './server/incidentsRouter.ts';
+import { createNetworkRouter } from './server/networkRouter.ts';
+import { createCtiRouter } from './server/ctiRouter.ts';
+import { createMalwareRouter } from './server/malwareRouter.ts';
+import { createFimRouter } from './server/fimRouter.ts';
+import { createVulnRouter } from './server/vulnRouter.ts';
+import { createAiAnalystRouter } from './server/aiAnalystRouter.ts';
+import { createForensicsRouter } from './server/forensicsRouter.ts';
+import { createHoneypotRouter } from './server/honeypotRouter.ts';
+import { createUebaRouter } from './server/uebaRouter.ts';
+import { createSoarRouter } from './server/soarRouter.ts';
+import { createCasesRouter } from './server/casesRouter.ts';
+import { createApmRouter } from './server/apmRouter.ts';
+import { createOverviewRouter } from './server/overviewRouter.ts';
+import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
+import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor.ts';
+import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker.ts';
+import { globalCollectorConnectionPool } from './server/collectorConnectionPool.ts';
+import { globalVictoriaLogsLatencyHeatmap } from './server/victoriaLogsLatencyHeatmap.ts';
 
 dotenv.config();
 
@@ -1243,6 +1244,24 @@ async function startServer() {
     }
   }
 
+  function broadcastOverviewUpdate(eventData?: any) {
+    if (collectorWsClients.size === 0) return;
+    const payload = JSON.stringify({
+      type: 'overview_update',
+      timestamp: new Date().toISOString(),
+      event: eventData || null
+    });
+    for (const client of collectorWsClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(payload);
+        } catch {
+          // ignore error on stale socket
+        }
+      }
+    }
+  }
+
   // Periodic heartbeat broadcast every 1500ms to keep all live subscribers synced
   setInterval(() => {
     if (collectorWsClients.size > 0) {
@@ -2077,6 +2096,8 @@ async function startServer() {
   app.use('/api/v1/soar', createSoarRouter());
   app.use('/api/v1/cases', createCasesRouter());
   app.use('/api/v1/apm', createApmRouter());
+  app.use('/api/v1/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
+  app.use('/api/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {
@@ -3038,6 +3059,7 @@ async function startServer() {
     if (runtimeLogCorpus.length > 2500) {
       runtimeLogCorpus = runtimeLogCorpus.slice(0, 2500);
     }
+    broadcastOverviewUpdate({ type: 'log_ingested', protocol, timestamp: record['@timestamp'] });
 
     // Update Ingestion Sources Telemetry counters
     const matchedSource = activeIngestSources.find(s => 
@@ -4138,15 +4160,20 @@ async function startServer() {
       try {
         const data = JSON.parse(messageBuffer.toString());
         
-        if (data.type === 'subscribe_collector_diagnostics') {
+        if (data.type === 'subscribe_collector_diagnostics' || data.type === 'subscribe_overview_dashboard') {
           collectorWsClients.add(ws);
           ws.send(JSON.stringify({
             type: 'collector_retry_stats',
             timestamp: new Date().toISOString(),
             data: getVlogsRetryStatsSnapshot()
           }));
+          ws.send(JSON.stringify({
+            type: 'overview_update',
+            timestamp: new Date().toISOString(),
+            event: { type: 'initial_sync' }
+          }));
         }
-        else if (data.type === 'unsubscribe_collector_diagnostics') {
+        else if (data.type === 'unsubscribe_collector_diagnostics' || data.type === 'unsubscribe_overview_dashboard') {
           collectorWsClients.delete(ws);
         }
         else if (data.type === 'ping') {

@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
+const Router = express.Router;
 import crypto from 'crypto';
 
 export interface PlaybookItem {

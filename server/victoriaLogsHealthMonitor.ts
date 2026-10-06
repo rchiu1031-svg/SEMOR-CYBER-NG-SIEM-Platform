@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { globalCollectorConnectionPool } from './collectorConnectionPool';
+import { globalCollectorConnectionPool } from './collectorConnectionPool.ts';
 
 export type CollectorOperatingMode = 'normal' | 'buffer_only';
 export type HealthProbeStatus = 'healthy' | 'unhealthy' | 'timeout' | 'simulated_outage';

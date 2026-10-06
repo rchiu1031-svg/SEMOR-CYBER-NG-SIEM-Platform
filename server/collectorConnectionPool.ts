@@ -1,6 +1,6 @@
 import http from 'http';
 import https from 'https';
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 
 export interface ConnectionPoolConfig {
   maxConnections: number;        // Maximum total connections in pool
