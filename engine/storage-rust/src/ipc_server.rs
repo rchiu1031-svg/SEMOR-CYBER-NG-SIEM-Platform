@@ -178,8 +178,11 @@ impl IpcServer {
             }
         }
 
-        // 2. 識別是否為 XDR 多層聯防事件 (XDR Event Record)
-        if trimmed.contains("\"telemetry_type\":\"xdr_event\"") || trimmed.contains("\"source\":\"xdr\"") {
+        // 2. 識別是否為 XDR 多層聯防事件 (XDR Event Record / Honeypot Deception)
+        if trimmed.contains("\"telemetry_type\":\"xdr_event\"")
+            || trimmed.contains("\"source\":\"xdr\"")
+            || trimmed.contains("\"source\":\"honeypot\"")
+        {
             if let Ok(xdr_ev) = serde_json::from_str::<XdrEventRecord>(trimmed) {
                 let _ = xdr_engine.ingest_event_batch(&[xdr_ev]);
                 return Ok(());

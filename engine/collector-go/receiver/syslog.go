@@ -431,6 +431,11 @@ func (r *SyslogReceiver) StartUDP(ctx context.Context, numWorkers int) error {
 
 	// 讀取迴圈
 	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	go func() {
 		defer conn.Close()
 
 		for {
@@ -444,6 +449,9 @@ func (r *SyslogReceiver) StartUDP(ctx context.Context, numWorkers int) error {
 				n, remoteAddr, err := conn.ReadFromUDP(buf)
 				if err != nil {
 					r.packetPool.Put(bufPtr)
+					if ctx.Err() != nil {
+						return
+					}
 					continue
 				}
 				atomic.AddUint64(&r.udpPacketsRecv, 1)
@@ -479,6 +487,11 @@ func (r *SyslogReceiver) StartTCP(ctx context.Context) error {
 	fmt.Printf("[Syslog Receiver] TCP 監聽就緒 %s (支援 RFC-6587 Octet Counting / 換行分割)\n", addr)
 
 	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+
+	go func() {
 		defer listener.Close()
 		for {
 			select {
@@ -487,6 +500,9 @@ func (r *SyslogReceiver) StartTCP(ctx context.Context) error {
 			default:
 				conn, err := listener.Accept()
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					continue
 				}
 				go r.handleTCPConn(ctx, conn, "syslog-tcp")
@@ -525,6 +541,11 @@ func (r *SyslogReceiver) StartTLS(ctx context.Context) error {
 	fmt.Printf("[Syslog Receiver] TLS RFC-5425 監聽就緒 %s (mTLS/TLS 1.2+ 就緒)\n", addr)
 
 	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+
+	go func() {
 		defer listener.Close()
 		for {
 			select {
@@ -533,6 +554,9 @@ func (r *SyslogReceiver) StartTLS(ctx context.Context) error {
 			default:
 				conn, err := listener.Accept()
 				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					continue
 				}
 				atomic.AddUint64(&r.tlsPacketsRecv, 1)

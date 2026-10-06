@@ -81,6 +81,8 @@ func (h *HTTPReceiver) Start() error {
 	mux.HandleFunc("/insert/xdr/endpoint", h.handleXDREndpoint)
 	mux.HandleFunc("/insert/xdr/identity", h.handleXDRIdentity)
 	mux.HandleFunc("/insert/xdr/cloud", h.handleXDRCloud)
+	mux.HandleFunc("/insert/xdr/perimeter", h.handleXDRPerimeter)
+	mux.HandleFunc("/insert/honeypot/event", h.handleHoneypotEvent)
 	mux.HandleFunc("/api/v1/xdr/stats", h.handleXDRStats)
 
 	// 9. 網路效能與基礎架構監控 (NPM/NIM) 介面與 Trap 端點
@@ -493,6 +495,17 @@ func (h *HTTPReceiver) handleNDREve(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
 	if h.ndrRecv != nil {
 		lines := bytes.Split(body, []byte("\n"))
 		count := 0
@@ -547,7 +560,7 @@ func (h *HTTPReceiver) handleNDRStats(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ndr_disabled"})
 }
 
-// handleXDREndpoint 接收端點 EDR / Windows Sysmon / osquery 事件
+// handleXDREndpoint 接收端點 EDR / Windows Sysmon / osquery 事件 (支援 Gzip 壓縮)
 func (h *HTTPReceiver) handleXDREndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -559,6 +572,17 @@ func (h *HTTPReceiver) handleXDREndpoint(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer r.Body.Close()
+
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
 
 	if h.xdrRecv != nil {
 		if err := h.xdrRecv.IngestEndpointEvent(body); err != nil {
@@ -572,7 +596,7 @@ func (h *HTTPReceiver) handleXDREndpoint(w http.ResponseWriter, r *http.Request)
 	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
 }
 
-// handleXDRIdentity 接收身分與認證事件 (Active Directory / Kerberos / IAM)
+// handleXDRIdentity 接收身分與認證事件 (Active Directory / Kerberos / IAM, 支援 Gzip 壓縮)
 func (h *HTTPReceiver) handleXDRIdentity(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -584,6 +608,17 @@ func (h *HTTPReceiver) handleXDRIdentity(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer r.Body.Close()
+
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
 
 	if h.xdrRecv != nil {
 		if err := h.xdrRecv.IngestIdentityEvent(body); err != nil {
@@ -597,7 +632,7 @@ func (h *HTTPReceiver) handleXDRIdentity(w http.ResponseWriter, r *http.Request)
 	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
 }
 
-// handleXDRCloud 接收雲原生與 K8s 稽核事件
+// handleXDRCloud 接收雲原生與 K8s 稽核事件 (支援 Gzip 壓縮)
 func (h *HTTPReceiver) handleXDRCloud(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -610,6 +645,17 @@ func (h *HTTPReceiver) handleXDRCloud(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
 	if h.xdrRecv != nil {
 		if err := h.xdrRecv.IngestCloudEvent(body); err != nil {
 			http.Error(w, fmt.Sprintf("Cloud event parse error: %v", err), http.StatusBadRequest)
@@ -617,6 +663,78 @@ func (h *HTTPReceiver) handleXDRCloud(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "layer": "cloud"})
+		return
+	}
+	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleXDRPerimeter 接收邊界與安全控制設備事件 (NGFW / WAF / VPN / IPS, 支援 Gzip 壓縮)
+func (h *HTTPReceiver) handleXDRPerimeter(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
+	if h.xdrRecv != nil {
+		if err := h.xdrRecv.IngestPerimeterEvent(body); err != nil {
+			http.Error(w, fmt.Sprintf("Perimeter event parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "layer": "perimeter"})
+		return
+	}
+	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleHoneypotEvent 接收主動防禦蜜罐誘捕事件 (HoneyCreds, Decoy Services, 支援 Gzip 壓縮)
+func (h *HTTPReceiver) handleHoneypotEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
+	if h.xdrRecv != nil {
+		if err := h.xdrRecv.IngestDeceptionEvent(body); err != nil {
+			http.Error(w, fmt.Sprintf("Honeypot event parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "layer": "honeypot"})
 		return
 	}
 	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)

@@ -358,6 +358,135 @@ func (xdr *XDRReceiver) IngestCloudEvent(payload []byte) error {
 	return nil
 }
 
+// IngestPerimeterEvent 處理邊界與網路安全控制設備事件 (NGFW / WAF / VPN / IPS / Proxy)
+func (xdr *XDRReceiver) IngestPerimeterEvent(payload []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		atomic.AddUint64(&xdr.parseErrors, 1)
+		return err
+	}
+
+	atomic.AddUint64(&xdr.perimeterEventsRecv, 1)
+	atomic.AddUint64(&xdr.totalBytesRecv, uint64(len(payload)))
+
+	nowNano := time.Now().UnixNano()
+	srcIP := getString(raw, "src_ip", "source_ip", "client_ip")
+	dstIP := getString(raw, "dst_ip", "dest_ip", "destination_ip")
+	dstPort := uint16(getInt(raw, "dst_port", "dest_port", "port"))
+	action := getString(raw, "action", "status")
+	vendor := getString(raw, "vendor", "device_vendor")
+	threatName := getString(raw, "threat_name", "attack", "signature")
+
+	severity := "Info"
+	tactic := ""
+	technique := ""
+	threatTitle := ""
+	threatDesc := ""
+	actionTaken := "Observed"
+	confidence := uint8(65)
+
+	lowerPayload := strings.ToLower(string(payload))
+	if strings.Contains(lowerPayload, "sql injection") || strings.Contains(lowerPayload, "sqli") || strings.Contains(lowerPayload, "union select") {
+		tactic = "Initial Access"
+		technique = "T1190 Exploit Public-Facing Application"
+		severity = "Critical"
+		threatTitle = "邊界 WAF 攔截 SQL 注入滲透 (SQL Injection Exploit)"
+		threatDesc = fmt.Sprintf("來自 %s 攻擊來源針對 %s:%d 嘗試執行 SQL 注入資料庫探測", srcIP, dstIP, dstPort)
+		actionTaken = "Blocked"
+		confidence = 95
+		atomic.AddUint64(&xdr.criticalAlertsCount, 1)
+	} else if strings.Contains(lowerPayload, "log4j") || strings.Contains(lowerPayload, "jndi:ldap") {
+		tactic = "Initial Access"
+		technique = "T1190 Exploit Public-Facing Application"
+		severity = "Critical"
+		threatTitle = "Log4Shell 遠端程式碼執行攻擊 (CVE-2021-44228 JNDI RCE)"
+		threatDesc = fmt.Sprintf("邊界 NGFW 阻斷來自 %s 針對內部服務之 JNDI 反向注入", srcIP)
+		actionTaken = "Blocked"
+		confidence = 99
+		atomic.AddUint64(&xdr.criticalAlertsCount, 1)
+	} else if strings.Contains(lowerPayload, "vpn brute force") || strings.Contains(lowerPayload, "failed vpn login") {
+		tactic = "Credential Access"
+		technique = "T1110 Brute Force"
+		severity = "High"
+		threatTitle = "SSL-VPN 外網閘道暴力猜解碰撞攻擊"
+		threatDesc = fmt.Sprintf("邊界 VPN 閘道偵測到來自 %s 之頻繁認證失誤", srcIP)
+		actionTaken = "Alerted"
+		confidence = 88
+	}
+
+	event := XDREventRecord{
+		TimestampNano:  nowNano,
+		EventID:        generateEventID(payload),
+		Layer:          LayerPerimeter,
+		SensorID:       fmt.Sprintf("%s-perimeter-gw", vendor),
+		Hostname:       "BORDER-GATEWAY-FIREWALL",
+		HostIP:         srcIP,
+		DstIP:          dstIP,
+		DstPort:        dstPort,
+		MitreTactic:    tactic,
+		MitreTechnique: technique,
+		Severity:       severity,
+		Confidence:     confidence,
+		ThreatTitle:    threatTitle,
+		ThreatDesc:     threatDesc,
+		ActionTaken:    actionTaken,
+		RawEvent:       string(payload),
+		Labels: map[string]string{
+			"source": "xdr",
+			"layer":  "perimeter",
+			"action": action,
+		},
+	}
+
+	xdr.dispatchXDREvent(event)
+	return nil
+}
+
+// IngestDeceptionEvent 處理密罐誘捕 (Honeypot Deception Grid) 誘捕互動事件
+func (xdr *XDRReceiver) IngestDeceptionEvent(payload []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		atomic.AddUint64(&xdr.parseErrors, 1)
+		return err
+	}
+
+	atomic.AddUint64(&xdr.perimeterEventsRecv, 1)
+	atomic.AddUint64(&xdr.criticalAlertsCount, 1)
+	atomic.AddUint64(&xdr.totalBytesRecv, uint64(len(payload)))
+
+	nowNano := time.Now().UnixNano()
+	decoyName := getString(raw, "decoy_name", "name")
+	decoyType := getString(raw, "decoy_type", "type")
+	attackerIP := getString(raw, "attacker_ip", "src_ip")
+	capturedCred := getString(raw, "credentials", "username")
+
+	event := XDREventRecord{
+		TimestampNano:  nowNano,
+		EventID:        generateEventID(payload),
+		Layer:          LayerPerimeter,
+		SensorID:       "deception-honeygrid-sensor",
+		Hostname:       decoyName,
+		HostIP:         attackerIP,
+		Username:       capturedCred,
+		MitreTactic:    "Lateral Movement",
+		MitreTechnique: "T1021 Remote Services (Deception Triggered)",
+		Severity:       "Critical",
+		Confidence:     100, // 蜜罐互動可信度為 100% 絕對確定
+		ThreatTitle:    fmt.Sprintf("主動防禦蜜罐誘捕警報: %s (%s)", decoyName, decoyType),
+		ThreatDesc:     fmt.Sprintf("攻擊者 %s 觸碰並嘗試登入誘捕節點 %s，已擷取誘餌憑證", attackerIP, decoyName),
+		ActionTaken:    "Quarantined",
+		RawEvent:       string(payload),
+		Labels: map[string]string{
+			"source":     "honeypot",
+			"deception":  "true",
+			"decoy_type": decoyType,
+		},
+	}
+
+	xdr.dispatchXDREvent(event)
+	return nil
+}
+
 // dispatchXDREvent 將 XDR 事件標準化打包送入核心佇列
 func (xdr *XDRReceiver) dispatchXDREvent(event XDREventRecord) {
 	eventJSON, err := json.Marshal(event)

@@ -129,6 +129,24 @@ func ExtractStreamLabelsFromLog(rawLog string, sourceHost string, protocol strin
 
 	rawLower := strings.ToLower(rawLog)
 	switch {
+	case strings.Contains(rawLower, "\"telemetry_type\":\"network_metric\"") || strings.Contains(rawLower, "\"source\":\"network_monitor\""):
+		labels["stream"] = "network_metrics"
+		labels["vendor"] = "npm_monitor"
+	case strings.Contains(rawLower, "\"telemetry_type\":\"snmp_trap\"") || strings.Contains(rawLower, "snmp_trap"):
+		labels["stream"] = "snmp_traps"
+		labels["vendor"] = "snmp_agent"
+	case strings.Contains(rawLower, "\"telemetry_type\":\"diagnostic_probe\""):
+		labels["stream"] = "network_diagnostics"
+		labels["vendor"] = "probe_synthetic"
+	case strings.Contains(rawLower, "\"telemetry_type\":\"network_flow\"") || strings.Contains(rawLower, "\"source\":\"ndr\""):
+		labels["stream"] = "network_flow"
+		labels["vendor"] = "ndr_sensor"
+	case strings.Contains(rawLower, "\"telemetry_type\":\"xdr_event\"") || strings.Contains(rawLower, "\"source\":\"xdr\""):
+		labels["stream"] = "xdr_security"
+		labels["vendor"] = "xdr_engine"
+	case strings.Contains(rawLower, "\"source\":\"honeypot\"") || strings.Contains(rawLower, "honeygrid"):
+		labels["stream"] = "honeypot"
+		labels["vendor"] = "deception_grid"
 	case strings.Contains(rawLower, "fortigate") || strings.Contains(rawLower, "fgt") || strings.Contains(rawLower, "firewall"):
 		labels["stream"] = "firewall"
 		labels["vendor"] = "fortinet"

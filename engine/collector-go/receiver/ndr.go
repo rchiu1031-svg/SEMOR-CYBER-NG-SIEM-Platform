@@ -112,6 +112,11 @@ func (ndr *NDRReceiver) StartNetFlowUDP(ctx context.Context, port int) error {
 	fmt.Printf("[NDR 收集核心] NetFlow v5 / IPFIX 監聽就緒: 0.0.0.0:%d (核心緩衝: 16MB)\n", port)
 
 	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	go func() {
 		defer conn.Close()
 		for {
 			select {
@@ -124,6 +129,9 @@ func (ndr *NDRReceiver) StartNetFlowUDP(ctx context.Context, port int) error {
 				n, remoteAddr, err := conn.ReadFromUDP(buf)
 				if err != nil {
 					ndr.packetPool.Put(bufPtr)
+					if ctx.Err() != nil {
+						return
+					}
 					continue
 				}
 
@@ -161,6 +169,11 @@ func (ndr *NDRReceiver) StartSFlowUDP(ctx context.Context, port int) error {
 	fmt.Printf("[NDR 收集核心] sFlow v5 串流監聽就緒: 0.0.0.0:%d (核心緩衝: 16MB)\n", port)
 
 	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	go func() {
 		defer conn.Close()
 		for {
 			select {
@@ -173,6 +186,9 @@ func (ndr *NDRReceiver) StartSFlowUDP(ctx context.Context, port int) error {
 				n, remoteAddr, err := conn.ReadFromUDP(buf)
 				if err != nil {
 					ndr.packetPool.Put(bufPtr)
+					if ctx.Err() != nil {
+						return
+					}
 					continue
 				}
 
