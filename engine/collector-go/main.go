@@ -94,13 +94,24 @@ func main() {
 		}
 	}
 
-	// 9. 啟動 HTTP 接收器 (支援 /insert/jsonline, /insert/ndr/eve, /insert/ndr/pcap, /api/v1/collector/test-log)
-	httpRecv := receiver.NewHTTPReceiver(cfg, inboundQueue, pipeProcessor, syslogRecv, ndrRecv)
+	// 9. 啟動 XDR (Extended Detection & Response) 多層聯合分析接收器 (EDR, AD/Identity, Cloud/K8s)
+	xdrRecv := receiver.NewXDRReceiver(cfg, inboundQueue)
+
+	// 10. 啟動 網路效能與基礎架構監控接收器 (SNMP MIB-II, SNMP Trap, Ping RTT)
+	netMonRecv := receiver.NewNetworkMonitorReceiver(cfg, inboundQueue)
+	if cfg.NetworkMonitorEnabled {
+		if err := netMonRecv.StartSNMPTrapUDP(ctx, cfg.SNMPTrapUDPPort); err != nil {
+			fmt.Printf("[錯誤] 啟動 SNMP Trap 接收器失敗: %v\n", err)
+		}
+	}
+
+	// 11. 啟動 HTTP 接收器 (支援 /insert/jsonline, /insert/ndr/*, /insert/xdr/*, /insert/network/*, /api/v1/collector/test-log)
+	httpRecv := receiver.NewHTTPReceiver(cfg, inboundQueue, pipeProcessor, syslogRecv, ndrRecv, xdrRecv, netMonRecv)
 	if err := httpRecv.Start(); err != nil {
 		fmt.Printf("[錯誤] 啟動 HTTP 接收器失敗: %v\n", err)
 	}
 
-	// 10. 定期輸出 VictoriaLogs 架構模式與指數退避重試遙測日誌
+	// 12. 定期輸出 VictoriaLogs 架構模式與指數退避重試遙測日誌
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -114,6 +125,8 @@ func main() {
 				sent, batches, failed, isConn := rustForwarder.Telemetry()
 				sBlocks, sRows, uncomp, comp, ratio := blockAccumulator.Telemetry()
 				ndrStats := ndrRecv.Telemetry()
+				xdrStats := xdrRecv.Telemetry()
+				netStats := netMonRecv.Telemetry()
 				queueLen := len(inboundQueue)
 
 				fmt.Printf("[VictoriaLogs 遙測] 佇列: %d/%d | 封塊數: %d | 累計行數: %d | 未壓縮: %.2f MB | 預估壓縮: %.2f MB (%s) | 轉發Rust: %d (批次: %d, 失敗: %d, 連線: %t)\n",
@@ -130,6 +143,12 @@ func main() {
 
 				fmt.Printf("                   └─ NDR 網路鑑識: NetFlow:%v筆 | sFlow:%v筆 | Suricata EVE:%v筆 | PCAP訊框:%v | 威脅攔截:%v件\n",
 					ndrStats["netflow_flows"], ndrStats["sflow_samples"], ndrStats["suricata_events"], ndrStats["pcap_frames"], ndrStats["threats_detected"])
+
+				fmt.Printf("                   └─ XDR 聯防分析: 端點EDR:%v | 身分AD:%v | 雲原生K8s:%v | 重大警報:%v | 關聯觸發:%v件\n",
+					xdrStats["endpoint_events"], xdrStats["identity_events"], xdrStats["cloud_events"], xdrStats["critical_alerts"], xdrStats["correlations_triggered"])
+
+				fmt.Printf("                   └─ 網路基礎監控: 介面統計:%v筆 | SNMP Trap:%v件 | 飽和鏈路:%v條 | 鏈路抖動Flap:%v次\n",
+					netStats["interface_stats"], netStats["snmp_traps"], netStats["saturated_links"], netStats["link_flaps"])
 			}
 		}
 	}()

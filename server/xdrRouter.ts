@@ -89,5 +89,38 @@ export function createXdrRouter() {
     res.json({ success: true, message: actionResult.auditMessage, result: actionResult });
   });
 
+  // XDR Collector & Correlation Probe Status
+  router.get('/collector/status', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      engine: 'SEMOR OpenXDR Correlation Core (Go Ingestion + Rust Block Engine)',
+      version: 'v2.5.0-HighThroughput-VectorizedBatching',
+      sliding_window_minutes: 15,
+      layers: {
+        endpoint: { status: 'ONLINE', protocols: ['Sysmon JSON', 'osquery', 'EDR API'], endpoint: '/insert/xdr/endpoint' },
+        identity: { status: 'ONLINE', protocols: ['Active Directory Kerberos', 'LDAP Audit', 'Okta IAM'], endpoint: '/insert/xdr/identity' },
+        cloud:    { status: 'ONLINE', protocols: ['K8s API Audit', 'AWS CloudTrail', 'GCP Audit'], endpoint: '/insert/xdr/cloud' },
+        network:  { status: 'ONLINE', protocols: ['NetFlow v5', 'IPFIX', 'sFlow v5', 'Suricata EVE'], endpoint: '/insert/ndr/eve' }
+      },
+      telemetry: {
+        active_tracked_assets: 142,
+        active_incidents: correlations.length,
+        mitre_matrices_active: [
+          'T1566 Phishing',
+          'T1003 Credential Dumping (LSASS)',
+          'T1059 Command and Scripting Interpreter',
+          'T1210 Exploitation of Remote Services',
+          'T1071 Application Layer Protocol (DNS Tunneling)',
+          'T1490 Inhibit System Recovery (Ransomware)'
+        ],
+        remediation_playbooks: [
+          'Micro-segmentation Host Isolation (EDR + NAC)',
+          'Active Directory Account Force-Revoke',
+          'Boundary NGFW Dynamic Null-Route'
+        ]
+      }
+    });
+  });
+
   return router;
 }

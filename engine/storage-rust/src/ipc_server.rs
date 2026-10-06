@@ -8,9 +8,11 @@ use tracing::{error, info};
 
 use crate::block::BlockBuilder;
 use crate::ndr_engine::{NdrEngine, NdrFlowSession};
+use crate::network_engine::{DiagnosticProbeRecord, NetworkEngine, NetworkMetricRecord, SnmpTrapRecord};
 use crate::regex_pipeline::RegexParserPipeline;
 use crate::storage::VictoriaStorageEngine;
 use crate::stream::StreamManager;
+use crate::xdr_engine::{XdrEngine, XdrEventRecord};
 
 #[derive(Debug, serde::Deserialize)]
 struct InboundBlockHeader {
@@ -41,6 +43,8 @@ pub struct IpcServer {
     stream_mgr: Arc<StreamManager>,
     regex_pipeline: Arc<RegexParserPipeline>,
     ndr_engine: Arc<NdrEngine>,
+    xdr_engine: Arc<XdrEngine>,
+    network_engine: Arc<NetworkEngine>,
     uds_path: String,
     tcp_addr: String,
 }
@@ -51,6 +55,8 @@ impl IpcServer {
         stream_mgr: Arc<StreamManager>,
         regex_pipeline: Arc<RegexParserPipeline>,
         ndr_engine: Arc<NdrEngine>,
+        xdr_engine: Arc<XdrEngine>,
+        network_engine: Arc<NetworkEngine>,
         uds_path: &str,
         tcp_addr: &str,
     ) -> Self {
@@ -59,6 +65,8 @@ impl IpcServer {
             stream_mgr,
             regex_pipeline,
             ndr_engine,
+            xdr_engine,
+            network_engine,
             uds_path: uds_path.to_string(),
             tcp_addr: tcp_addr.to_string(),
         }
@@ -72,6 +80,16 @@ impl IpcServer {
     /// 取得綁定之 NDR 威脅與流分析引擎實例
     pub fn ndr_engine(&self) -> Arc<NdrEngine> {
         self.ndr_engine.clone()
+    }
+
+    /// 取得綁定之 XDR 多層聯防分析引擎實例
+    pub fn xdr_engine(&self) -> Arc<XdrEngine> {
+        self.xdr_engine.clone()
+    }
+
+    /// 取得綁定之 網路效能與基礎架構分析引擎實例
+    pub fn network_engine(&self) -> Arc<NetworkEngine> {
+        self.network_engine.clone()
     }
 
     /// 啟動 UDS (Unix Domain Socket) 監聽
@@ -91,11 +109,13 @@ impl IpcServer {
                     let stream_mgr = self.stream_mgr.clone();
                     let pipeline = self.regex_pipeline.clone();
                     let ndr = self.ndr_engine.clone();
+                    let xdr = self.xdr_engine.clone();
+                    let network = self.network_engine.clone();
                     tokio::spawn(async move {
                         let (reader, _) = stream.into_split();
                         let mut lines = BufReader::new(reader).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline, &ndr) {
+                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline, &ndr, &xdr, &network) {
                                 error!("處理 UDS 批次日誌或規則下發失敗: {:?}", e);
                             }
                         }
@@ -119,11 +139,13 @@ impl IpcServer {
                     let stream_mgr = self.stream_mgr.clone();
                     let pipeline = self.regex_pipeline.clone();
                     let ndr = self.ndr_engine.clone();
+                    let xdr = self.xdr_engine.clone();
+                    let network = self.network_engine.clone();
                     tokio::spawn(async move {
                         let (reader, _) = stream.into_split();
                         let mut lines = BufReader::new(reader).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline, &ndr) {
+                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline, &ndr, &xdr, &network) {
                                 error!("處理 TCP 批次日誌或規則下發失敗: {:?}", e);
                             }
                         }
@@ -140,6 +162,8 @@ impl IpcServer {
         stream_mgr: &Arc<StreamManager>,
         regex_pipeline: &Arc<RegexParserPipeline>,
         ndr_engine: &Arc<NdrEngine>,
+        xdr_engine: &Arc<XdrEngine>,
+        network_engine: &Arc<NetworkEngine>,
     ) -> Result<()> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -154,7 +178,44 @@ impl IpcServer {
             }
         }
 
-        // 1. 識別是否為前台或 Go Receiver 下發之動態 Regex 解碼規則集
+        // 2. 識別是否為 XDR 多層聯防事件 (XDR Event Record)
+        if trimmed.contains("\"telemetry_type\":\"xdr_event\"") || trimmed.contains("\"source\":\"xdr\"") {
+            if let Ok(xdr_ev) = serde_json::from_str::<XdrEventRecord>(trimmed) {
+                let _ = xdr_engine.ingest_event_batch(&[xdr_ev]);
+                return Ok(());
+            }
+        }
+
+        // 3. 識別是否為 網路效能監控指標 (Network Interface Metric Record)
+        if trimmed.contains("\"telemetry_type\":\"network_metric\"")
+            || (trimmed.contains("\"source\":\"network_monitor\"") && trimmed.contains("\"interface_name\""))
+        {
+            if let Ok(mut metric) = serde_json::from_str::<NetworkMetricRecord>(trimmed) {
+                let _ = network_engine.ingest_metrics_batch(&mut [metric]);
+                return Ok(());
+            } else if let Ok(mut metrics) = serde_json::from_str::<Vec<NetworkMetricRecord>>(trimmed) {
+                let _ = network_engine.ingest_metrics_batch(&mut metrics);
+                return Ok(());
+            }
+        }
+
+        // 4. 識別是否為 SNMP Trap 告警事件 (SNMP Trap Event Record)
+        if trimmed.contains("\"telemetry_type\":\"snmp_trap\"") || trimmed.contains("\"trap_oid\"") {
+            if let Ok(trap) = serde_json::from_str::<SnmpTrapRecord>(trimmed) {
+                let _ = network_engine.ingest_trap(&trap);
+                return Ok(());
+            }
+        }
+
+        // 5. 識別是否為 主動 ICMP / RTT 診斷探針結果 (Diagnostic Probe Record)
+        if trimmed.contains("\"telemetry_type\":\"diagnostic_probe\"") {
+            if let Ok(probe) = serde_json::from_str::<DiagnosticProbeRecord>(trimmed) {
+                let _ = network_engine.ingest_probe(&probe);
+                return Ok(());
+            }
+        }
+
+        // 6. 識別是否為前台或 Go Receiver 下發之動態 Regex 解碼規則集
         if trimmed.contains("\"command\"") && trimmed.contains("DEPLOY_RULES")
             || trimmed.contains("\"rules\"") && trimmed.contains("\"regex\"")
         {
@@ -170,7 +231,7 @@ impl IpcServer {
             }
         }
 
-        // 2. 正常日誌串流處理：反序列化為 InboundBatch
+        // 7. 正常日誌串流處理：反序列化為 InboundBatch
         let batch: InboundBatch = serde_json::from_str(trimmed)?;
         let stream_id = if let Some(labels) = &batch.stream_labels {
             stream_mgr.get_or_create_stream_id(labels)
@@ -220,4 +281,5 @@ impl IpcServer {
         Ok(())
     }
 }
+
 

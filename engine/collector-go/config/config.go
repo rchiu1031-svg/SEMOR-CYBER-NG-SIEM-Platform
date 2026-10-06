@@ -43,6 +43,13 @@ type Config struct {
 	NDREnabled        bool // 預設 true
 	NDRNetFlowUDPPort int  // NetFlow v5 / IPFIX UDP 監聽埠 (預設 2055)
 	NDRsFlowUDPPort   int  // sFlow v5 UDP 監聽埠 (預設 6343)
+
+	// XDR (Extended Detection & Response) 多層聯合分析設定
+	XDREnabled bool // 預設 true
+
+	// 網路效能與基礎架構監控 (Network Performance & Monitoring - NPM)
+	NetworkMonitorEnabled bool // 預設 true
+	SNMPTrapUDPPort       int  // SNMP Trap UDP 監聽埠 (預設 1162 / 162)
 }
 
 func LoadConfig() *Config {
@@ -70,6 +77,9 @@ func LoadConfig() *Config {
 		NDREnabled:             getEnvBool("NDR_ENABLED", true),
 		NDRNetFlowUDPPort:      getEnvInt("NDR_NETFLOW_UDP_PORT", 2055),
 		NDRsFlowUDPPort:        getEnvInt("NDR_SFLOW_UDP_PORT", 6343),
+		XDREnabled:             getEnvBool("XDR_ENABLED", true),
+		NetworkMonitorEnabled:  getEnvBool("NETWORK_MONITOR_ENABLED", true),
+		SNMPTrapUDPPort:        getEnvInt("SNMP_TRAP_UDP_PORT", 1162),
 	}
 }
 

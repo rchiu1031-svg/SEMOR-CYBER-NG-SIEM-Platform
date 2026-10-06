@@ -23,6 +23,8 @@ type HTTPReceiver struct {
 	pipeline       *pipeline.PipelineProcessor
 	syslogRecv     *SyslogReceiver
 	ndrRecv        *NDRReceiver
+	xdrRecv        *XDRReceiver
+	netMonRecv     *NetworkMonitorReceiver
 	httpRequests   uint64
 	logsIngested   uint64
 	bytesIngested  uint64
@@ -35,6 +37,8 @@ func NewHTTPReceiver(
 	pipe *pipeline.PipelineProcessor,
 	syslogRecv *SyslogReceiver,
 	ndrRecv *NDRReceiver,
+	xdrRecv *XDRReceiver,
+	netMonRecv *NetworkMonitorReceiver,
 ) *HTTPReceiver {
 	return &HTTPReceiver{
 		cfg:          cfg,
@@ -42,6 +46,8 @@ func NewHTTPReceiver(
 		pipeline:     pipe,
 		syslogRecv:   syslogRecv,
 		ndrRecv:      ndrRecv,
+		xdrRecv:      xdrRecv,
+		netMonRecv:   netMonRecv,
 	}
 }
 
@@ -71,19 +77,31 @@ func (h *HTTPReceiver) Start() error {
 	mux.HandleFunc("/insert/ndr/pcap", h.handleNDRPCAP)
 	mux.HandleFunc("/api/v1/ndr/stats", h.handleNDRStats)
 
-	// 8. 來源設備狀態與通訊錄 (/api/v1/collector/sources)
+	// 8. XDR (Extended Detection & Response) 多層聯合分析寫入端點
+	mux.HandleFunc("/insert/xdr/endpoint", h.handleXDREndpoint)
+	mux.HandleFunc("/insert/xdr/identity", h.handleXDRIdentity)
+	mux.HandleFunc("/insert/xdr/cloud", h.handleXDRCloud)
+	mux.HandleFunc("/api/v1/xdr/stats", h.handleXDRStats)
+
+	// 9. 網路效能與基礎架構監控 (NPM/NIM) 介面與 Trap 端點
+	mux.HandleFunc("/insert/network/metrics", h.handleNetworkMetrics)
+	mux.HandleFunc("/insert/network/trap", h.handleNetworkTrap)
+	mux.HandleFunc("/insert/network/ping", h.handleNetworkPing)
+	mux.HandleFunc("/api/v1/network/collector-stats", h.handleNetworkStats)
+
+	// 10. 來源設備狀態與通訊錄 (/api/v1/collector/sources)
 	mux.HandleFunc("/api/v1/collector/sources", h.handleSources)
 
-	// 9. 收集器動態配置管理 (/api/v1/collector/config)
+	// 11. 收集器動態配置管理 (/api/v1/collector/config)
 	mux.HandleFunc("/api/v1/collector/config", h.handleConfig)
 
-	// 10. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
+	// 12. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
 	mux.HandleFunc("/api/v1/stats", h.handleStats)
 	mux.HandleFunc("/healthz", h.handleHealthz)
 	mux.HandleFunc("/metrics", h.handleStats)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", h.cfg.HTTPPort)
-	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (支援 /insert/jsonline, /insert/ndr/eve, /insert/ndr/pcap, /api/v1/collector/test-log)\n", addr)
+	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (支援 /insert/jsonline, /insert/network/metrics, /insert/network/trap, /insert/ndr/*, /insert/xdr/*)\n", addr)
 
 	server := &http.Server{
 		Addr:         addr,
@@ -527,6 +545,207 @@ func (h *HTTPReceiver) handleNDRStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ndr_disabled"})
+}
+
+// handleXDREndpoint 接收端點 EDR / Windows Sysmon / osquery 事件
+func (h *HTTPReceiver) handleXDREndpoint(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if h.xdrRecv != nil {
+		if err := h.xdrRecv.IngestEndpointEvent(body); err != nil {
+			http.Error(w, fmt.Sprintf("XDR parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "layer": "endpoint"})
+		return
+	}
+	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleXDRIdentity 接收身分與認證事件 (Active Directory / Kerberos / IAM)
+func (h *HTTPReceiver) handleXDRIdentity(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if h.xdrRecv != nil {
+		if err := h.xdrRecv.IngestIdentityEvent(body); err != nil {
+			http.Error(w, fmt.Sprintf("Identity event parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "layer": "identity"})
+		return
+	}
+	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleXDRCloud 接收雲原生與 K8s 稽核事件
+func (h *HTTPReceiver) handleXDRCloud(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if h.xdrRecv != nil {
+		if err := h.xdrRecv.IngestCloudEvent(body); err != nil {
+			http.Error(w, fmt.Sprintf("Cloud event parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "layer": "cloud"})
+		return
+	}
+	http.Error(w, "XDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleXDRStats 輸出 XDR 多層次遙測指標
+func (h *HTTPReceiver) handleXDRStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.xdrRecv != nil {
+		_ = json.NewEncoder(w).Encode(h.xdrRecv.Telemetry())
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "xdr_disabled"})
+}
+
+// handleNetworkMetrics 接收網路介面流量與效能遙測 (SNMP MIB-II / Telemetry Streaming, 支援 Gzip 壓縮)
+func (h *HTTPReceiver) handleNetworkMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	// 支援 Gzip 壓縮自動解壓
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
+	if h.netMonRecv != nil {
+		if err := h.netMonRecv.IngestMetricsBatch(body); err != nil {
+			http.Error(w, fmt.Sprintf("Network metrics parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "telemetry": "interface_metrics"})
+		return
+	}
+	http.Error(w, "Network Monitor Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleNetworkTrap 接收 HTTP 格式化 SNMP Trap 告警 (支援 Gzip 壓縮)
+func (h *HTTPReceiver) handleNetworkTrap(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
+	if h.netMonRecv != nil {
+		h.netMonRecv.parseSNMPTrap(body, r.RemoteAddr)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "telemetry": "snmp_trap"})
+		return
+	}
+	http.Error(w, "Network Monitor Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleNetworkPing 接收主動 ICMP Ping / Traceroute 診斷探針結果 (支援 Gzip 壓縮)
+func (h *HTTPReceiver) handleNetworkPing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if r.Header.Get("Content-Encoding") == "gzip" || (len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b) {
+		gz, gzErr := gzip.NewReader(bytes.NewReader(body))
+		if gzErr == nil {
+			decompressed, readErr := io.ReadAll(gz)
+			_ = gz.Close()
+			if readErr == nil {
+				body = decompressed
+			}
+		}
+	}
+
+	if h.netMonRecv != nil {
+		if err := h.netMonRecv.IngestPingResult(body); err != nil {
+			http.Error(w, fmt.Sprintf("Ping parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "telemetry": "diagnostic_probe"})
+		return
+	}
+	http.Error(w, "Network Monitor Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleNetworkStats 輸出網路監控收集核心即時指標
+func (h *HTTPReceiver) handleNetworkStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.netMonRecv != nil {
+		_ = json.NewEncoder(w).Encode(h.netMonRecv.Telemetry())
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "network_monitor_disabled"})
 }
 
 func (h *HTTPReceiver) Stats() (requests uint64, logs uint64) {

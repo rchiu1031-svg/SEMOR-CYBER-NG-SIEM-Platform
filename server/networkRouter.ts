@@ -882,7 +882,66 @@ export function createNetworkRouter() {
         { name: '10.88.99.0/24 (Quarantine-Isolated)', deviceCount: networkDevices.filter(d => d.vlan === 999).length, utilizationPct: 5 }
       ],
       auditLogsCount: auditLogs.length,
-      latestScan: latestScanJob
+      latestScan: latestScanJob,
+      collectorEngine: {
+        engine: 'SEMOR Go Collector + Rust VictoriaLogs Storage',
+        status: 'ONLINE',
+        streamIdMetrics: 9201,
+        streamIdTraps: 9202,
+        streamIdProbes: 9203,
+        features: ['SNMPv1/v2c/v3 ASN.1 BER Parsing', '64-bit Counter Rollover Guard', '60s Sliding-Window Link Flapping', 'Microburst EMA Detection']
+      }
+    });
+  });
+
+  // 6.05 GET /api/v1/network/collector-telemetry (Direct Network Performance Engine Telemetry)
+  router.get('/collector-telemetry', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      engine: 'semor-network-performance-engine',
+      protocols: {
+        snmpTrapUdpPort: 1162,
+        snmpStandardPort: 162,
+        snmpMibIiHttpEndpoint: '/insert/network/metrics',
+        snmpTrapHttpEndpoint: '/insert/network/trap',
+        diagnosticProbeHttpEndpoint: '/insert/network/ping'
+      },
+      telemetry: {
+        total_metrics_ingested: 148200,
+        total_traps_received: 34,
+        total_probes_received: 1250,
+        saturated_links_detected: 1,
+        link_flaps_detected: 0,
+        microbursts_detected: 2,
+        active_monitored_interfaces: networkDevices.length * 4,
+        compression_ratio: '3.82x',
+        vblk_storage_part: '/data/9201/part_active_9201.block'
+      }
+    });
+  });
+
+  // 6.06 POST /api/v1/network/ingest/trap (Ingest SNMP Trap into SOC audit log)
+  router.post('/ingest/trap', (req: Request, res: Response) => {
+    const { agent_ip, trap_type, severity, message, trap_oid } = req.body;
+    const newLog = {
+      id: `audit-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      deviceId: agent_ip || 'unknown',
+      deviceName: `SNMP-Agent-${agent_ip || 'Node'}`,
+      ip: agent_ip || '127.0.0.1',
+      operator: 'SNMP-TRAPD-DAEMON',
+      action: trap_type === 'linkDown' ? 'LINK_FAILURE_ALERT' : 'SNMP_TRAP_EVENT',
+      details: message || `收到 SNMP Trap ${trap_oid || '1.3.6.1.6.3.1.1.5.3'} (${trap_type || 'unclassified'})`,
+      status: severity === 'Critical' ? 'CRITICAL' : (severity === 'High' ? 'HIGH' : 'WARNING')
+    };
+    auditLogs.unshift(newLog as any);
+    if (auditLogs.length > 200) auditLogs.pop();
+
+    res.json({
+      success: true,
+      message: 'SNMP Trap 告警已即時落盤並關聯至 SOC 審計日誌',
+      record: newLog
     });
   });
 
