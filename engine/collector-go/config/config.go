@@ -38,6 +38,11 @@ type Config struct {
 
 	// 前端 UI 平台控制與設定回呼
 	WebUIAPIURL string
+
+	// NDR (Network Detection & Response) 網路流量與探針設定
+	NDREnabled        bool // 預設 true
+	NDRNetFlowUDPPort int  // NetFlow v5 / IPFIX UDP 監聽埠 (預設 2055)
+	NDRsFlowUDPPort   int  // sFlow v5 UDP 監聽埠 (預設 6343)
 }
 
 func LoadConfig() *Config {
@@ -62,6 +67,9 @@ func LoadConfig() *Config {
 		RetryMaxMs:             getEnvInt("RETRY_MAX_MS", 15000),
 		RetryMaxAttempts:       getEnvInt("RETRY_MAX_ATTEMPTS", 5),
 		WebUIAPIURL:            getEnvString("WEB_UI_URL", "http://localhost:3000"),
+		NDREnabled:             getEnvBool("NDR_ENABLED", true),
+		NDRNetFlowUDPPort:      getEnvInt("NDR_NETFLOW_UDP_PORT", 2055),
+		NDRsFlowUDPPort:        getEnvInt("NDR_SFLOW_UDP_PORT", 6343),
 	}
 }
 

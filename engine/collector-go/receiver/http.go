@@ -22,6 +22,7 @@ type HTTPReceiver struct {
 	inboundQueue   chan<- pipeline.LogEntry
 	pipeline       *pipeline.PipelineProcessor
 	syslogRecv     *SyslogReceiver
+	ndrRecv        *NDRReceiver
 	httpRequests   uint64
 	logsIngested   uint64
 	bytesIngested  uint64
@@ -33,12 +34,14 @@ func NewHTTPReceiver(
 	inbound chan<- pipeline.LogEntry,
 	pipe *pipeline.PipelineProcessor,
 	syslogRecv *SyslogReceiver,
+	ndrRecv *NDRReceiver,
 ) *HTTPReceiver {
 	return &HTTPReceiver{
 		cfg:          cfg,
 		inboundQueue: inbound,
 		pipeline:     pipe,
 		syslogRecv:   syslogRecv,
+		ndrRecv:      ndrRecv,
 	}
 }
 
@@ -63,19 +66,24 @@ func (h *HTTPReceiver) Start() error {
 	// 6. 即時日誌解析診斷與測試注入端點 (/api/v1/collector/test-log)
 	mux.HandleFunc("/api/v1/collector/test-log", h.handleDiagnosticTestLog)
 
-	// 7. 來源設備狀態與通訊錄 (/api/v1/collector/sources)
+	// 7. NDR (Network Detection & Response) 網路流量專用寫入端點
+	mux.HandleFunc("/insert/ndr/eve", h.handleNDREve)
+	mux.HandleFunc("/insert/ndr/pcap", h.handleNDRPCAP)
+	mux.HandleFunc("/api/v1/ndr/stats", h.handleNDRStats)
+
+	// 8. 來源設備狀態與通訊錄 (/api/v1/collector/sources)
 	mux.HandleFunc("/api/v1/collector/sources", h.handleSources)
 
-	// 8. 收集器動態配置管理 (/api/v1/collector/config)
+	// 9. 收集器動態配置管理 (/api/v1/collector/config)
 	mux.HandleFunc("/api/v1/collector/config", h.handleConfig)
 
-	// 9. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
+	// 10. 健康狀態與遙測指標 (/api/v1/stats 與 /healthz)
 	mux.HandleFunc("/api/v1/stats", h.handleStats)
 	mux.HandleFunc("/healthz", h.handleHealthz)
 	mux.HandleFunc("/metrics", h.handleStats)
 
 	addr := fmt.Sprintf("0.0.0.0:%d", h.cfg.HTTPPort)
-	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (支援 /insert/jsonline, /insert/loki, /insert/elasticsearch/_bulk, /api/v1/collector/test-log)\n", addr)
+	fmt.Printf("[HTTP Receiver] API 服務就緒 %s (支援 /insert/jsonline, /insert/ndr/eve, /insert/ndr/pcap, /api/v1/collector/test-log)\n", addr)
 
 	server := &http.Server{
 		Addr:         addr,
@@ -452,6 +460,73 @@ func (h *HTTPReceiver) handleStats(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPReceiver) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+// handleNDREve 處理 Suricata EVE JSON 或 Zeek 網路串流
+func (h *HTTPReceiver) handleNDREve(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if h.ndrRecv != nil {
+		lines := bytes.Split(body, []byte("\n"))
+		count := 0
+		for _, line := range lines {
+			if len(bytes.TrimSpace(line)) > 0 {
+				if err := h.ndrRecv.IngestSuricataEVE(line); err == nil {
+					count++
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":           "ok",
+			"events_processed": count,
+		})
+		return
+	}
+	http.Error(w, "NDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleNDRPCAP 處理二進位 PCAP 訊框串流上傳
+func (h *HTTPReceiver) handleNDRPCAP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	defer r.Body.Close()
+
+	if h.ndrRecv != nil {
+		frames, err := h.ndrRecv.IngestPCAPStream(r.Body)
+		if err != nil && frames == 0 {
+			http.Error(w, fmt.Sprintf("PCAP parse error: %v", err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":          "ok",
+			"frames_ingested": frames,
+		})
+		return
+	}
+	http.Error(w, "NDR Receiver not initialized", http.StatusServiceUnavailable)
+}
+
+// handleNDRStats 輸出 NDR 收集即時遙測
+func (h *HTTPReceiver) handleNDRStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if h.ndrRecv != nil {
+		_ = json.NewEncoder(w).Encode(h.ndrRecv.Telemetry())
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ndr_disabled"})
 }
 
 func (h *HTTPReceiver) Stats() (requests uint64, logs uint64) {

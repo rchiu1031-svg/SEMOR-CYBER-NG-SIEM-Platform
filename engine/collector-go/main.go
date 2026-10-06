@@ -83,13 +83,24 @@ func main() {
 		fmt.Printf("[錯誤] 啟動 TLS 接收器失敗: %v\n", err)
 	}
 
-	// 8. 啟動 HTTP 接收器 (支援 /insert/jsonline, /insert/loki, /insert/elasticsearch/_bulk 與 /api/v1/collector/test-log)
-	httpRecv := receiver.NewHTTPReceiver(cfg, inboundQueue, pipeProcessor, syslogRecv)
+	// 8. 啟動 NDR (Network Detection & Response) 網路流量與探針接收器 (NetFlow, sFlow, PCAP, Suricata EVE)
+	ndrRecv := receiver.NewNDRReceiver(cfg, inboundQueue)
+	if cfg.NDREnabled {
+		if err := ndrRecv.StartNetFlowUDP(ctx, cfg.NDRNetFlowUDPPort); err != nil {
+			fmt.Printf("[錯誤] 啟動 NetFlow 接收器失敗: %v\n", err)
+		}
+		if err := ndrRecv.StartSFlowUDP(ctx, cfg.NDRsFlowUDPPort); err != nil {
+			fmt.Printf("[錯誤] 啟動 sFlow 接收器失敗: %v\n", err)
+		}
+	}
+
+	// 9. 啟動 HTTP 接收器 (支援 /insert/jsonline, /insert/ndr/eve, /insert/ndr/pcap, /api/v1/collector/test-log)
+	httpRecv := receiver.NewHTTPReceiver(cfg, inboundQueue, pipeProcessor, syslogRecv, ndrRecv)
 	if err := httpRecv.Start(); err != nil {
 		fmt.Printf("[錯誤] 啟動 HTTP 接收器失敗: %v\n", err)
 	}
 
-	// 9. 定期輸出 VictoriaLogs 架構模式與指數退避重試遙測日誌
+	// 10. 定期輸出 VictoriaLogs 架構模式與指數退避重試遙測日誌
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
@@ -102,6 +113,7 @@ func main() {
 				httpReq, httpLogs := httpRecv.Stats()
 				sent, batches, failed, isConn := rustForwarder.Telemetry()
 				sBlocks, sRows, uncomp, comp, ratio := blockAccumulator.Telemetry()
+				ndrStats := ndrRecv.Telemetry()
 				queueLen := len(inboundQueue)
 
 				fmt.Printf("[VictoriaLogs 遙測] 佇列: %d/%d | 封塊數: %d | 累計行數: %d | 未壓縮: %.2f MB | 預估壓縮: %.2f MB (%s) | 轉發Rust: %d (批次: %d, 失敗: %d, 連線: %t)\n",
@@ -115,6 +127,9 @@ func main() {
 
 				fmt.Printf("                   └─ 協定進線: Syslog(UDP:%d, TCP:%d, TLS:%d) | HTTP日誌: %d (請求:%d) | 錯誤: %d | 實體位元組: %.2f MB\n",
 					uRecv, tRecv, tlsRecv, httpLogs, httpReq, errs, float64(bytesTotal)/(1024*1024))
+
+				fmt.Printf("                   └─ NDR 網路鑑識: NetFlow:%v筆 | sFlow:%v筆 | Suricata EVE:%v筆 | PCAP訊框:%v | 威脅攔截:%v件\n",
+					ndrStats["netflow_flows"], ndrStats["sflow_samples"], ndrStats["suricata_events"], ndrStats["pcap_frames"], ndrStats["threats_detected"])
 			}
 		}
 	}()

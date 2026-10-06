@@ -7,6 +7,7 @@ use tokio::net::{TcpListener, UnixListener};
 use tracing::{error, info};
 
 use crate::block::BlockBuilder;
+use crate::ndr_engine::{NdrEngine, NdrFlowSession};
 use crate::regex_pipeline::RegexParserPipeline;
 use crate::storage::VictoriaStorageEngine;
 use crate::stream::StreamManager;
@@ -39,6 +40,7 @@ pub struct IpcServer {
     storage: Arc<VictoriaStorageEngine>,
     stream_mgr: Arc<StreamManager>,
     regex_pipeline: Arc<RegexParserPipeline>,
+    ndr_engine: Arc<NdrEngine>,
     uds_path: String,
     tcp_addr: String,
 }
@@ -48,6 +50,7 @@ impl IpcServer {
         storage: Arc<VictoriaStorageEngine>,
         stream_mgr: Arc<StreamManager>,
         regex_pipeline: Arc<RegexParserPipeline>,
+        ndr_engine: Arc<NdrEngine>,
         uds_path: &str,
         tcp_addr: &str,
     ) -> Self {
@@ -55,6 +58,7 @@ impl IpcServer {
             storage,
             stream_mgr,
             regex_pipeline,
+            ndr_engine,
             uds_path: uds_path.to_string(),
             tcp_addr: tcp_addr.to_string(),
         }
@@ -63,6 +67,11 @@ impl IpcServer {
     /// 取得綁定之 Regex 解析管線實例
     pub fn regex_pipeline(&self) -> Arc<RegexParserPipeline> {
         self.regex_pipeline.clone()
+    }
+
+    /// 取得綁定之 NDR 威脅與流分析引擎實例
+    pub fn ndr_engine(&self) -> Arc<NdrEngine> {
+        self.ndr_engine.clone()
     }
 
     /// 啟動 UDS (Unix Domain Socket) 監聽
@@ -81,11 +90,12 @@ impl IpcServer {
                     let storage = self.storage.clone();
                     let stream_mgr = self.stream_mgr.clone();
                     let pipeline = self.regex_pipeline.clone();
+                    let ndr = self.ndr_engine.clone();
                     tokio::spawn(async move {
                         let (reader, _) = stream.into_split();
                         let mut lines = BufReader::new(reader).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline) {
+                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline, &ndr) {
                                 error!("處理 UDS 批次日誌或規則下發失敗: {:?}", e);
                             }
                         }
@@ -108,11 +118,12 @@ impl IpcServer {
                     let storage = self.storage.clone();
                     let stream_mgr = self.stream_mgr.clone();
                     let pipeline = self.regex_pipeline.clone();
+                    let ndr = self.ndr_engine.clone();
                     tokio::spawn(async move {
                         let (reader, _) = stream.into_split();
                         let mut lines = BufReader::new(reader).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
-                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline) {
+                            if let Err(e) = Self::process_batch_line(&line, &storage, &stream_mgr, &pipeline, &ndr) {
                                 error!("處理 TCP 批次日誌或規則下發失敗: {:?}", e);
                             }
                         }
@@ -128,10 +139,19 @@ impl IpcServer {
         storage: &Arc<VictoriaStorageEngine>,
         stream_mgr: &Arc<StreamManager>,
         regex_pipeline: &Arc<RegexParserPipeline>,
+        ndr_engine: &Arc<NdrEngine>,
     ) -> Result<()> {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             return Ok(());
+        }
+
+        // 1. 識別是否為直接 NDR 網路串流記錄 (NDR Flow Session)
+        if trimmed.contains("\"telemetry_type\":\"network_flow\"") || trimmed.contains("\"source\":\"ndr\"") {
+            if let Ok(mut flow) = serde_json::from_str::<NdrFlowSession>(trimmed) {
+                let _ = ndr_engine.ingest_flow_batch(&mut [flow]);
+                return Ok(());
+            }
         }
 
         // 1. 識別是否為前台或 Go Receiver 下發之動態 Regex 解碼規則集

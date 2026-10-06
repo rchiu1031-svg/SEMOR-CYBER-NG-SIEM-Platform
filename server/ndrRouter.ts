@@ -822,6 +822,36 @@ export function createNdrRouter() {
     });
   });
 
+  // 7.1 NDR Backend Collector & Probe Telemetry Status
+  router.get('/collector/status', (req: Request, res: Response) => {
+    res.json({
+      success: true,
+      engine: 'SEMOR NDR (Go Receiver + Rust Storage Core)',
+      version: 'v2.5.0-HighThroughput-VectorizedBatching',
+      protocols: {
+        netflow_v5: { port: 2055, status: 'LISTENING', buffer_mb: 16, protocol: 'UDP' },
+        ipfix_v10:  { port: 2055, status: 'LISTENING', buffer_mb: 16, protocol: 'UDP' },
+        sflow_v5:   { port: 6343, status: 'LISTENING', buffer_mb: 16, protocol: 'UDP' },
+        suricata_eve: { endpoint: '/insert/ndr/eve', status: 'ACTIVE', protocol: 'HTTP/JSON' },
+        pcap_stream:  { endpoint: '/insert/ndr/pcap', status: 'ACTIVE', protocol: 'HTTP/Binary' }
+      },
+      telemetry: {
+        total_sessions: sessions.length,
+        critical_alerts: suricataAlerts.filter(a => a.severity === 'Critical').length,
+        high_alerts: suricataAlerts.filter(a => a.severity === 'High').length,
+        suricata_active_rules: suricataState.activeRules,
+        inspection_mode: 'ZERO_COPY_RING_BUFFER',
+        threat_heuristics: [
+          'C2 Reverse Beaconing Variance Analysis (<0.8s)',
+          'High-Speed Port Sweep Detection (>=15 ports / 5s)',
+          'DNS Tunneling & High-Entropy Label Exfiltration (>50 chars)',
+          'TLS ClientHello JA3 / JA3S Blacklist Correlation',
+          'RFC 793 Illegal TCP Flag Combination Filtering (NULL, XMAS, SYN-FIN)'
+        ]
+      }
+    });
+  });
+
   // 8. Dynamic Network Traffic Topology Dataset for D3
   router.get('/topology', (req: Request, res: Response) => {
     const nodesMap = new Map();
