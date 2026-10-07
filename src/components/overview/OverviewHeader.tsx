@@ -7,7 +7,8 @@ import {
   Download,
   AlertOctagon,
   BarChart3,
-  Server
+  Server,
+  Zap
 } from 'lucide-react';
 import { TimeRange, RefreshInterval } from './types';
 import { cn } from '../../lib/utils';
@@ -24,6 +25,10 @@ interface OverviewHeaderProps {
   onNavigateExecutive: () => void;
   onManualRefresh: () => void;
   isRefreshing: boolean;
+  liveEps?: number;
+  liveNodesCount?: { healthy: number; total: number };
+  isLiveConnected?: boolean;
+  onSimulateIngest?: () => void;
 }
 
 export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
@@ -37,7 +42,11 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
   onExportReport,
   onNavigateExecutive,
   onManualRefresh,
-  isRefreshing
+  isRefreshing,
+  liveEps = 1486,
+  liveNodesCount = { healthy: 5, total: 5 },
+  isLiveConnected = true,
+  onSimulateIngest
 }) => {
   const timeRanges: { id: TimeRange; labelZh: string; labelEn: string }[] = [
     { id: '15m', labelZh: '15分鐘', labelEn: '15m' },
@@ -86,6 +95,19 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
 
         {/* Global Action Tools */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Simulate Ingest button */}
+          {onSimulateIngest && (
+            <button
+              id="overview-simulate-ingest-btn"
+              onClick={onSimulateIngest}
+              title={isZh ? '向後端 Go Collector + VictoriaLogs 即時注入測試遙測事件' : 'Simulate incoming telemetry to Go Collector'}
+              className="flex items-center gap-2 px-3.5 py-2 bg-purple-600/15 hover:bg-purple-600/25 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all hover:border-purple-500/50"
+            >
+              <Zap size={14} className="text-purple-400" />
+              <span>{isZh ? '測試遙測注入' : 'Simulate Telemetry'}</span>
+            </button>
+          )}
+
           {/* War Mode Toggle */}
           <button
             id="overview-war-mode-toggle"
@@ -147,8 +169,11 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
         {/* Center: Realtime Telemetry Chips */}
         <div className="hidden lg:flex items-center gap-4 text-[11px] text-gray-400">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>{isZh ? 'CCS 叢集同步：' : 'CCS Mesh:'} <strong className="text-gray-200 font-mono">5/5 Nodes (0.4ms)</strong></span>
+            <span className={cn(
+              "w-2 h-2 rounded-full",
+              isLiveConnected ? "bg-emerald-400 animate-pulse" : "bg-gray-500"
+            )}></span>
+            <span>{isZh ? 'CCS 叢集同步：' : 'CCS Mesh:'} <strong className="text-gray-200 font-mono">{liveNodesCount.healthy}/{liveNodesCount.total} Nodes (0.4ms)</strong></span>
           </div>
           <div className="w-px h-3.5 bg-gray-800"></div>
           <div className="flex items-center gap-2">
@@ -158,7 +183,7 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
           <div className="w-px h-3.5 bg-gray-800"></div>
           <div className="flex items-center gap-2">
             <Server size={13} className="text-purple-400" />
-            <span>{isZh ? 'EPS 吞吐：' : 'Throughput:'} <strong className="text-purple-300 font-mono">1,486/s</strong></span>
+            <span>{isZh ? 'EPS 吞吐：' : 'Throughput:'} <strong className="text-purple-300 font-mono">{liveEps.toLocaleString()}/s</strong></span>
           </div>
         </div>
 

@@ -26,6 +26,7 @@ import { createSoarRouter } from './server/soarRouter.ts';
 import { createCasesRouter } from './server/casesRouter.ts';
 import { createApmRouter } from './server/apmRouter.ts';
 import { createOverviewRouter } from './server/overviewRouter.ts';
+import { createCustomDashboardRouter } from './server/customDashboardRouter.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
 import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor.ts';
 import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker.ts';
@@ -2098,6 +2099,8 @@ async function startServer() {
   app.use('/api/v1/apm', createApmRouter());
   app.use('/api/v1/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
   app.use('/api/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
+  app.use('/api/v1/custom-dashboard', createCustomDashboardRouter(() => runtimeLogCorpus, broadcastOverviewUpdate));
+  app.use('/api/custom-dashboard', createCustomDashboardRouter(() => runtimeLogCorpus, broadcastOverviewUpdate));
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {

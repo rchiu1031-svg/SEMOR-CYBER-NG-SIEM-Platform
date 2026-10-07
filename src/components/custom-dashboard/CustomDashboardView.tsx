@@ -97,16 +97,70 @@ export const CustomDashboardView: React.FC = () => {
   };
 
   // Persist dashboards
-  const saveToStorage = (updatedDashboards: DashboardTemplate[]) => {
+  const saveToStorage = async (updatedDashboards: DashboardTemplate[]) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedDashboards));
       setHasUnsavedChanges(false);
-      showToast('儀表板變更已成功保存至瀏覽器儲存區！', 'success');
+      showToast('儀表板變更已成功保存！', 'success');
+
+      // Sync active dashboard to backend
+      const targetDash = updatedDashboards.find(d => d.id === currentDashboardId);
+      if (targetDash) {
+        await fetch(`/api/v1/custom-dashboard/dashboards/${targetDash.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(targetDash)
+        });
+      }
     } catch (e) {
-      console.error('Failed to save dashboards to localStorage:', e);
-      showToast('儲存失敗，請檢查瀏覽器空間', 'error');
+      console.error('Failed to save dashboards:', e);
+      showToast('儲存失敗，請檢查網路連線', 'error');
     }
   };
+
+  // Fetch dashboards from backend on mount and sync
+  const fetchDashboardsFromBackend = async () => {
+    try {
+      const res = await fetch('/api/v1/custom-dashboard/dashboards');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.dashboards) && data.dashboards.length > 0) {
+        setDashboards(data.dashboards);
+        if (!currentDashboardId || !data.dashboards.find((d: any) => d.id === currentDashboardId)) {
+          setCurrentDashboardId(data.dashboards[0].id);
+        }
+      }
+    } catch (e) {
+      console.warn('Backend custom dashboards fetch error:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardsFromBackend();
+  }, []);
+
+  // Real-time WebSocket listener for newly added charts from Visualization Studio
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'overview_update' && data.event) {
+            const ev = data.event;
+            if (ev.type === 'widget_added' || ev.type === 'dashboard_created' || ev.type === 'dashboard_updated' || ev.type === 'dashboards_reset') {
+              fetchDashboardsFromBackend();
+              showToast('已同步最新儀表板與圖表組件！', 'info');
+            }
+          }
+        } catch {}
+      };
+    } catch {}
+    return () => {
+      if (ws) ws.close();
+    };
+  }, []);
 
   // Dashboard Operations
   const handleSelectDashboard = (id: string) => {
@@ -115,12 +169,31 @@ export const CustomDashboardView: React.FC = () => {
     setIsEditMode(false);
   };
 
-  const handleCreateDashboard = (
+  const handleCreateDashboard = async (
     name: string, 
     description: string, 
     category: DashboardCategory, 
     tags: string[]
   ) => {
+    try {
+      const res = await fetch('/api/v1/custom-dashboard/dashboards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, category, tags, widgets: [] })
+      });
+      const data = await res.json();
+      if (data.success && data.dashboard) {
+        const updated = [data.dashboard, ...dashboards];
+        setDashboards(updated);
+        setCurrentDashboardId(data.dashboard.id);
+        localStorage.setItem(ACTIVE_DASH_KEY, data.dashboard.id);
+        showToast(`已建立新儀表板「${name}」！`, 'success');
+        return;
+      }
+    } catch (e) {
+      console.error('Error creating dashboard on backend:', e);
+    }
+
     const newDash: DashboardTemplate = {
       id: `dash-${Date.now()}`,
       name,
@@ -158,10 +231,15 @@ export const CustomDashboardView: React.FC = () => {
     showToast(`已成功複製儀表板為「${cloned.name}」！`, 'success');
   };
 
-  const handleDeleteDashboard = (id: string) => {
+  const handleDeleteDashboard = async (id: string) => {
     if (dashboards.length <= 1) {
       showToast('無法刪除最後一組儀表板！', 'error');
       return;
+    }
+    try {
+      await fetch(`/api/v1/custom-dashboard/dashboards/${id}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Backend delete error:', e);
     }
     const updated = dashboards.filter((d) => d.id !== id);
     setDashboards(updated);
@@ -200,7 +278,7 @@ export const CustomDashboardView: React.FC = () => {
       setCurrentDashboardId(imported.id);
       saveToStorage(updated);
       showToast(`已成功匯入儀表板「${imported.name}」！`, 'success');
-    } catch (e) {
+    } catch {
       showToast('解析 JSON 檔案失敗！', 'error');
     }
   };
@@ -220,7 +298,16 @@ export const CustomDashboardView: React.FC = () => {
   };
 
   // Widget Operations
-  const handleAddWidget = (newWidget: DashboardWidget) => {
+  const handleAddWidget = async (newWidget: DashboardWidget) => {
+    try {
+      await fetch(`/api/v1/custom-dashboard/dashboards/${currentDashboard.id}/widgets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newWidget)
+      });
+    } catch (e) {
+      console.error('Error posting widget to backend:', e);
+    }
     const updatedWidgets = [...currentDashboard.widgets, newWidget];
     const updatedDashboards = dashboards.map((d) => 
       d.id === currentDashboard.id 
@@ -232,7 +319,14 @@ export const CustomDashboardView: React.FC = () => {
     showToast(`已加入組件「${newWidget.title}」！`, 'success');
   };
 
-  const handleDeleteWidget = (widgetId: string) => {
+  const handleDeleteWidget = async (widgetId: string) => {
+    try {
+      await fetch(`/api/v1/custom-dashboard/dashboards/${currentDashboard.id}/widgets/${widgetId}`, {
+        method: 'DELETE'
+      });
+    } catch (e) {
+      console.error('Error deleting widget from backend:', e);
+    }
     const updatedWidgets = currentDashboard.widgets.filter((w) => w.id !== widgetId);
     const updatedDashboards = dashboards.map((d) => 
       d.id === currentDashboard.id 
@@ -257,7 +351,16 @@ export const CustomDashboardView: React.FC = () => {
     setHasUnsavedChanges(true);
   };
 
-  const handleSaveWidgetConfig = (updatedWidget: DashboardWidget) => {
+  const handleSaveWidgetConfig = async (updatedWidget: DashboardWidget) => {
+    try {
+      await fetch(`/api/v1/custom-dashboard/dashboards/${currentDashboard.id}/widgets/${updatedWidget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedWidget)
+      });
+    } catch (e) {
+      console.error('Error updating widget config on backend:', e);
+    }
     const updatedWidgets = currentDashboard.widgets.map((w) => 
       w.id === updatedWidget.id ? updatedWidget : w
     );
@@ -271,7 +374,19 @@ export const CustomDashboardView: React.FC = () => {
     showToast('已更新組件設定！', 'success');
   };
 
-  const handleResetToDefault = () => {
+  const handleResetToDefault = async () => {
+    try {
+      const res = await fetch('/api/v1/custom-dashboard/dashboards/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.dashboards)) {
+        setDashboards(data.dashboards);
+        saveToStorage(data.dashboards);
+        showToast('已重置為原廠預設佈局！', 'info');
+        return;
+      }
+    } catch (e) {
+      console.error('Reset error:', e);
+    }
     const initial = INITIAL_DASHBOARD_TEMPLATES.find((d) => d.id === currentDashboard.id);
     if (!initial) return;
     const updatedDashboards = dashboards.map((d) => 

@@ -4,6 +4,61 @@ import { globalCollectorThroughputTracker } from './collectorThroughputTracker.t
 import { globalVictoriaLogsHealthMonitor } from './victoriaLogsHealthMonitor.ts';
 import { globalCollectorMemoryManager } from './collectorMemoryManager.ts';
 
+export interface OverviewAbnormalLogin {
+  id: string;
+  time: string;
+  ip: string;
+  locationZh: string;
+  locationEn: string;
+  host: string;
+  service: 'SSH' | 'RDP' | 'Kerberos' | 'HTTPS' | 'VPN';
+  attempts: number;
+  status: 'BLOCKED' | 'RATE_LIMITED' | 'MONITORING';
+  risk: 'Critical' | 'High' | 'Medium';
+}
+
+export interface OverviewCriticalIncident {
+  id: string;
+  time: string;
+  threatZh: string;
+  threatEn: string;
+  categoryZh: string;
+  categoryEn: string;
+  srcIp: string;
+  destIp: string;
+  host: string;
+  countryZh: string;
+  countryEn: string;
+  actionZh: string;
+  actionEn: string;
+  risk: 'Critical' | 'High' | 'Medium';
+  mitreTactic: string;
+  soarStatus: 'Auto-Contained' | 'In-Progress' | 'Pending-Approval' | 'Resolved';
+  iocHash?: string;
+  affectedAssets: string[];
+}
+
+export interface OverviewUebaEntity {
+  id: string;
+  name: string;
+  roleZh: string;
+  roleEn: string;
+  departmentZh: string;
+  departmentEn: string;
+  score: number;
+  previousScore: number;
+  status: 'Critical' | 'High' | 'Medium';
+  avatarInitials: string;
+  triggersZh: string[];
+  triggersEn: string[];
+  lastAnomalyTime: string;
+  networkActivity: {
+    bytesOutMb: number;
+    filesAccessed: number;
+    offHourLogins: number;
+  };
+}
+
 export interface OverviewMetricsResponse {
   metrics: any[];
   socSla: any;
@@ -118,7 +173,7 @@ export function createOverviewRouter(
   ];
 
   // Abnormal Logins Dataset
-  let abnormalLogins = [
+  let abnormalLogins: OverviewAbnormalLogin[] = [
     {
       id: "ABN-7701",
       time: "2026-10-06 14:48:12",
@@ -182,7 +237,7 @@ export function createOverviewRouter(
   ];
 
   // Critical Incidents Dataset
-  let criticalIncidents = [
+  let criticalIncidents: OverviewCriticalIncident[] = [
     {
       id: "INC-2026-0801",
       time: "2026-10-06 14:52:10",
@@ -286,7 +341,7 @@ export function createOverviewRouter(
   ];
 
   // High-Risk UEBA Entities Dataset
-  let uebaEntities = [
+  let uebaEntities: OverviewUebaEntity[] = [
     {
       id: "usr-lin-cfo",
       name: "林志遠 (Finance CFO)",

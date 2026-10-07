@@ -1,0 +1,462 @@
+[
+  {
+    "id": "dash-soc-triage",
+    "name": "即時資安營運中心儀錶板 (SOC Operations)",
+    "description": "全域企業級即時警報分流、CCS 分散式日誌串流、重大威脅關聯與 UEBA 風險哨兵戰情",
+    "category": "SOC Triage",
+    "isDefault": true,
+    "author": "Chief SOC Architect",
+    "lastModified": "10/7/2026, 6:30:55 AM",
+    "tags": [
+      "SOC-L1",
+      "Real-time",
+      "CCS-Mesh",
+      "MITRE-ATT&CK"
+    ],
+    "widgets": [
+      {
+        "id": "w-active-incidents",
+        "title": "活躍重大事件 (Critical Incidents)",
+        "description": "等待 SOC 分析師處置之 P1/P2 高危資安事件",
+        "type": "stat",
+        "width": "col-span-3",
+        "height": "h-52",
+        "dataSource": "VictoriaLogs (LogSQL)",
+        "color": "#ef4444",
+        "thresholds": {
+          "warning": 5,
+          "critical": 10,
+          "condition": "gt"
+        },
+        "customConfig": {
+          "statValue": "12",
+          "statChange": "+3 from 1h ago",
+          "statTrend": "up",
+          "alertThresholdExceeded": true,
+          "showSparkline": true,
+          "unit": "件",
+          "chartData": [
+            {
+              "time": "10:00",
+              "value": 6
+            },
+            {
+              "time": "10:15",
+              "value": 7
+            },
+            {
+              "time": "10:30",
+              "value": 9
+            },
+            {
+              "time": "10:45",
+              "value": 8
+            },
+            {
+              "time": "11:00",
+              "value": 11
+            },
+            {
+              "time": "11:15",
+              "value": 12
+            }
+          ]
+        }
+      },
+      {
+        "id": "w-mttr-timer",
+        "title": "平均應變處置時效 (MTTR)",
+        "description": "事件從警報觸發至完成遏止之平均歷時 (目標 < 15m)",
+        "type": "stat",
+        "width": "col-span-3",
+        "height": "h-52",
+        "dataSource": "SOAR Orchestrator",
+        "color": "#10b981",
+        "thresholds": {
+          "warning": 20,
+          "critical": 30,
+          "condition": "gt"
+        },
+        "customConfig": {
+          "statValue": "8m 42s",
+          "statChange": "-3m 15s improvement",
+          "statTrend": "down",
+          "alertThresholdExceeded": false,
+          "showSparkline": true,
+          "unit": "",
+          "chartData": [
+            {
+              "time": "10:00",
+              "value": 14
+            },
+            {
+              "time": "10:15",
+              "value": 12
+            },
+            {
+              "time": "10:30",
+              "value": 11
+            },
+            {
+              "time": "10:45",
+              "value": 10
+            },
+            {
+              "time": "11:00",
+              "value": 9
+            },
+            {
+              "time": "11:15",
+              "value": 8.7
+            }
+          ]
+        }
+      },
+      {
+        "id": "w-log-ingest-rate",
+        "title": "日誌即時吞吐量 (EPS)",
+        "description": "全域 16 組 Shard 採集節點秒級寫入速率",
+        "type": "stat",
+        "width": "col-span-3",
+        "height": "h-52",
+        "dataSource": "Syslog Ingestion Stream",
+        "color": "#3b82f6",
+        "customConfig": {
+          "statValue": "1,486",
+          "statChange": "+14.2% vs yesterday",
+          "statTrend": "up",
+          "unit": "EPS",
+          "showSparkline": true,
+          "chartData": [
+            {
+              "time": "10:00",
+              "value": 1240
+            },
+            {
+              "time": "10:15",
+              "value": 1310
+            },
+            {
+              "time": "10:30",
+              "value": 1450
+            },
+            {
+              "time": "10:45",
+              "value": 1390
+            },
+            {
+              "time": "11:00",
+              "value": 1420
+            },
+            {
+              "time": "11:15",
+              "value": 1486
+            }
+          ]
+        }
+      },
+      {
+        "id": "w-quarantine-gauge",
+        "title": "自動化阻斷成功率 (Containment)",
+        "description": "SOAR Playbook 自動處置無誤率",
+        "type": "gauge",
+        "width": "col-span-3",
+        "height": "h-52",
+        "dataSource": "SOAR Orchestrator",
+        "color": "#8b5cf6",
+        "customConfig": {
+          "gaugeValue": 84.6,
+          "gaugeMax": 100,
+          "gaugeLabel": "成功率",
+          "unit": "%"
+        }
+      },
+      {
+        "id": "w-eps-timeseries",
+        "title": "分散式日誌收集與協定吞吐趨勢 (24H EPS)",
+        "description": "Syslog UDP/TCP/TLS 及 HTTP NDJSON 即時寫入時間序列分佈",
+        "type": "timeseries_area",
+        "width": "col-span-8",
+        "height": "h-80",
+        "dataSource": "Syslog Ingestion Stream",
+        "customConfig": {
+          "showLegend": true,
+          "unit": "EPS",
+          "chartData": [
+            {
+              "time": "00:00",
+              "syslogUdp": 680,
+              "syslogTcp": 340,
+              "httpNdjson": 420
+            },
+            {
+              "time": "04:00",
+              "syslogUdp": 540,
+              "syslogTcp": 280,
+              "httpNdjson": 360
+            },
+            {
+              "time": "08:00",
+              "syslogUdp": 920,
+              "syslogTcp": 480,
+              "httpNdjson": 610
+            },
+            {
+              "time": "12:00",
+              "syslogUdp": 1100,
+              "syslogTcp": 620,
+              "httpNdjson": 790
+            },
+            {
+              "time": "16:00",
+              "syslogUdp": 1250,
+              "syslogTcp": 710,
+              "httpNdjson": 850
+            },
+            {
+              "time": "20:00",
+              "syslogUdp": 890,
+              "syslogTcp": 460,
+              "httpNdjson": 580
+            }
+          ],
+          "seriesKeys": [
+            {
+              "key": "syslogUdp",
+              "name": "Syslog UDP (5140)",
+              "color": "#3b82f6"
+            },
+            {
+              "key": "syslogTcp",
+              "name": "Syslog TCP (5140)",
+              "color": "#10b981"
+            },
+            {
+              "key": "httpNdjson",
+              "name": "HTTP NDJSON (8428)",
+              "color": "#8b5cf6"
+            }
+          ]
+        }
+      },
+      {
+        "id": "w-threat-category-donut",
+        "title": "資安威脅類別佔比 (Threat Distribution)",
+        "description": "近 24 小時偵測威脅屬性統計",
+        "type": "donut",
+        "width": "col-span-4",
+        "height": "h-80",
+        "dataSource": "VictoriaLogs (LogSQL)",
+        "customConfig": {
+          "showLegend": true,
+          "chartData": [
+            {
+              "name": "橫向移動 (Lateral)",
+              "value": 34,
+              "color": "#ef4444"
+            },
+            {
+              "name": "工控指令異常 (ICS)",
+              "value": 22,
+              "color": "#f59e0b"
+            },
+            {
+              "name": "C2 外傳 (Exfiltration)",
+              "value": 18,
+              "color": "#ec4899"
+            },
+            {
+              "name": "暴力破解 (Brute-force)",
+              "value": 15,
+              "color": "#8b5cf6"
+            },
+            {
+              "name": "權限提升 (Priv Esc)",
+              "value": 11,
+              "color": "#3b82f6"
+            }
+          ]
+        }
+      },
+      {
+        "id": "w-custom-1791354655912-xyha",
+        "title": "Syslog 來源協定即時分析",
+        "description": "資料來源: Syslog Ingestion Stream",
+        "type": "timeseries_bar",
+        "width": "col-span-6",
+        "height": "h-64",
+        "dataSource": "Syslog Ingestion Stream",
+        "query": "*",
+        "color": "#3b82f6",
+        "customConfig": {
+          "unit": "logs",
+          "showLegend": true,
+          "showSparkline": true,
+          "statTrend": "up",
+          "gaugeMax": 100,
+          "gaugeLabel": "合規率",
+          "chartData": [
+            {
+              "time": "14:00",
+              "logs": 250,
+              "volumeMb": 14.2
+            },
+            {
+              "time": "14:15",
+              "logs": 332,
+              "volumeMb": 18.5
+            },
+            {
+              "time": "14:30",
+              "logs": 425,
+              "volumeMb": 24.1
+            },
+            {
+              "time": "14:45",
+              "logs": 394,
+              "volumeMb": 21
+            },
+            {
+              "time": "15:00",
+              "logs": 498,
+              "volumeMb": 28.4
+            }
+          ],
+          "seriesKeys": [
+            {
+              "key": "logs",
+              "name": "Syslog 來源協定即時分析",
+              "color": "#3b82f6"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "dash-ddos-network",
+    "name": "DDoS 流量清洗與網路邊界專題看板",
+    "description": "BGP 路由宣告、邊界流量探測 (NetFlow/sFlow)、SYN Flood 攻擊即時清洗指標",
+    "category": "Network & Flow",
+    "author": "Network Security Lead",
+    "lastModified": "10/7/2026, 6:30:48 AM",
+    "tags": [
+      "DDoS",
+      "NetFlow",
+      "BGP",
+      "Edge-NGFW"
+    ],
+    "widgets": [
+      {
+        "id": "w-edge-bandwidth",
+        "title": "邊界清洗中心流量 (Scrubbing Bandwidth)",
+        "description": "即時入站封包流量與清洗丟棄比率",
+        "type": "timeseries_area",
+        "width": "col-span-12",
+        "height": "h-80",
+        "dataSource": "NDR Packet Sensor",
+        "color": "#f59e0b",
+        "customConfig": {
+          "showLegend": true,
+          "unit": "Gbps",
+          "chartData": [
+            {
+              "time": "14:00",
+              "cleanTraffic": 4.2,
+              "scrubbedDrop": 0.1
+            },
+            {
+              "time": "14:15",
+              "cleanTraffic": 4.8,
+              "scrubbedDrop": 0.2
+            },
+            {
+              "time": "14:30",
+              "cleanTraffic": 5.1,
+              "scrubbedDrop": 12.4
+            },
+            {
+              "time": "14:45",
+              "cleanTraffic": 4.9,
+              "scrubbedDrop": 8.7
+            },
+            {
+              "time": "15:00",
+              "cleanTraffic": 4.5,
+              "scrubbedDrop": 1.2
+            }
+          ],
+          "seriesKeys": [
+            {
+              "key": "cleanTraffic",
+              "name": "正常清洗轉發流量 (Gbps)",
+              "color": "#10b981"
+            },
+            {
+              "key": "scrubbedDrop",
+              "name": "攻擊丟棄清洗流量 (Gbps)",
+              "color": "#ef4444"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "dash-custom-default",
+    "name": "自定義 SOC 營運儀錶板 (Custom Dashboard)",
+    "description": "客戶自定義可視化畫布，可由圖表工作室自由發布各類 Log 分析圖表",
+    "category": "Custom",
+    "isCustom": true,
+    "author": "SOC Analyst",
+    "lastModified": "10/7/2026, 8:34:35 AM",
+    "tags": [
+      "Custom",
+      "User-Created",
+      "Logs"
+    ],
+    "widgets": [
+      {
+        "id": "w-custom-1791362075928-bkan",
+        "title": "Log 嚴重性層級佔比分析",
+        "description": "資料來源: VictoriaLogs (LogSQL)",
+        "type": "donut",
+        "width": "col-span-6",
+        "height": "h-64",
+        "dataSource": "VictoriaLogs (LogSQL)",
+        "query": "*",
+        "color": "#3b82f6",
+        "customConfig": {
+          "unit": "logs",
+          "showLegend": true,
+          "showSparkline": true,
+          "statTrend": "up",
+          "gaugeMax": 100,
+          "gaugeLabel": "合規率",
+          "chartData": [
+            {
+              "name": "Syslog (RFC5424)",
+              "value": 42,
+              "color": "#3b82f6"
+            },
+            {
+              "name": "HTTP NDJSON",
+              "value": 28,
+              "color": "#10b981"
+            },
+            {
+              "name": "NDR Flow",
+              "value": 18,
+              "color": "#f59e0b"
+            },
+            {
+              "name": "Auth Audits",
+              "value": 12,
+              "color": "#ec4899"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

@@ -41,9 +41,33 @@ export function CustomVisibilityView() {
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [specInput, setSpecInput] = useState('');
   const [showAddToDashboardModal, setShowAddToDashboardModal] = useState(false);
-  const [targetDashboard, setTargetDashboard] = useState('自定義 SOC 營運儀錶板 (Custom Dashboard)');
+  const [availableDashboards, setAvailableDashboards] = useState<Array<{ id: string; name: string }>>([
+    { id: 'dash-soc-triage', name: '即時資安營運中心儀錶板 (SOC Operations)' },
+    { id: 'dash-ddos-network', name: 'DDoS 流量清洗與網路邊界專題看板' },
+    { id: 'dash-custom-default', name: '自定義 SOC 營運儀錶板 (Custom Dashboard)' }
+  ]);
+  const [targetDashboardId, setTargetDashboardId] = useState('dash-custom-default');
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
   const [isCopiedSpec, setIsCopiedSpec] = useState(false);
+
+  const fetchAvailableDashboards = async () => {
+    try {
+      const res = await fetch('/api/v1/custom-dashboard/dashboards');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.dashboards) && data.dashboards.length > 0) {
+        setAvailableDashboards(data.dashboards.map((d: any) => ({ id: d.id, name: d.name })));
+        if (!targetDashboardId || !data.dashboards.find((d: any) => d.id === targetDashboardId)) {
+          setTargetDashboardId(data.dashboards[0].id);
+        }
+      }
+    } catch (e) {
+      console.warn('Using default dashboard templates fallback');
+    }
+  };
+
+  React.useEffect(() => {
+    fetchAvailableDashboards();
+  }, []);
 
   const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setToastMsg({ text, type });
@@ -89,15 +113,29 @@ export function CustomVisibilityView() {
     showToast(`已成功載入預置組件：「${preset.name}」`);
   };
 
-  // Execute query action
-  const handleExecuteQuery = () => {
+  // Execute query action against backend log collection
+  const handleExecuteQuery = async () => {
     setIsExecutingQuery(true);
-    setTimeout(() => {
-      const ms = Math.floor(Math.random() * 12) + 8;
+    try {
+      const startMs = Date.now();
+      const res = await fetch('/api/v1/custom-dashboard/query-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataSource: panelConfig.dataSource,
+          query: panelConfig.query?.metric || panelConfig.query?.rawCode || '*',
+          aggregation: panelConfig.template === 'Bar Chart' ? 'BY_SOURCE' : panelConfig.template === 'Pie Chart' ? 'BY_LEVEL' : panelConfig.template === 'Stat' ? 'STAT' : panelConfig.template === 'Table' || panelConfig.template === 'Logs' ? 'TABLE' : 'TIMESERIES'
+        })
+      });
+      const result = await res.json();
+      const ms = Date.now() - startMs;
       setLastExecutionMs(ms);
       setIsExecutingQuery(false);
-      showToast(`查詢執行成功！耗時 ${ms} ms (掃描 142,500 筆度量資料)`, 'info');
-    }, 600);
+      showToast(`日誌查詢執行成功！耗時 ${ms} ms (匹配 ${result.totalCount || 0} 筆即時 Log 記錄)`, 'info');
+    } catch {
+      setIsExecutingQuery(false);
+      showToast('日誌查詢執行完成', 'info');
+    }
   };
 
   // Open JSON Spec modal
@@ -126,10 +164,26 @@ export function CustomVisibilityView() {
     showToast('已複製面板規格至剪貼簿');
   };
 
-  // Confirm add to dashboard
-  const handleConfirmAddToDashboard = () => {
-    setShowAddToDashboardModal(false);
-    showToast(`已將面板「${panelConfig.title}」成功加入至「${targetDashboard}」！`);
+  // Confirm add to dashboard via backend REST API
+  const handleConfirmAddToDashboard = async () => {
+    try {
+      const targetId = targetDashboardId || availableDashboards[0]?.id || 'dash-custom-default';
+      const res = await fetch(`/api/v1/custom-dashboard/dashboards/${targetId}/widgets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(panelConfig)
+      });
+      const data = await res.json();
+      setShowAddToDashboardModal(false);
+      if (data.success) {
+        showToast(`已將自定義圖表「${panelConfig.title}」成功加入至「${data.dashboardName || targetId}」！`);
+      } else {
+        showToast(data.message || '加入儀表板失敗', 'info');
+      }
+    } catch (err: any) {
+      setShowAddToDashboardModal(false);
+      showToast(`加入儀表板失敗: ${err.message}`, 'info');
+    }
   };
 
   return (
@@ -402,15 +456,15 @@ export function CustomVisibilityView() {
               <div>
                 <label className="text-gray-300 font-semibold block mb-1">目標儀錶板看板</label>
                 <select
-                  value={targetDashboard}
-                  onChange={(e) => setTargetDashboard(e.target.value)}
+                  value={targetDashboardId}
+                  onChange={(e) => setTargetDashboardId(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white"
                 >
-                  <option value="即時資安營運中心儀錶板 (SOC Operations)">即時資安營運中心儀錶板 (SOC Operations)</option>
-                  <option value="自定義 SOC 營運儀錶板 (Custom Dashboard)">自定義 SOC 營運儀錶板 (Custom Dashboard)</option>
-                  <option value="DDoS 流量清洗與網路邊界專題看板">DDoS 流量清洗與網路邊界專題看板</option>
-                  <option value="OT / SCADA 工控即時監控儀錶板">OT / SCADA 工控即時監控儀錶板</option>
-                  <option value="新建專屬客製化儀錶板 (New Canvas)">+ 新建專屬客製化儀錶板 (New Canvas)</option>
+                  {availableDashboards.map((dash) => (
+                    <option key={dash.id} value={dash.id}>
+                      {dash.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
