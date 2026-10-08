@@ -43,7 +43,19 @@ import {
   Send,
   Database,
   Cpu,
-  Fingerprint
+  Fingerprint,
+  Play,
+  Pause,
+  RotateCcw,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Crosshair,
+  Info,
+  RadioTower,
+  Code,
+  Flame,
+  Bug
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import * as d3 from 'd3';
@@ -328,6 +340,22 @@ const DEFAULT_INCIDENTS: CriticalIncidentItem[] = [
   }
 ];
 
+export interface LogsSummary {
+  totalLogs: number;
+  highRiskLogsCount: number;
+  activeIncidentCount: number;
+  lastIngestedLogTime: string;
+  recentLogsSample?: {
+    id: string;
+    timestamp: string;
+    host: string;
+    level: string;
+    protocol: string;
+    source: string;
+    message: string;
+  }[];
+}
+
 export default function CriticalIncidentsView({ currentUser }: { currentUser: any }) {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
@@ -340,8 +368,19 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzingAi, setIsAnalyzingAi] = useState(false);
   
+  // Backend Log Telemetry & Correlation State
+  const [logsSummary, setLogsSummary] = useState<LogsSummary | null>(null);
+  const [isCorrelating, setIsCorrelating] = useState(false);
+  const [isInjectingThreat, setIsInjectingThreat] = useState(false);
+  const [showSimulateModal, setShowSimulateModal] = useState(false);
+  const [showRecentLogsModal, setShowRecentLogsModal] = useState(false);
+  const [evidenceLogs, setEvidenceLogs] = useState<{ [id: string]: { loading: boolean; logs: any[] } }>({});
+  const [evidenceCopiedId, setEvidenceCopiedId] = useState<string | null>(null);
+  const [signatureAnalysisMap, setSignatureAnalysisMap] = useState<{ [id: string]: { loading: boolean; data: any } }>({});
+  const [iocCopiedValue, setIocCopiedValue] = useState<string | null>(null);
+
   // Sub-tabs inside expanded row
-  const [activeSubTab, setActiveSubTab] = useState<'ai' | 'payload' | 'topology' | 'soar' | 'notes'>('ai');
+  const [activeSubTab, setActiveSubTab] = useState<'ai' | 'signature' | 'logs' | 'payload' | 'topology' | 'soar' | 'notes'>('ai');
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -387,9 +426,149 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
     }
   };
 
+  // Fetch Backend Log Collection Summary
+  const fetchLogsSummary = async () => {
+    try {
+      const res = await fetch('/api/v1/incidents/logs/summary');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setLogsSummary(data);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch backend logs summary:', err);
+    }
+  };
+
+  // Fetch Evidence Logs for a specific Incident
+  const fetchEvidenceLogs = async (incidentId: string, force = false) => {
+    if (!force && evidenceLogs[incidentId]?.logs?.length > 0 && !evidenceLogs[incidentId]?.loading) {
+      return;
+    }
+    setEvidenceLogs(prev => ({ ...prev, [incidentId]: { loading: true, logs: prev[incidentId]?.logs || [] } }));
+    try {
+      const res = await fetch(`/api/v1/incidents/${incidentId}/evidence-logs`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.logs)) {
+          setEvidenceLogs(prev => ({ ...prev, [incidentId]: { loading: false, logs: data.logs } }));
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch evidence logs:', err);
+    }
+    setEvidenceLogs(prev => ({ ...prev, [incidentId]: { loading: false, logs: prev[incidentId]?.logs || [] } }));
+  };
+
+  // Fetch Attack Signature Analysis & IOCs
+  const fetchSignatureAnalysis = async (incidentId: string) => {
+    if (signatureAnalysisMap[incidentId]?.data && !signatureAnalysisMap[incidentId]?.loading) {
+      return;
+    }
+    setSignatureAnalysisMap(prev => ({ ...prev, [incidentId]: { loading: true, data: null } }));
+    try {
+      const res = await fetch(`/api/v1/incidents/${incidentId}/signature-analysis`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.detection) {
+          setSignatureAnalysisMap(prev => ({ ...prev, [incidentId]: { loading: false, data: json.detection } }));
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load signature analysis:', err);
+    }
+    setSignatureAnalysisMap(prev => ({ ...prev, [incidentId]: { loading: false, data: null } }));
+  };
+
+  // Trigger Backend Log Correlation Engine
+  const handleCorrelateLogs = async () => {
+    try {
+      setIsCorrelating(true);
+      const res = await fetch('/api/v1/incidents/correlate-logs', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        if (Array.isArray(data.incidents)) {
+          setIncidents(data.incidents);
+        }
+        setSuccessToast(data.message || (isZh ? '後端 Log 關聯分析已完成！' : 'Backend log correlation completed!'));
+        setTimeout(() => setSuccessToast(null), 4000);
+        fetchLogsSummary();
+        if (selectedIncident) {
+          fetchEvidenceLogs(selectedIncident.id, true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to trigger log correlation:', err);
+    } finally {
+      setIsCorrelating(false);
+    }
+  };
+
+  // Simulate / Inject Threat Log into Backend
+  const handleSimulateThreatLog = async (threatType: 'ics' | 'c2' | 'bruteforce' | 'ransomware' | 'exfil' | 'sqli') => {
+    try {
+      setIsInjectingThreat(true);
+      const res = await fetch('/api/v1/incidents/simulate-threat-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threatType })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessToast(data.message || (isZh ? '威脅 Log 注入成功並自動關聯立案！' : 'Threat log injected and correlated!'));
+        setTimeout(() => setSuccessToast(null), 4500);
+        await fetchIncidents();
+        await fetchLogsSummary();
+        if (data.latestIncident) {
+          setSelectedIncident(data.latestIncident);
+          setExpandedRow(data.latestIncident.id);
+          fetchEvidenceLogs(data.latestIncident.id, true);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to inject simulated threat log:', err);
+    } finally {
+      setIsInjectingThreat(false);
+      setShowSimulateModal(false);
+    }
+  };
+
+  // Reset Incidents Dataset
+  const handleResetIncidents = async () => {
+    try {
+      const res = await fetch('/api/v1/incidents/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.incidents)) {
+        setIncidents(data.incidents);
+        setSelectedIncident(data.incidents[0]);
+        setExpandedRow(data.incidents[0].id);
+        setSuccessToast(data.message || (isZh ? '嚴重事件資料庫已重置回基準狀態' : 'Incidents dataset reset.'));
+        setTimeout(() => setSuccessToast(null), 3500);
+        fetchLogsSummary();
+      }
+    } catch (err) {
+      console.error('Failed to reset dataset:', err);
+    }
+  };
+
   useEffect(() => {
     fetchIncidents();
+    fetchLogsSummary();
+    const timer = setInterval(() => {
+      fetchIncidents();
+      fetchLogsSummary();
+    }, 10000);
+    return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (expandedRow) {
+      fetchEvidenceLogs(expandedRow);
+    }
+  }, [expandedRow]);
 
   // Handle outside click for dropdown
   useEffect(() => {
@@ -698,6 +877,96 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
         </div>
       </div>
 
+      {/* Backend Log Ingestion & Real-Time Correlation Pipeline Control Deck */}
+      <div className="bg-[#0b0e14] border border-cyan-900/50 p-5 rounded-2xl shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-96 h-full bg-gradient-to-l from-cyan-600/10 via-blue-600/5 to-transparent pointer-events-none" />
+
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 bg-cyan-950/80 rounded-xl flex items-center justify-center border border-cyan-500/40 text-cyan-400 shadow-inner">
+              <Database size={24} className="animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-white uppercase tracking-tight">
+                  {isZh ? '後端日誌收集管線・即時威脅關聯分析引擎' : 'Backend Log Ingestion & Threat Correlation Engine'}
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">
+                  PIPELINE ONLINE
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {isZh
+                  ? `資料來源：後端日誌收集佇列 (runtimeLogCorpus)。目前收集池共 ${logsSummary?.totalLogs ?? 0} 筆 Log，已即時過濾識別 ${logsSummary?.highRiskLogsCount ?? 0} 筆高危威脅日誌。`
+                  : `Data Source: Backend Log Collection Corpus (${logsSummary?.totalLogs ?? 0} total logs, ${logsSummary?.highRiskLogsCount ?? 0} high-risk threat signatures detected).`}
+              </p>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleCorrelateLogs}
+              disabled={isCorrelating}
+              className="px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-lg shadow-cyan-600/25 disabled:opacity-50"
+            >
+              <Zap size={14} className={isCorrelating ? 'animate-spin' : ''} />
+              <span>{isCorrelating ? (isZh ? '關聯分析中...' : 'Correlating...') : (isZh ? '立即關聯後端 Log' : 'Correlate Backend Logs')}</span>
+            </button>
+
+            <button
+              onClick={() => setShowSimulateModal(true)}
+              disabled={isInjectingThreat}
+              className="px-3.5 py-2 bg-purple-950/70 hover:bg-purple-900/90 text-purple-200 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-lg disabled:opacity-50"
+            >
+              <Sparkles size={14} className="text-purple-400" />
+              <span>{isZh ? '注入測試威脅 Log' : 'Simulate Threat Log'}</span>
+            </button>
+
+            <button
+              onClick={() => setShowRecentLogsModal(true)}
+              className="px-3 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow"
+            >
+              <Terminal size={13} className="text-gray-400" />
+              <span>{isZh ? '檢視最新 Log 串流' : 'Live Log Stream'}</span>
+            </button>
+
+            <button
+              onClick={handleResetIncidents}
+              className="px-3 py-2 bg-gray-900/60 hover:bg-gray-800 border border-gray-800 text-gray-400 hover:text-gray-200 rounded-xl text-xs transition-all"
+              title={isZh ? '重置回初始事件集' : 'Reset to baseline'}
+            >
+              {isZh ? '重置事件集' : 'Reset'}
+            </button>
+          </div>
+        </div>
+
+        {/* Live Counters strip */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-3.5 border-t border-gray-800/80 font-mono text-xs">
+          <div className="flex items-center justify-between p-2.5 bg-black/40 border border-gray-800/60 rounded-xl">
+            <span className="text-gray-400 text-[11px]">{isZh ? '後端 Log 收集總量' : 'Backend Logs'}:</span>
+            <span className="text-white font-bold">{logsSummary?.totalLogs ?? 0}</span>
+          </div>
+
+          <div className="flex items-center justify-between p-2.5 bg-black/40 border border-red-950/50 rounded-xl">
+            <span className="text-gray-400 text-[11px]">{isZh ? '命中威脅特徵 Log' : 'Threat Logs'}:</span>
+            <span className="text-red-400 font-bold">{logsSummary?.highRiskLogsCount ?? 0}</span>
+          </div>
+
+          <div className="flex items-center justify-between p-2.5 bg-black/40 border border-cyan-950/50 rounded-xl">
+            <span className="text-gray-400 text-[11px]">{isZh ? '已立案嚴重事件' : 'Correlated Incidents'}:</span>
+            <span className="text-cyan-400 font-bold">{incidents.length}</span>
+          </div>
+
+          <div className="flex items-center justify-between p-2.5 bg-black/40 border border-gray-800/60 rounded-xl">
+            <span className="text-gray-400 text-[11px]">{isZh ? '最新收錄時間' : 'Latest Log'}:</span>
+            <span className="text-emerald-400 font-bold truncate max-w-[120px]">
+              {logsSummary?.lastIngestedLogTime ? logsSummary.lastIngestedLogTime.replace('T', ' ').slice(11, 19) : 'LIVE'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Filter and Search Bar */}
       <div className="bg-[#0f1015] border border-gray-800 p-4 rounded-2xl space-y-3 shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -938,15 +1207,30 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                       </td>
 
                       <td className="p-3.5 text-right relative">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenDropdown(openDropdown === incident.id ? null : incident.id);
-                          }}
-                          className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
-                        >
-                          <MoreVertical size={14} />
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedIncident(incident);
+                              setShowTopologyModal(true);
+                            }}
+                            title={isZh ? '開啟全螢幕攻擊路徑拓撲圖與橫向移動分析' : 'Open Attack Path Topology & Lateral Movement'}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-950/40 hover:bg-purple-900/70 border border-purple-500/40 hover:border-purple-400 text-purple-300 text-xs font-bold transition-all shadow-sm group"
+                          >
+                            <Workflow size={13} className="text-purple-400 group-hover:scale-110 transition-transform" />
+                            <span>{isZh ? '攻擊拓撲' : 'Topology'}</span>
+                          </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenDropdown(openDropdown === incident.id ? null : incident.id);
+                            }}
+                            className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+                          >
+                            <MoreVertical size={14} />
+                          </button>
+                        </div>
 
                         {/* Action Dropdown Menu */}
                         <AnimatePresence>
@@ -1043,13 +1327,22 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                                   <div className="flex items-center bg-black/60 p-1 rounded-xl border border-gray-800 text-xs">
                                     {[
                                       { key: 'ai', label: isZh ? '🤖 AI 戰術研判' : 'AI Triage', icon: <Brain size={13} /> },
+                                      { key: 'signature', label: isZh ? '🎯 攻擊特徵碼解析' : 'Signature & IOCs', icon: <SlidersHorizontal size={13} /> },
+                                      { key: 'logs', label: isZh ? '📡 後端 Log 證據鏈' : 'Evidence Logs', icon: <Database size={13} /> },
                                       { key: 'payload', label: isZh ? '🔍 原始封包 Hex' : 'Raw Payload', icon: <Fingerprint size={13} /> },
                                       { key: 'soar', label: isZh ? '⚡ SOAR 應變處置' : 'SOAR Playbooks', icon: <Zap size={13} /> },
                                       { key: 'notes', label: isZh ? '💬 鑑識協同筆記' : 'Analyst Notes', icon: <FileText size={13} /> }
                                     ].map((tab) => (
                                       <button
                                         key={tab.key}
-                                        onClick={() => setActiveSubTab(tab.key as any)}
+                                        onClick={() => {
+                                          setActiveSubTab(tab.key as any);
+                                          if (tab.key === 'logs') {
+                                            fetchEvidenceLogs(incident.id);
+                                          } else if (tab.key === 'signature') {
+                                            fetchSignatureAnalysis(incident.id);
+                                          }
+                                        }}
                                         className={cn(
                                           'px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all',
                                           activeSubTab === tab.key
@@ -1158,6 +1451,223 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                                         <span>{isZh ? '開啟可視化全螢幕拓撲視圖' : 'Expand Fullscreen Topology'}</span>
                                       </button>
                                     </div>
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB: ATTACK SIGNATURE & IOC ANALYSIS */}
+                                {activeSubTab === 'signature' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <div className="flex items-center gap-2 text-amber-400 font-bold">
+                                        <SlidersHorizontal size={15} />
+                                        <span>{isZh ? '攻擊特徵碼解析與自動化 IOC 萃取 (Attack Signature & IOC Analysis)' : 'Attack Signature & IOC Extraction'}</span>
+                                      </div>
+                                      <button
+                                        onClick={() => fetchSignatureAnalysis(incident.id)}
+                                        disabled={signatureAnalysisMap[incident.id]?.loading}
+                                        className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs flex items-center gap-1.5 transition-all font-mono"
+                                      >
+                                        <RefreshCw size={12} className={signatureAnalysisMap[incident.id]?.loading ? 'animate-spin text-amber-400' : ''} />
+                                        <span>{isZh ? '重新解析' : 'Re-parse'}</span>
+                                      </button>
+                                    </div>
+
+                                    {signatureAnalysisMap[incident.id]?.loading ? (
+                                      <div className="p-8 text-center text-gray-400 text-xs flex items-center justify-center gap-2 bg-black/40 border border-gray-800 rounded-xl">
+                                        <RefreshCw size={16} className="animate-spin text-amber-400" />
+                                        <span>{isZh ? '正在執行多階段特徵碼解析與 IOC 萃取...' : 'Parsing attack signatures and extracting IOCs...'}</span>
+                                      </div>
+                                    ) : signatureAnalysisMap[incident.id]?.data ? (
+                                      <div className="space-y-3">
+                                        {/* Signature Card */}
+                                        <div className="p-4 bg-gradient-to-r from-amber-950/40 via-red-950/20 to-black/40 border border-amber-500/40 rounded-xl space-y-2">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                {signatureAnalysisMap[incident.id].data.signatureId}
+                                              </span>
+                                              <h5 className="text-xs font-bold text-white">
+                                                {signatureAnalysisMap[incident.id].data.signatureName}
+                                              </h5>
+                                            </div>
+                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800 font-bold">
+                                              CVSS {signatureAnalysisMap[incident.id].data.riskScore}
+                                            </span>
+                                          </div>
+                                          <p className="text-xs text-amber-100/90 leading-relaxed">
+                                            {signatureAnalysisMap[incident.id].data.summary}
+                                          </p>
+                                          <div className="flex flex-wrap items-center gap-2 pt-1 text-[10px] font-mono text-gray-400">
+                                            <span>MITRE: <strong className="text-white">{signatureAnalysisMap[incident.id].data.mitreTTP}</strong></span>
+                                            <span>•</span>
+                                            <span>Tactic: <strong className="text-purple-300">{signatureAnalysisMap[incident.id].data.mitreTactic}</strong></span>
+                                            <span>•</span>
+                                            <span>CVE: <strong className="text-blue-300">{signatureAnalysisMap[incident.id].data.cve}</strong></span>
+                                            <span>•</span>
+                                            <span>Confidence: <strong className="text-emerald-300">{signatureAnalysisMap[incident.id].data.confidence}%</strong></span>
+                                          </div>
+                                        </div>
+
+                                        {/* Extracted IOCs table */}
+                                        <div className="p-3 bg-[#090a0f] border border-gray-800 rounded-xl space-y-2">
+                                          <div className="text-[11px] font-bold text-gray-300 flex items-center justify-between">
+                                            <span>{isZh ? '萃取之重要威脅指標 (Extracted IOCs)' : 'Extracted IOC Indicators'}</span>
+                                            <span className="text-[10px] text-gray-500 font-mono">
+                                              {signatureAnalysisMap[incident.id].data.extractedIocs?.length || 0} Indicators Identified
+                                            </span>
+                                          </div>
+                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            {signatureAnalysisMap[incident.id].data.extractedIocs?.map((ioc: any, idx: number) => (
+                                              <div key={idx} className="p-2 bg-black/60 border border-gray-800/80 rounded-lg flex items-center justify-between text-xs font-mono">
+                                                <div>
+                                                  <div className="flex items-center gap-1.5">
+                                                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-gray-800 text-gray-400 uppercase font-bold">
+                                                      {ioc.type}
+                                                    </span>
+                                                    <span className="text-amber-300 font-bold truncate max-w-[180px]">{ioc.value}</span>
+                                                  </div>
+                                                  <div className="text-[10px] text-gray-500 mt-0.5">{ioc.context}</div>
+                                                </div>
+                                                <button
+                                                  onClick={() => {
+                                                    navigator.clipboard.writeText(ioc.value);
+                                                    setIocCopiedValue(ioc.value);
+                                                    setTimeout(() => setIocCopiedValue(null), 2000);
+                                                  }}
+                                                  className="p-1 text-gray-400 hover:text-white rounded hover:bg-gray-800 transition-colors"
+                                                  title="Copy IOC"
+                                                >
+                                                  {iocCopiedValue === ioc.value ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        {/* Decoded Payload and Forensic Patterns */}
+                                        {signatureAnalysisMap[incident.id].data.decodedPayload && (
+                                          <div className="p-3 bg-black/60 border border-gray-800 rounded-xl space-y-1.5 font-mono text-xs">
+                                            <div className="text-[10px] text-gray-400 uppercase font-bold">
+                                              {isZh ? '解碼後之攻擊載荷 (Decoded Attack Payload)' : 'Decoded Attack Payload'}
+                                            </div>
+                                            <div className="p-2 bg-[#090a0f] border border-gray-800 rounded text-emerald-400 text-[11px] overflow-x-auto">
+                                              {signatureAnalysisMap[incident.id].data.decodedPayload}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className="p-6 text-center text-gray-400 text-xs bg-black/40 border border-gray-800 rounded-xl space-y-2">
+                                        <p>{isZh ? '尚未加載特徵碼解析數據，請點擊解析。' : 'No signature data loaded yet.'}</p>
+                                        <button
+                                          onClick={() => fetchSignatureAnalysis(incident.id)}
+                                          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5"
+                                        >
+                                          <Zap size={13} />
+                                          <span>{isZh ? '立即分析攻擊特徵碼' : 'Parse Signature Now'}</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* SUB-TAB: LIVE BACKEND EVIDENCE LOGS */}
+                                {activeSubTab === 'logs' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <div className="flex items-center gap-2 text-cyan-400 font-bold">
+                                        <Database size={15} />
+                                        <span>{isZh ? '後端日誌收集管線・關聯數位證據鏈 (Evidence Logs)' : 'Backend Log Telemetry Evidence Chain'}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => fetchEvidenceLogs(incident.id, true)}
+                                          disabled={evidenceLogs[incident.id]?.loading}
+                                          className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs flex items-center gap-1.5 transition-all font-mono"
+                                        >
+                                          <RefreshCw size={12} className={evidenceLogs[incident.id]?.loading ? 'animate-spin text-cyan-400' : ''} />
+                                          <span>{isZh ? '重新檢索' : 'Reload'}</span>
+                                        </button>
+                                        <span className="text-[10px] font-mono px-2 py-0.5 bg-cyan-950/80 text-cyan-300 border border-cyan-800 rounded">
+                                          {evidenceLogs[incident.id]?.logs?.length || 0} Records Correlated
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {evidenceLogs[incident.id]?.loading ? (
+                                      <div className="p-8 text-center text-gray-400 text-xs flex items-center justify-center gap-2 bg-black/40 border border-gray-800 rounded-xl">
+                                        <RefreshCw size={16} className="animate-spin text-cyan-400" />
+                                        <span>{isZh ? '正在向後端日誌收集佇列檢索關聯數位證據...' : 'Retrieving correlated logs from backend corpus...'}</span>
+                                      </div>
+                                    ) : (!evidenceLogs[incident.id]?.logs || evidenceLogs[incident.id]?.logs.length === 0) ? (
+                                      <div className="p-6 text-center text-gray-400 text-xs bg-black/40 border border-gray-800 rounded-xl space-y-2">
+                                        <p>{isZh ? '目前暫無匹配之詳細後端日誌，可點擊上方按鈕重新關聯。' : 'No specific logs matched. Trigger log correlation above.'}</p>
+                                        <button
+                                          onClick={handleCorrelateLogs}
+                                          className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5"
+                                        >
+                                          <Zap size={13} />
+                                          <span>{isZh ? '立即觸發後端 Log 關聯分析' : 'Trigger Log Correlation'}</span>
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        <div className="bg-[#090a0f] border border-gray-800 rounded-xl overflow-hidden">
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-left text-xs font-mono">
+                                              <thead className="bg-black/60 text-gray-400 text-[10px] uppercase border-b border-gray-800">
+                                                <tr>
+                                                  <th className="p-2.5">{isZh ? '時間戳記' : 'Timestamp'}</th>
+                                                  <th className="p-2.5">{isZh ? '主機 / 來源' : 'Host / Source'}</th>
+                                                  <th className="p-2.5">{isZh ? '協定' : 'Protocol'}</th>
+                                                  <th className="p-2.5">{isZh ? '等級' : 'Level'}</th>
+                                                  <th className="p-2.5">{isZh ? '日誌內容 (Message)' : 'Log Message'}</th>
+                                                  <th className="p-2.5 text-right">{isZh ? '操作' : 'Action'}</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y divide-gray-800/60">
+                                                {evidenceLogs[incident.id]?.logs.map((ev: any, idx: number) => (
+                                                  <tr key={ev.id || idx} className="hover:bg-cyan-950/10 transition-colors">
+                                                    <td className="p-2.5 text-gray-400 whitespace-nowrap text-[11px]">{ev.timestamp}</td>
+                                                    <td className="p-2.5 text-cyan-300 font-bold whitespace-nowrap text-[11px]">
+                                                      <div>{ev.host}</div>
+                                                      <div className="text-[9px] text-gray-500">{ev.source}</div>
+                                                    </td>
+                                                    <td className="p-2.5 text-purple-300 whitespace-nowrap text-[11px]">{ev.protocol}</td>
+                                                    <td className="p-2.5 whitespace-nowrap">
+                                                      <span className={cn(
+                                                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase",
+                                                        ev.level === 'CRITICAL' ? 'bg-red-950 text-red-300 border border-red-800' :
+                                                        ev.level === 'WARN' || ev.level === 'WARNING' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                                                        'bg-blue-950 text-blue-300 border border-blue-800'
+                                                      )}>
+                                                        {ev.level}
+                                                      </span>
+                                                    </td>
+                                                    <td className="p-2.5 text-gray-300 max-w-md truncate text-[11px]" title={ev.message}>
+                                                      {ev.message}
+                                                    </td>
+                                                    <td className="p-2.5 text-right whitespace-nowrap">
+                                                      <button
+                                                        onClick={() => {
+                                                          navigator.clipboard.writeText(ev.raw || JSON.stringify(ev, null, 2));
+                                                          setEvidenceCopiedId(ev.id || `${idx}`);
+                                                          setTimeout(() => setEvidenceCopiedId(null), 2000);
+                                                        }}
+                                                        className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded text-[10px] flex items-center gap-1 inline-flex"
+                                                      >
+                                                        {evidenceCopiedId === (ev.id || `${idx}`) ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                                                        <span>{evidenceCopiedId === (ev.id || `${idx}`) ? 'Copied' : 'Copy'}</span>
+                                                      </button>
+                                                    </td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
 
@@ -1295,6 +1805,12 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
           <AttackTopologyOverlay
             incident={selectedIncident}
             onClose={() => setShowTopologyModal(false)}
+            onIncidentUpdate={(updated: any) => {
+              setSelectedIncident(updated);
+              setIncidents((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+              setSuccessToast(isZh ? `事件 ${updated.id} 拓撲防禦狀態已同步更新！` : `Incident ${updated.id} topology state updated!`);
+              setTimeout(() => setSuccessToast(null), 3500);
+            }}
           />
         )}
       </AnimatePresence>
@@ -1381,6 +1897,197 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                 >
                   <Download size={14} />
                   <span>{isZh ? '下載完整 PDF 報告' : 'Download Complete PDF'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* THREAT SIMULATION LOG INJECTION MODAL */}
+      <AnimatePresence>
+        {showSimulateModal && (
+          <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#111218] border border-purple-800/60 w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-5"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-purple-600/20 text-purple-400 rounded-xl border border-purple-500/30">
+                    <Sparkles size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white uppercase tracking-tight">
+                      {isZh ? '注入高擬真威脅 Log・驗證後端收集與即時關聯' : 'Inject Simulated Threat Log (Verify Correlation)'}
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      {isZh ? '日誌將直接寫入後端收集佇列 (runtimeLogCorpus) 並觸發自動化立案' : 'Injects raw syslog payload directly into backend corpus and executes correlation'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowSimulateModal(false)}
+                  className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Scenario Options Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {[
+                  {
+                    type: 'ics' as const,
+                    title: isZh ? '🏭 工控 Modbus/TCP 保持暫存器覆寫' : 'ICS Modbus Register Override',
+                    desc: 'Modbus holding register 40012 unauthorized setpoint write from 192.168.100.88',
+                    mitre: 'T0816 Impair Process Control',
+                    tag: 'ICS / SCADA'
+                  },
+                  {
+                    type: 'c2' as const,
+                    title: isZh ? '📡 Cobalt Strike C2 信標隱蔽通道' : 'Cobalt Strike C2 Beacon',
+                    desc: 'Suspicious Base64 PowerShell execution and reverse shell connection to external C2',
+                    mitre: 'T1059.001 Command Interpreter',
+                    tag: 'C2 Implant'
+                  },
+                  {
+                    type: 'ransomware' as const,
+                    title: isZh ? '🛑 勒索軟體加密與備份卷影破壞' : 'Ransomware Mass Encryption',
+                    desc: 'Rapid file renaming (.encrypted) & vssadmin delete shadows execution on core host',
+                    mitre: 'T1486 Data Encrypted for Impact',
+                    tag: 'Ransomware'
+                  },
+                  {
+                    type: 'bruteforce' as const,
+                    title: isZh ? '🔑 分散式 SSH 帳密密集暴力破解' : 'Distributed SSH Brute Force',
+                    desc: 'High-frequency failed auth burst (520 attempts/min) targeting root account',
+                    mitre: 'T1110.001 Password Guessing',
+                    tag: 'Credential Access'
+                  },
+                  {
+                    type: 'exfil' as const,
+                    title: isZh ? '📦 巨量機敏檔案異地雲端外洩' : '18GB Anomalous Data Exfil',
+                    desc: 'Mega.nz off-hours 18.2GB encrypted archive upload anomaly exceeding 7.4 sigma',
+                    mitre: 'T1567.002 Cloud Storage Exfil',
+                    tag: 'UEBA Insider'
+                  },
+                  {
+                    type: 'sqli' as const,
+                    title: isZh ? '🌐 Web 防火牆 SQL Injection 利用' : 'Critical WAF SQL Injection',
+                    desc: 'Exploit payload UNION SELECT password_hash blocked by perimeter WAF proxy',
+                    mitre: 'T1190 Public Application Exploit',
+                    tag: 'Web Exploit'
+                  }
+                ].map((sc) => (
+                  <button
+                    key={sc.type}
+                    onClick={() => handleSimulateThreatLog(sc.type)}
+                    disabled={isInjectingThreat}
+                    className="p-3.5 bg-black/40 hover:bg-purple-950/30 border border-gray-800 hover:border-purple-500/50 rounded-xl text-left transition-all space-y-1.5 group disabled:opacity-50"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white group-hover:text-purple-300 transition-colors">
+                        {sc.title}
+                      </span>
+                      <span className="text-[9px] font-mono px-2 py-0.5 bg-gray-800 text-purple-300 rounded">
+                        {sc.tag}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-400 font-mono leading-tight">{sc.desc}</p>
+                    <div className="text-[10px] text-gray-500 font-mono">{sc.mitre}</div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-gray-800">
+                <button
+                  onClick={() => setShowSimulateModal(false)}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold"
+                >
+                  {isZh ? '取消' : 'Cancel'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* LIVE LOG STREAM PREVIEW MODAL */}
+      <AnimatePresence>
+        {showRecentLogsModal && (
+          <div className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#111218] border border-cyan-800/60 w-full max-w-4xl rounded-2xl p-6 shadow-2xl space-y-5 max-h-[85vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-cyan-600/20 text-cyan-400 rounded-xl border border-cyan-500/30">
+                    <Terminal size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white uppercase tracking-tight">
+                      {isZh ? '後端日誌收集佇列即時串流 (runtimeLogCorpus Stream)' : 'Backend Log Ingestion Stream Preview'}
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      {isZh ? `目前收集池總量：${logsSummary?.totalLogs ?? 0} 筆，展示最新採集之日誌遙測` : `Total corpus depth: ${logsSummary?.totalLogs ?? 0} logs`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowRecentLogsModal(false)}
+                  className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Logs table */}
+              <div className="flex-1 overflow-y-auto bg-[#090a0f] border border-gray-800 rounded-xl p-2 font-mono text-xs">
+                {(!logsSummary?.recentLogsSample || logsSummary.recentLogsSample.length === 0) ? (
+                  <div className="p-6 text-center text-gray-500">
+                    {isZh ? '尚無即時日誌樣本' : 'No logs currently recorded.'}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {logsSummary.recentLogsSample.map((log) => (
+                      <div key={log.id} className="p-2 bg-black/40 border border-gray-800/60 rounded-lg hover:border-cyan-800/50 transition-colors space-y-1">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-gray-400">{log.timestamp}</span>
+                          <span className="text-cyan-400 font-bold">{log.host}</span>
+                          <span className="text-purple-300">{log.protocol}</span>
+                          <span className={cn(
+                            "px-1.5 py-0.2 rounded font-bold uppercase",
+                            log.level === 'CRITICAL' ? 'bg-red-950 text-red-300' :
+                            log.level === 'WARN' || log.level === 'WARNING' ? 'bg-amber-950 text-amber-300' :
+                            'bg-blue-950 text-blue-300'
+                          )}>
+                            {log.level}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-gray-300 truncate" title={log.message}>
+                          {log.message}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-gray-800">
+                <span className="text-[11px] text-gray-500 font-mono">
+                  {isZh ? '管線支援 VictoriaLogs、Loki、Syslog UDP 5140、NetFlow 及 EDR Agent' : 'Supporting VictoriaLogs, Loki, Syslog UDP 5140, NetFlow and EDR Agents'}
+                </span>
+                <button
+                  onClick={() => setShowRecentLogsModal(false)}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold"
+                >
+                  {isZh ? '關閉' : 'Close'}
                 </button>
               </div>
             </motion.div>
@@ -1511,184 +2218,1064 @@ function CollaborativeNotesPanel({ incidentId, currentUser }: { incidentId: stri
 }
 
 // --- SUB-COMPONENT: Fullscreen Attack Topology Overlay ---
-function AttackTopologyOverlay({ incident, onClose }: { incident: any; onClose: () => void }) {
+function AttackTopologyOverlay({
+  incident,
+  onClose,
+  onIncidentUpdate
+}: {
+  incident: any;
+  onClose: () => void;
+  onIncidentUpdate?: (updated: any) => void;
+}) {
   const { i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
   const svgRef = useRef<SVGSVGElement>(null);
 
-  const topologyData = {
-    nodes: [
-      { id: 'C2', type: 'attacker', label: isZh ? '威脅來源 (External/Insider)' : 'Threat Actor / C2', x: 120, y: 240, ip: incident.srcip },
-      { id: 'FW', type: 'gateway', label: isZh ? '邊界防火牆閘道' : 'Perimeter Gateway', x: 300, y: 240, ip: '10.88.88.254' },
-      { id: 'SW', type: 'network', label: isZh ? '戰術核心交換網段' : 'Core Switch / Segment', x: 500, y: 240, ip: '10.88.88.1' },
-      { id: 'WS22', type: 'infected', label: isZh ? `受害端點 (${incident.srcHost || 'WS-DEV'})` : `Infected (${incident.srcHost || 'WS-DEV'})`, x: 700, y: 240, ip: incident.srcip, patientZero: true },
-      { id: 'TARGET', type: 'target', label: isZh ? `目標資產 (${incident.dstHost || 'Target'})` : `Target (${incident.dstHost || 'Target'})`, x: 880, y: 150, ip: incident.dstip },
-      { id: 'DB', type: 'db', label: isZh ? '國防敏感資料庫' : 'Sensitive DB', x: 880, y: 330, ip: '10.200.1.50' }
-    ],
-    links: [
-      { source: 'C2', target: 'FW', label: isZh ? '初始突破' : 'Infiltration', type: 'entry' },
-      { source: 'FW', target: 'SW', label: isZh ? '網段穿透' : 'Transit', type: 'transit' },
-      { source: 'SW', target: 'WS22', label: isZh ? '載荷植入' : 'Implant', type: 'infection' },
-      { source: 'WS22', target: 'TARGET', label: isZh ? '橫向突襲/外洩' : 'Exfiltration', type: 'lateral' },
-      { source: 'WS22', target: 'DB', label: isZh ? '特權探針' : 'Probe', type: 'lateral' }
-    ]
+  // Dynamic Data States
+  const [topology, setTopology] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+  const [selectedLink, setSelectedLink] = useState<any | null>(null);
+  const [activeTab, setActiveTab] = useState<'canvas' | 'signature' | 'logs' | 'playbooks'>('canvas');
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [showParticles, setShowParticles] = useState(true);
+  const [currentStageIdx, setCurrentStageIdx] = useState(0);
+  const [isPlayingTimeline, setIsPlayingTimeline] = useState(false);
+
+  // Signature & Log Evidence states
+  const [signatureData, setSignatureData] = useState<any | null>(null);
+  const [signatureLoading, setSignatureLoading] = useState(false);
+  const [evidenceLogs, setEvidenceLogs] = useState<any[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [logSearch, setLogSearch] = useState('');
+  const [customLogInput, setCustomLogInput] = useState('');
+  const [customLogResult, setCustomLogResult] = useState<any | null>(null);
+  const [customLogLoading, setCustomLogLoading] = useState(false);
+
+  // Interaction feedback states
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(label);
+    showToast(isZh ? `已複製 ${label} 至剪貼簿` : `Copied ${label} to clipboard`);
+    setTimeout(() => setCopiedText(null), 2000);
+  };
+
+  // 1. Fetch Dynamic Topology from Backend
+  const fetchTopologyData = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/v1/incidents/${incident.id}/topology`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.topology) {
+          setTopology(data.topology);
+          // Auto select patient zero or first infected node
+          const infected = data.topology.nodes?.find((n: any) => n.patientZero || n.type === 'infected');
+          if (infected) setSelectedNode(infected);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load topology from backend, generating fallback:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2. Fetch Deep Attack Signature Analysis
+  const fetchSignatureAnalysis = async () => {
+    setSignatureLoading(true);
+    try {
+      const res = await fetch(`/api/v1/incidents/${incident.id}/signature-analysis`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.detection) {
+          setSignatureData(data.detection);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load signature analysis:', err);
+    } finally {
+      setSignatureLoading(false);
+    }
+  };
+
+  // 3. Fetch Evidence Logs
+  const fetchEvidenceLogs = async () => {
+    setEvidenceLoading(true);
+    try {
+      const res = await fetch(`/api/v1/incidents/${incident.id}/evidence-logs`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.logs) {
+          setEvidenceLogs(data.logs);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load evidence logs:', err);
+    } finally {
+      setEvidenceLoading(false);
+    }
   };
 
   useEffect(() => {
-    if (!svgRef.current) return;
+    fetchTopologyData();
+    fetchSignatureAnalysis();
+    fetchEvidenceLogs();
+  }, [incident.id]);
+
+  // Timeline Auto-play effect
+  useEffect(() => {
+    if (!isPlayingTimeline || !topology?.timelineStages?.length) return;
+    const interval = setInterval(() => {
+      setCurrentStageIdx((prev) => {
+        const next = (prev + 1) % topology.timelineStages.length;
+        const targetNodeId = topology.timelineStages[next]?.nodeId;
+        if (targetNodeId) {
+          const matched = topology.nodes?.find((n: any) => n.id === targetNodeId);
+          if (matched) setSelectedNode(matched);
+        }
+        return next;
+      });
+    }, 2800);
+    return () => clearInterval(interval);
+  }, [isPlayingTimeline, topology]);
+
+  // 1-Click Node Containment Action
+  const handleContainNode = async (nodeId: string, actionType: 'isolate' | 'block' | 'revoke') => {
+    setActionInProgress(nodeId);
+    try {
+      const res = await fetch(`/api/v1/incidents/${incident.id}/topology/contain-node`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeId,
+          action: actionType,
+          operator: 'SOC Defense Specialist'
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          if (data.topology) {
+            setTopology(data.topology);
+            const updatedSelected = data.topology.nodes?.find((n: any) => n.id === nodeId);
+            if (updatedSelected) setSelectedNode(updatedSelected);
+          }
+          if (onIncidentUpdate && data.incident) {
+            onIncidentUpdate(data.incident);
+          }
+          showToast(data.message || (isZh ? `節點 ${nodeId} 已成功隔離！` : `Node ${nodeId} contained!`));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to contain node:', err);
+      showToast(isZh ? '處置下發失敗，請檢視網路連線' : 'Containment action failed');
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  // Test Custom Log against Backend Signature Engine Live
+  const handleTestCustomLog = async () => {
+    if (!customLogInput.trim()) return;
+    setCustomLogLoading(true);
+    try {
+      const res = await fetch('/api/v1/incidents/parse-log-signature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawLog: customLogInput,
+          host: selectedNode?.hostname || 'TEST-ENDPOINT',
+          protocol: 'syslog'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.detection) {
+          setCustomLogResult(data.detection);
+          showToast(isZh ? '後端特徵碼比對解析完成！' : 'Signature parsed successfully!');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to parse custom log:', err);
+    } finally {
+      setCustomLogLoading(false);
+    }
+  };
+
+  // SVG Rendering with D3
+  useEffect(() => {
+    if (!svgRef.current || !topology || !topology.nodes || !topology.links) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    // Arrowhead marker
-    svg
-      .append('defs')
-      .append('marker')
-      .attr('id', 'arrowhead')
-      .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 24)
-      .attr('refY', 0)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', '#ef4444');
+    const width = 1000;
+    const height = 520;
+
+    // Defs & Filters
+    const defs = svg.append('defs');
+
+    // Arrow markers
+    const markers = [
+      { id: 'arrow-entry', color: '#3b82f6' },
+      { id: 'arrow-infection', color: '#ef4444' },
+      { id: 'arrow-lateral', color: '#f97316' },
+      { id: 'arrow-blocked', color: '#10b981' },
+      { id: 'arrow-command', color: '#a855f7' }
+    ];
+
+    markers.forEach((m) => {
+      defs
+        .append('marker')
+        .attr('id', m.id)
+        .attr('viewBox', '0 -5 10 10')
+        .attr('refX', 30)
+        .attr('refY', 0)
+        .attr('markerWidth', 7)
+        .attr('markerHeight', 7)
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', 'M0,-5L10,0L0,5')
+        .attr('fill', m.color);
+    });
 
     // Glow filter
-    const defs = svg.append('defs');
-    const filter = defs.append('filter').attr('id', 'glow-df');
-    filter.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'coloredBlur');
-    const feMerge = filter.append('feMerge');
+    const glowFilter = defs.append('filter').attr('id', 'neon-glow').attr('x', '-30%').attr('y', '-30%').attr('width', '160%').attr('height', '160%');
+    glowFilter.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'coloredBlur');
+    const feMerge = glowFilter.append('feMerge');
     feMerge.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Drawing Links
-    svg
-      .append('g')
-      .selectAll('path')
-      .data(topologyData.links)
-      .join('path')
-      .attr('d', (d: any) => {
-        const s = topologyData.nodes.find((n) => n.id === d.source)!;
-        const t = topologyData.nodes.find((n) => n.id === d.target)!;
-        return `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
-      })
-      .attr('stroke', (d: any) => (d.type === 'entry' ? '#3b82f6' : d.type === 'infection' ? '#ef4444' : '#f97316'))
-      .attr('stroke-width', 2.5)
-      .attr('stroke-dasharray', '8,4')
-      .attr('fill', 'none')
-      .attr('marker-end', 'url(#arrowhead)')
-      .attr('style', 'filter: url(#glow-df)');
+    // Container group with zoom transform
+    const g = svg.append('g').attr('transform', `scale(${zoomLevel}) translate(${(1 - zoomLevel) * width * 0.5}, ${(1 - zoomLevel) * height * 0.5})`);
 
-    // Animated Particles
-    const particles = svg.append('g');
-    topologyData.links.forEach((link, i) => {
-      const s = topologyData.nodes.find((n) => n.id === link.source)!;
-      const t = topologyData.nodes.find((n) => n.id === link.target)!;
-      particles
-        .append('circle')
-        .attr('r', 3)
-        .attr('fill', link.type === 'entry' ? '#3b82f6' : '#ef4444')
-        .append('animateMotion')
-        .attr('path', `M ${s.x} ${s.y} L ${t.x} ${t.y}`)
-        .attr('dur', '3s')
-        .attr('repeatCount', 'indefinite')
-        .attr('begin', `${i * 0.5}s`);
+    // Render Links
+    const linkGroup = g.append('g').attr('class', 'links');
+    topology.links.forEach((link: any) => {
+      const s = topology.nodes.find((n: any) => n.id === link.source);
+      const t = topology.nodes.find((n: any) => n.id === link.target);
+      if (!s || !t) return;
+
+      const isBlocked = link.status === 'blocked';
+      const isSelected = selectedLink && selectedLink.source === link.source && selectedLink.target === link.target;
+      const strokeColor = isBlocked ? '#10b981' : link.type === 'entry' ? '#3b82f6' : link.type === 'infection' ? '#ef4444' : link.type === 'command' ? '#a855f7' : '#f97316';
+      const markerId = isBlocked ? 'arrow-blocked' : link.type === 'entry' ? 'arrow-entry' : link.type === 'infection' ? 'arrow-infection' : link.type === 'command' ? 'arrow-command' : 'arrow-lateral';
+
+      // Curved or straight path
+      const pathD = `M ${s.x} ${s.y} L ${t.x} ${t.y}`;
+
+      const linkPath = linkGroup
+        .append('path')
+        .attr('d', pathD)
+        .attr('stroke', strokeColor)
+        .attr('stroke-width', isSelected ? 4 : isBlocked ? 2 : 2.5)
+        .attr('stroke-dasharray', isBlocked ? '4,4' : '8,4')
+        .attr('fill', 'none')
+        .attr('marker-end', `url(#${markerId})`)
+        .attr('style', isSelected ? 'filter: url(#neon-glow)' : 'opacity: 0.85')
+        .attr('class', 'cursor-pointer transition-all hover:stroke-white')
+        .on('click', () => {
+          setSelectedLink(link);
+          setSelectedNode(null);
+        });
+
+      // Link text label
+      const midX = (s.x + t.x) / 2;
+      const midY = (s.y + t.y) / 2 - 10;
+      linkGroup
+        .append('text')
+        .attr('x', midX)
+        .attr('y', midY)
+        .attr('text-anchor', 'middle')
+        .attr('fill', isBlocked ? '#34d399' : '#9ca3af')
+        .attr('font-size', '9px')
+        .attr('font-weight', 'bold')
+        .attr('class', 'select-none pointer-events-none font-mono')
+        .text(`${link.label}${link.port ? ` :${link.port}` : ''}`);
+
+      // Data transfer packet animation
+      if (showParticles && !isBlocked) {
+        linkGroup
+          .append('circle')
+          .attr('r', isSelected ? 4 : 3)
+          .attr('fill', strokeColor)
+          .attr('style', 'filter: url(#neon-glow)')
+          .append('animateMotion')
+          .attr('path', pathD)
+          .attr('dur', link.dataRate?.includes('GB') || link.dataRate?.includes('Mbps') ? '2s' : '3.5s')
+          .attr('repeatCount', 'indefinite');
+      }
     });
 
-    // Drawing Nodes
-    const nodes = svg
-      .append('g')
-      .selectAll('g')
-      .data(topologyData.nodes)
-      .join('g')
-      .attr('transform', (d: any) => `translate(${d.x},${d.y})`);
+    // Render Nodes
+    const nodeGroup = g.append('g').attr('class', 'nodes');
+    topology.nodes.forEach((node: any) => {
+      const isSelected = selectedNode && selectedNode.id === node.id;
+      const isContained = node.status === 'contained' || node.contained;
+      const isPatientZero = node.patientZero;
 
-    nodes
-      .append('circle')
-      .attr('r', 28)
-      .attr('fill', '#111114')
-      .attr('stroke', (d: any) =>
-        d.type === 'attacker' ? '#3b82f6' : d.type === 'infected' ? '#ef4444' : d.type === 'target' ? '#f59e0b' : '#4b5563'
-      )
-      .attr('stroke-width', 3)
-      .attr('class', (d: any) => (d.type === 'infected' ? 'animate-pulse' : ''));
+      const nodeG = nodeGroup
+        .append('g')
+        .attr('transform', `translate(${node.x},${node.y})`)
+        .attr('class', 'cursor-pointer select-none group')
+        .on('click', () => {
+          setSelectedNode(node);
+          setSelectedLink(null);
+        });
 
-    nodes
-      .append('text')
-      .attr('text-anchor', 'middle')
-      .attr('dominant-baseline', 'middle')
-      .attr('fill', 'white')
-      .attr('font-size', '14px')
-      .text((d: any) => (d.type === 'attacker' ? '🌐' : d.type === 'infected' ? '💻' : d.type === 'target' ? '🎯' : '🛡️'));
+      // Blast radius aura
+      if (isPatientZero || node.riskScore >= 9.0) {
+        nodeG
+          .append('circle')
+          .attr('r', 38)
+          .attr('fill', isContained ? '#10b981' : '#ef4444')
+          .attr('opacity', 0.12)
+          .attr('class', isContained ? '' : 'animate-ping');
+      }
 
-    nodes
-      .append('text')
-      .text((d: any) => d.label)
-      .attr('y', 44)
-      .attr('text-anchor', 'middle')
-      .attr('fill', 'white')
-      .attr('font-size', '10px')
-      .attr('font-weight', 'black');
+      // Outer Selection Ring
+      if (isSelected) {
+        nodeG
+          .append('circle')
+          .attr('r', 34)
+          .attr('fill', 'none')
+          .attr('stroke', isContained ? '#10b981' : '#a855f7')
+          .attr('stroke-width', 2)
+          .attr('stroke-dasharray', '5,3')
+          .attr('style', 'filter: url(#neon-glow)');
+      }
 
-    nodes
-      .append('text')
-      .text((d: any) => d.ip)
-      .attr('y', 58)
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#6b7280')
-      .attr('font-size', '10px')
-      .attr('font-family', 'monospace');
-  }, [isZh]);
+      // Main Node Circle
+      const strokeColor = isContained
+        ? '#10b981'
+        : node.type === 'attacker'
+        ? '#3b82f6'
+        : node.type === 'infected'
+        ? '#ef4444'
+        : node.type === 'target' || node.type === 'db'
+        ? '#f59e0b'
+        : node.type === 'gateway'
+        ? '#6366f1'
+        : '#6b7280';
+
+      nodeG
+        .append('circle')
+        .attr('r', 27)
+        .attr('fill', '#0d0f15')
+        .attr('stroke', strokeColor)
+        .attr('stroke-width', isSelected ? 3.5 : 2.5)
+        .attr('style', isSelected ? 'filter: url(#neon-glow)' : '');
+
+      // Node Icon Emoji / Glyphs
+      const iconText = isContained
+        ? '🛡️'
+        : node.type === 'attacker'
+        ? '🌐'
+        : node.type === 'infected'
+        ? '💻'
+        : node.type === 'target'
+        ? '🎯'
+        : node.type === 'db'
+        ? '🗄️'
+        : node.type === 'gateway'
+        ? '🔒'
+        : node.type === 'c2_drop'
+        ? '☁️'
+        : node.type === 'sensor'
+        ? '📡'
+        : node.type === 'actuator'
+        ? '⚙️'
+        : '🔀';
+
+      nodeG
+        .append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'middle')
+        .attr('font-size', '15px')
+        .text(iconText);
+
+      // Node Primary Label
+      nodeG
+        .append('text')
+        .text(node.label)
+        .attr('y', 42)
+        .attr('text-anchor', 'middle')
+        .attr('fill', isSelected ? '#ffffff' : '#e5e7eb')
+        .attr('font-size', '10px')
+        .attr('font-weight', isSelected ? '900' : 'bold');
+
+      // Node IP / SubLabel
+      nodeG
+        .append('text')
+        .text(node.ip || node.subLabel || '')
+        .attr('y', 55)
+        .attr('text-anchor', 'middle')
+        .attr('fill', isContained ? '#34d399' : '#9ca3af')
+        .attr('font-size', '9px')
+        .attr('font-family', 'monospace');
+
+      // Contained Tag Badge
+      if (isContained) {
+        nodeG
+          .append('rect')
+          .attr('x', -24)
+          .attr('y', -36)
+          .attr('width', 48)
+          .attr('height', 14)
+          .attr('rx', 4)
+          .attr('fill', '#064e3b')
+          .attr('stroke', '#10b981')
+          .attr('stroke-width', 1);
+
+        nodeG
+          .append('text')
+          .attr('x', 0)
+          .attr('y', -26)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#6ee7b7')
+          .attr('font-size', '8px')
+          .attr('font-weight', 'black')
+          .text('ISOLATED');
+      }
+    });
+  }, [topology, selectedNode, selectedLink, zoomLevel, showParticles, isZh]);
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/90 z-[160] flex flex-col p-6 backdrop-blur-xl"
+      className="fixed inset-0 bg-black/95 z-[170] flex flex-col p-4 md:p-6 backdrop-blur-2xl"
     >
-      <div className="bg-[#0f1015] border border-gray-800 rounded-2xl flex-1 flex flex-col overflow-hidden relative">
-        <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+      <div className="bg-[#0b0c10] border border-gray-800 rounded-2xl flex-1 flex flex-col overflow-hidden shadow-2xl relative">
+        {/* Top Header Bar */}
+        <div className="px-5 py-3.5 border-b border-gray-800/80 bg-[#101116] flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-purple-600/20 text-purple-400 rounded-xl border border-purple-500/30">
+            <div className="p-2.5 bg-purple-600/20 text-purple-400 rounded-xl border border-purple-500/30 shadow-inner">
               <Workflow size={22} />
             </div>
             <div>
-              <h3 className="text-base font-black text-white uppercase tracking-tight">
-                {incident.id} {isZh ? '攻擊路徑與橫向移動衝擊拓撲圖' : 'Attack Path & Lateral Movement Topology'}
-              </h3>
-              <p className="text-xs font-mono text-gray-400">
-                {incident.srcip} ({incident.threat}) → {incident.dstip} ({incident.mitreTTP})
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 bg-red-950/60 border border-red-500/40 text-red-400 font-mono text-[10px] rounded font-bold">
+                  {incident.id}
+                </span>
+                <span className="text-xs font-bold text-gray-200">
+                  {topology?.attackCategory || incident.threat}
+                </span>
+                <span className="px-2 py-0.5 bg-purple-950/50 border border-purple-500/30 text-purple-300 text-[10px] rounded font-mono">
+                  {incident.mitreTTP}
+                </span>
+              </div>
+              <p className="text-[11px] font-mono text-gray-400 mt-0.5 flex items-center gap-2">
+                <span>{isZh ? '威脅源:' : 'Actor:'} {topology?.threatActor || incident.srcip}</span>
+                <span className="text-gray-600">•</span>
+                <span className={topology?.activeBarrierStatus === 'CONTAINED' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                  {isZh ? '防禦屏障:' : 'Barrier:'} {topology?.activeBarrierStatus || 'MONITORED'}
+                </span>
+                <span className="text-gray-600">•</span>
+                <span className="text-amber-400 font-bold">
+                  {isZh ? '衝擊系統擴散數:' : 'Blast Radius:'} {topology?.blastRadiusSystems || 4}
+                </span>
               </p>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
-          >
-            <X size={20} />
-          </button>
+          {/* Tab Switcher & Modal Actions */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-black/60 p-1 rounded-xl border border-gray-800 text-xs">
+              <button
+                onClick={() => setActiveTab('canvas')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all',
+                  activeTab === 'canvas' ? 'bg-purple-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+                )}
+              >
+                <Workflow size={13} />
+                <span>{isZh ? '互動拓撲圖' : 'Vector Topology'}</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('signature')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all',
+                  activeTab === 'signature' ? 'bg-purple-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+                )}
+              >
+                <SlidersHorizontal size={13} />
+                <span>{isZh ? '特徵碼解析' : 'Signature Analysis'}</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all',
+                  activeTab === 'logs' ? 'bg-purple-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+                )}
+              >
+                <Database size={13} />
+                <span>{isZh ? '後端證據日誌' : 'Evidence Logs'}</span>
+                {evidenceLogs.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 bg-purple-900/80 text-[10px] rounded-full text-purple-200">
+                    {evidenceLogs.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                fetchTopologyData();
+                fetchSignatureAnalysis();
+                fetchEvidenceLogs();
+                showToast(isZh ? '已刷新拓撲與特徵鑑識資料' : 'Topology & signatures refreshed');
+              }}
+              title={isZh ? '重新讀取拓撲資料' : 'Refresh'}
+              className="p-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-all"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </button>
+
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl bg-gray-800 hover:bg-red-600/80 text-gray-300 hover:text-white transition-all ml-1"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
-        {/* Topology Viewport */}
-        <div className="flex-1 relative flex items-center justify-center bg-[#090a0f] overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(#1f2937_1px,transparent_1px)] [background-size:20px_20px] opacity-30 pointer-events-none" />
-          <svg ref={svgRef} className="w-full h-full max-w-5xl max-h-[500px]" viewBox="0 0 1000 480" />
-        </div>
+        {/* Toast Alert */}
+        <AnimatePresence>
+          {toastMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-emerald-950/90 border border-emerald-500 text-emerald-200 text-xs font-bold rounded-xl shadow-2xl flex items-center gap-2 backdrop-blur-md"
+            >
+              <CheckCircle2 size={14} className="text-emerald-400" />
+              <span>{toastMessage}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Footer info */}
-        <div className="p-4 bg-black/40 border-t border-gray-800 flex items-center justify-between text-xs font-mono text-gray-400">
-          <span>Target System: {incident.dstHost || incident.dstip}</span>
-          <span className="text-red-400 font-bold">Blast Radius: 3 Neighboring Systems Contained</span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold"
-          >
-            {isZh ? '返回事件清冊' : 'Back to Incidents'}
-          </button>
-        </div>
+        {/* TAB 1: INTERACTIVE TOPOLOGY CANVAS */}
+        {activeTab === 'canvas' && (
+          <div className="flex-1 flex flex-col relative overflow-hidden bg-[#07080c]">
+            {/* Canvas Controls Toolbar */}
+            <div className="absolute top-4 left-4 z-20 flex items-center gap-2 bg-black/75 backdrop-blur-md p-1.5 rounded-xl border border-gray-800 text-xs">
+              <button
+                onClick={() => setZoomLevel((z) => Math.min(1.8, z + 0.15))}
+                title="Zoom In"
+                className="p-1.5 hover:bg-gray-800 text-gray-300 rounded-lg transition-colors"
+              >
+                <ZoomIn size={14} />
+              </button>
+              <button
+                onClick={() => setZoomLevel((z) => Math.max(0.6, z - 0.15))}
+                title="Zoom Out"
+                className="p-1.5 hover:bg-gray-800 text-gray-300 rounded-lg transition-colors"
+              >
+                <ZoomOut size={14} />
+              </button>
+              <button
+                onClick={() => setZoomLevel(1)}
+                title="Reset Zoom"
+                className="p-1.5 hover:bg-gray-800 text-gray-300 rounded-lg font-mono text-[10px] font-bold"
+              >
+                {Math.round(zoomLevel * 100)}%
+              </button>
+              <div className="h-4 w-[1px] bg-gray-700" />
+              <button
+                onClick={() => setShowParticles((p) => !p)}
+                title="Toggle Packet Animation"
+                className={cn('px-2 py-1 rounded-lg text-[10px] font-bold transition-all', showParticles ? 'bg-purple-900/60 text-purple-200 border border-purple-500/30' : 'text-gray-400 hover:text-white')}
+              >
+                {showParticles ? (isZh ? '⚡ 封包流動: 開' : '⚡ Traffic Flow: ON') : (isZh ? '封包流動: 關' : 'Traffic: OFF')}
+              </button>
+            </div>
+
+            {/* Interactive SVG Viewport */}
+            <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+              {/* Tactical Cyber Grid Background */}
+              <div className="absolute inset-0 bg-[radial-gradient(#1e1b4b_1px,transparent_1px)] [background-size:24px_24px] opacity-40 pointer-events-none" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(88,28,135,0.08)_0%,transparent_70%)] pointer-events-none" />
+
+              {loading ? (
+                <div className="flex flex-col items-center justify-center gap-3 text-purple-400">
+                  <RefreshCw size={28} className="animate-spin" />
+                  <span className="text-xs font-mono">{isZh ? '正在串接後端 Log 與拓撲引擎解析中...' : 'Fetching dynamic topology...'}</span>
+                </div>
+              ) : (
+                <svg ref={svgRef} className="w-full h-full max-w-6xl max-h-[520px]" viewBox="0 0 1000 520" />
+              )}
+
+              {/* DOCKED NODE INSPECTOR PANEL */}
+              <AnimatePresence>
+                {selectedNode && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    className="absolute right-4 top-4 bottom-20 w-80 bg-[#12131b]/95 backdrop-blur-2xl border border-gray-700/80 rounded-2xl p-4 shadow-2xl flex flex-col z-30 overflow-y-auto"
+                  >
+                    <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">
+                          {selectedNode.contained
+                            ? '🛡️'
+                            : selectedNode.type === 'attacker'
+                            ? '🌐'
+                            : selectedNode.type === 'infected'
+                            ? '💻'
+                            : '🎯'}
+                        </span>
+                        <div>
+                          <h4 className="text-xs font-black text-white">{selectedNode.label}</h4>
+                          <span className="text-[10px] font-mono text-gray-400">{selectedNode.ip}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setSelectedNode(null)}
+                        className="p-1 text-gray-400 hover:text-white rounded hover:bg-gray-800"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    {/* Node Attributes */}
+                    <div className="py-3 space-y-2.5 text-xs font-mono">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">{isZh ? '安全狀態:' : 'Status:'}</span>
+                        <span
+                          className={cn(
+                            'px-2 py-0.5 rounded text-[10px] font-bold uppercase',
+                            selectedNode.contained
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                              : selectedNode.status === 'compromised'
+                              ? 'bg-red-950 text-red-300 border border-red-500/40 animate-pulse'
+                              : 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                          )}
+                        >
+                          {selectedNode.contained ? 'CONTAINED / ISOLATED' : selectedNode.status}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">{isZh ? '風險指數 (Risk):' : 'Risk Score:'}</span>
+                        <span className="font-bold text-red-400">{selectedNode.riskScore} / 10.0</span>
+                      </div>
+
+                      {selectedNode.hostname && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400">{isZh ? '主機名稱:' : 'Hostname:'}</span>
+                          <span className="text-gray-200">{selectedNode.hostname}</span>
+                        </div>
+                      )}
+
+                      {selectedNode.os && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400">{isZh ? '作業系統:' : 'OS:'}</span>
+                          <span className="text-gray-300 text-[11px]">{selectedNode.os}</span>
+                        </div>
+                      )}
+
+                      {selectedNode.ports && selectedNode.ports.length > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400">{isZh ? '開放通訊埠:' : 'Ports:'}</span>
+                          <span className="text-purple-300">{selectedNode.ports.join(', ')}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-400">{isZh ? '衝擊半徑評估:' : 'Blast Radius:'}</span>
+                        <span className="text-amber-400">{selectedNode.blastRadius} {isZh ? '鄰近節點' : 'Nodes'}</span>
+                      </div>
+                    </div>
+
+                    {/* Containment 1-Click Action Deck */}
+                    <div className="mt-auto pt-3 border-t border-gray-800 space-y-2">
+                      <p className="text-[10px] font-bold uppercase text-gray-400 flex items-center gap-1">
+                        <Shield size={12} className="text-purple-400" />
+                        {isZh ? '拓撲即時防禦處置 (1-Click SOAR)' : 'Real-time Node Containment'}
+                      </p>
+
+                      {selectedNode.contained ? (
+                        <div className="p-2.5 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-center text-xs text-emerald-300 font-bold flex items-center justify-center gap-1.5">
+                          <CheckCircle2 size={14} />
+                          <span>{isZh ? '此節點已完全隔離防護中' : 'Node is Isolated & Contained'}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleContainNode(selectedNode.id, 'isolate')}
+                            disabled={actionInProgress !== null}
+                            className="w-full py-2 px-3 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md"
+                          >
+                            <Lock size={13} />
+                            <span>{actionInProgress === selectedNode.id ? (isZh ? '隔離下發中...' : 'Isolating...') : (isZh ? '一鍵隔離受害節點 (Host Quarantine)' : 'Quarantine Host Node')}</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleContainNode(selectedNode.id, 'block')}
+                            disabled={actionInProgress !== null}
+                            className="w-full py-1.5 px-3 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-orange-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                          >
+                            <ShieldX size={13} />
+                            <span>{isZh ? '下發邊界防火牆阻斷 IP' : 'Block IP at Firewall'}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* DOCKED LINK INSPECTOR PANEL */}
+              <AnimatePresence>
+                {selectedLink && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    className="absolute left-4 bottom-20 w-80 bg-[#12131b]/95 backdrop-blur-2xl border border-gray-700/80 rounded-2xl p-4 shadow-2xl z-30"
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-800 text-xs">
+                      <div className="flex items-center gap-1.5 text-purple-400 font-bold">
+                        <Activity size={14} />
+                        <span>{isZh ? '連線跳躍鑑識 (Hop Inspector)' : 'Hop Inspector'}</span>
+                      </div>
+                      <button onClick={() => setSelectedLink(null)} className="p-1 text-gray-400 hover:text-white">
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div className="py-2.5 space-y-2 text-xs font-mono">
+                      <p className="font-bold text-white">{selectedLink.label}</p>
+                      <div className="flex justify-between text-gray-400">
+                        <span>{isZh ? '通訊協議:' : 'Protocol:'}</span>
+                        <span className="text-gray-200">{selectedLink.protocol}</span>
+                      </div>
+                      {selectedLink.port && (
+                        <div className="flex justify-between text-gray-400">
+                          <span>{isZh ? '目標連接埠:' : 'Port:'}</span>
+                          <span className="text-purple-300">Port {selectedLink.port}</span>
+                        </div>
+                      )}
+                      {selectedLink.dataRate && (
+                        <div className="flex justify-between text-gray-400">
+                          <span>{isZh ? '傳輸頻寬/速率:' : 'Data Rate:'}</span>
+                          <span className="text-amber-400">{selectedLink.dataRate}</span>
+                        </div>
+                      )}
+                      {selectedLink.signature && (
+                        <div className="flex justify-between text-gray-400">
+                          <span>{isZh ? '關聯特徵碼:' : 'Signature:'}</span>
+                          <span className="text-red-400 font-bold">{selectedLink.signature}</span>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Bottom Attack Timeline Scrubber */}
+            <div className="p-3 bg-[#0d0e14] border-t border-gray-800/80 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsPlayingTimeline((p) => !p)}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                >
+                  {isPlayingTimeline ? <Pause size={12} /> : <Play size={12} />}
+                  <span>{isPlayingTimeline ? (isZh ? '暫停播放' : 'Pause') : (isZh ? '回放攻擊路徑' : 'Replay Path')}</span>
+                </button>
+
+                <div className="flex items-center gap-1.5 text-xs font-mono">
+                  {topology?.timelineStages?.map((stage: any, idx: number) => (
+                    <button
+                      key={stage.stage}
+                      onClick={() => {
+                        setCurrentStageIdx(idx);
+                        const matched = topology.nodes?.find((n: any) => n.id === stage.nodeId);
+                        if (matched) setSelectedNode(matched);
+                      }}
+                      className={cn(
+                        'px-2.5 py-1 rounded-lg border text-[11px] transition-all flex items-center gap-1.5',
+                        currentStageIdx === idx
+                          ? 'bg-purple-900/60 border-purple-400 text-purple-200 font-bold shadow-md ring-1 ring-purple-400'
+                          : 'bg-black/40 border-gray-800 text-gray-400 hover:text-white'
+                      )}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                      <span>{stage.name}</span>
+                      <span className="text-[10px] text-gray-500 font-mono">({stage.timestamp})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs font-mono text-gray-400 flex items-center gap-3">
+                <span>{isZh ? '受害目標:' : 'Target:'} {incident.dstHost || incident.dstip}</span>
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-bold"
+                >
+                  {isZh ? '完成並返回清冊' : 'Done'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: DEEP ATTACK SIGNATURE & LIVE PARSER */}
+        {activeTab === 'signature' && (
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-[#090a0f]">
+            {/* Left: Signature Breakdown & IOCs */}
+            <div className="flex-1 p-6 overflow-y-auto space-y-5 border-r border-gray-800/80">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-black text-white flex items-center gap-2">
+                    <SlidersHorizontal size={18} className="text-amber-400" />
+                    <span>{signatureData?.signatureName || incident.threat}</span>
+                  </h3>
+                  <p className="text-xs font-mono text-gray-400 mt-0.5">
+                    Signature ID: <span className="text-purple-300 font-bold">{signatureData?.signatureId || 'SIG-ICS-MODBUS-001'}</span> | CVE: <span className="text-amber-300">{signatureData?.cve || 'ICS-ALERT-2026'}</span> | Confidence: <span className="text-emerald-400 font-bold">{signatureData?.confidence || 99.4}%</span>
+                  </p>
+                </div>
+
+                <button
+                  onClick={fetchSignatureAnalysis}
+                  disabled={signatureLoading}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-bold flex items-center gap-1.5"
+                >
+                  <RefreshCw size={12} className={signatureLoading ? 'animate-spin text-amber-400' : ''} />
+                  <span>{isZh ? '重新解析特徵' : 'Re-parse'}</span>
+                </button>
+              </div>
+
+              {/* Forensic Summary */}
+              <div className="p-4 bg-amber-950/20 border border-amber-900/40 rounded-xl text-xs space-y-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                  {isZh ? '鑑識專家綜合研判' : 'Forensic Triage Summary'}
+                </span>
+                <p className="text-gray-300 leading-relaxed font-sans">
+                  {signatureData?.summary || incident.aiSummary}
+                </p>
+              </div>
+
+              {/* Extracted IOCs */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-gray-300 flex items-center gap-1.5">
+                    <Fingerprint size={14} className="text-purple-400" />
+                    {isZh ? '自動萃取之威脅指標 (Forensic IOCs)' : 'Extracted Threat IOCs'}
+                  </span>
+                  <span className="text-[11px] font-mono text-gray-500">
+                    {signatureData?.extractedIocs?.length || 3} {isZh ? '個指標' : 'Indicators'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {signatureData?.extractedIocs?.map((ioc: any, idx: number) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-black/60 border border-gray-800 rounded-xl flex items-center justify-between text-xs font-mono group hover:border-purple-500/40 transition-all"
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.2 bg-gray-800 text-[9px] rounded font-bold uppercase text-gray-300">
+                            {ioc.type}
+                          </span>
+                          <span className="font-bold text-white">{ioc.value}</span>
+                        </div>
+                        <span className="text-[10px] text-gray-400 font-sans block mt-0.5">{ioc.context}</span>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(ioc.value, ioc.value)}
+                        className="p-1.5 text-gray-400 hover:text-white rounded bg-gray-800/80 hover:bg-purple-600 transition-colors"
+                      >
+                        {copiedText === ioc.value ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Decoded Payload / Hex Dump */}
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                  <Terminal size={14} className="text-emerald-400" />
+                  {isZh ? '解碼載荷與二進位特徵 (Decoded Payload & Hex Dump)' : 'Decoded Payload & Hex Dump'}
+                </span>
+                <div className="p-3 bg-black/80 border border-gray-800 rounded-xl font-mono text-[11px] text-emerald-400 overflow-x-auto space-y-1">
+                  <div>{signatureData?.decodedPayload || 'MODBUS_FC06: UnitId=1, RegAddr=40012, SetPointValue=10000'}</div>
+                  <div className="text-gray-500">{signatureData?.hexDump || '00 01 00 00 00 06 01 06 9c 4c 27 10'}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Interactive Custom Raw Log Signature Tester */}
+            <div className="w-full md:w-96 p-6 bg-[#0c0d13] flex flex-col space-y-4">
+              <div>
+                <h4 className="text-xs font-black text-white flex items-center gap-1.5 uppercase tracking-tight">
+                  <Code size={15} className="text-purple-400" />
+                  {isZh ? '即時日誌特徵測試器 (Live Log Signature Tester)' : 'Live Log Signature Tester'}
+                </h4>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  {isZh ? '輸入或貼上任意日誌原始字串，驗證後端特徵碼庫是否正確辨識威脅。' : 'Paste raw log string to test backend signature engine.'}
+                </p>
+              </div>
+
+              <div className="flex-1 flex flex-col space-y-2">
+                <textarea
+                  value={customLogInput}
+                  onChange={(e) => setCustomLogInput(e.target.value)}
+                  placeholder={
+                    isZh
+                      ? '例如: modbus/tcp holding register 40012 function code 0x06 override 或 mimikatz sekurlsa::logonpasswords'
+                      : 'e.g. modbus fc06 holding register override or mimikatz sekurlsa'
+                  }
+                  className="w-full flex-1 min-h-[140px] bg-black/60 border border-gray-800 rounded-xl p-3 text-xs font-mono text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500"
+                />
+
+                <button
+                  onClick={handleTestCustomLog}
+                  disabled={customLogLoading || !customLogInput.trim()}
+                  className="w-full py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md"
+                >
+                  {customLogLoading ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
+                  <span>{isZh ? '執行後端特徵碼比對解析' : 'Execute Signature Matching'}</span>
+                </button>
+              </div>
+
+              {/* Custom parse results */}
+              {customLogResult && (
+                <div className="p-3 bg-purple-950/30 border border-purple-500/40 rounded-xl space-y-2 text-xs font-mono">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-purple-300">{customLogResult.signatureName}</span>
+                    <span className="text-[10px] text-emerald-400">{customLogResult.confidence}%</span>
+                  </div>
+                  <p className="text-[11px] text-gray-300 font-sans">{customLogResult.summary}</p>
+                  <div className="text-[10px] text-gray-400">
+                    MITRE: <span className="text-white">{customLogResult.mitreTTP}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: CORRELATED EVIDENCE LOGS */}
+        {activeTab === 'logs' && (
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#090a0f] p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                  <Database size={16} className="text-purple-400" />
+                  <span>{isZh ? '關聯後端收集日誌紀錄 (Correlated Raw Logs)' : 'Correlated Raw Backend Logs'}</span>
+                </h3>
+                <p className="text-xs font-mono text-gray-400">
+                  {isZh ? '即時檢索 VictoriaLogs 與記憶體 Corpus 中匹配該事件的鑑識證據' : 'Matches in storage corpus for incident forensic proof'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    placeholder={isZh ? '搜尋日誌關鍵字...' : 'Search logs...'}
+                    className="pl-8 pr-3 py-1.5 bg-black/60 border border-gray-800 rounded-xl text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-purple-500 font-mono w-56"
+                  />
+                </div>
+                <button
+                  onClick={fetchEvidenceLogs}
+                  disabled={evidenceLoading}
+                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-xs font-bold flex items-center gap-1.5"
+                >
+                  <RefreshCw size={12} className={evidenceLoading ? 'animate-spin' : ''} />
+                  <span>{isZh ? '刷新日誌' : 'Refresh'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Logs Table */}
+            <div className="flex-1 overflow-y-auto border border-gray-800 rounded-xl bg-black/40">
+              <table className="w-full text-left border-collapse text-xs font-mono">
+                <thead>
+                  <tr className="border-b border-gray-800 bg-[#12131b] text-gray-400">
+                    <th className="p-3 w-40">{isZh ? '時間戳記' : 'Timestamp'}</th>
+                    <th className="p-3 w-24">{isZh ? '嚴重度' : 'Level'}</th>
+                    <th className="p-3 w-40">{isZh ? '主機 / 協定' : 'Host / Proto'}</th>
+                    <th className="p-3">{isZh ? '日誌訊息全文' : 'Log Message'}</th>
+                    <th className="p-3 w-16 text-right">{isZh ? '複製' : 'Copy'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60">
+                  {evidenceLogs
+                    .filter((l) => {
+                      if (!logSearch.trim()) return true;
+                      const q = logSearch.toLowerCase();
+                      return (
+                        (l.message || l.full_log || '').toLowerCase().includes(q) ||
+                        (l.host || '').toLowerCase().includes(q) ||
+                        (l.protocol || '').toLowerCase().includes(q)
+                      );
+                    })
+                    .map((log, idx) => {
+                      const msg = log.message || log.full_log || log._msg || '';
+                      const level = (log.level || 'CRITICAL').toUpperCase();
+                      return (
+                        <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="p-3 text-gray-400 whitespace-nowrap">
+                            {log.timestamp || log['@timestamp'] || new Date().toISOString()}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <span
+                              className={cn(
+                                'px-2 py-0.5 rounded text-[10px] font-bold',
+                                level.includes('CRIT') || level.includes('ERR')
+                                  ? 'bg-red-950 text-red-300 border border-red-500/40'
+                                  : 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                              )}
+                            >
+                              {level}
+                            </span>
+                          </td>
+                          <td className="p-3 whitespace-nowrap text-purple-300">
+                            <div>{log.host || 'CORE-NODE'}</div>
+                            <span className="text-[10px] text-gray-500">{log.protocol || 'syslog'}</span>
+                          </td>
+                          <td className="p-3 text-gray-200 max-w-xl break-all">
+                            {msg}
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              onClick={() => copyToClipboard(msg, `Log #${idx}`)}
+                              className="p-1.5 text-gray-400 hover:text-white rounded bg-gray-800 hover:bg-gray-700 transition-colors"
+                            >
+                              <Copy size={12} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );

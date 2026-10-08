@@ -2082,7 +2082,9 @@ async function startServer() {
   app.use('/api/engine/collector', createCollectorRouter(vlogsRetryState, broadcastVlogsRetryStats, activeIngestSources));
   app.use('/api/v1/ndr', createNdrRouter());
   app.use('/api/v1/xdr', createXdrRouter());
-  app.use('/api/v1/incidents', createIncidentsRouter());
+  const incidentsRouter = createIncidentsRouter(() => runtimeLogCorpus, broadcastOverviewUpdate);
+  app.use('/api/v1/incidents', incidentsRouter);
+  app.use('/api/incidents', incidentsRouter);
   app.use('/api/v1/network', createNetworkRouter());
   app.use('/api/v1/cti', createCtiRouter());
   app.use('/api/v1/threat-intel', createCtiRouter());
