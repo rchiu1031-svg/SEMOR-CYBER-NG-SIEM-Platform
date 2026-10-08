@@ -1,4 +1,5 @@
 import { globalAttackSignatureEngine } from './attackSignatureEngine.ts';
+import { globalFingerbankEngine } from './signatureUpdateEngine.ts';
 import type { NetworkFlowRecord } from './networkRouter.ts';
 
 export interface CollectorInterfaceStat {
@@ -345,6 +346,8 @@ export class FlowCollectorEngine {
       status: (raw.status as any) || 'active'
     };
 
+    globalFingerbankEngine.fingerprintFlow(newFlow);
+
     this.flowsBuffer.unshift(newFlow);
     if (this.flowsBuffer.length > this.config.maxFlowsBuffer) {
       this.flowsBuffer.pop();
@@ -582,6 +585,8 @@ export class FlowCollectorEngine {
         sampledInterface: template.sampledInterface,
         status: 'active'
       };
+
+      globalFingerbankEngine.fingerprintFlow(newFlow);
 
       this.flowsBuffer.unshift(newFlow);
       this.totalFlowsCollected++;

@@ -35,6 +35,15 @@ export interface NetworkFlowRecord {
   };
   sampledInterface: string;
   status: 'active' | 'blocked' | 'monitored';
+  deviceFingerprint?: {
+    deviceType: string;
+    os: string;
+    vendor: string;
+    model?: string;
+    confidence: number;
+    fingerbankId?: number;
+    matchMethod: string;
+  };
 }
 
 export interface NetworkDevice {

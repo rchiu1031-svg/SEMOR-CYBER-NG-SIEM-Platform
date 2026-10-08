@@ -28,6 +28,9 @@ import { createApmRouter } from './server/apmRouter.ts';
 import { createOverviewRouter } from './server/overviewRouter.ts';
 import { createCustomDashboardRouter } from './server/customDashboardRouter.ts';
 import { createCorrelationRouter } from './server/correlationRouter.ts';
+import { createSignatureRouter } from './server/signatureRouter.ts';
+import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
+import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
 import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor.ts';
 import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker.ts';
@@ -2091,7 +2094,9 @@ async function startServer() {
   app.use('/api/network', networkRouter);
   app.use('/api/v1/cti', createCtiRouter());
   app.use('/api/v1/threat-intel', createCtiRouter());
-  app.use('/api/v1/malware', createMalwareRouter());
+  const malwareRouter = createMalwareRouter();
+  app.use('/api/v1/malware', malwareRouter);
+  app.use('/api/malware', malwareRouter);
   app.use('/api/v1/fim', createFimRouter());
   app.use('/api/v1/vuln', createVulnRouter());
   app.use('/api/v1/ai-analyst', createAiAnalystRouter());
@@ -2109,6 +2114,9 @@ async function startServer() {
   const correlationRouter = createCorrelationRouter();
   app.use('/api/v1/correlation', correlationRouter);
   app.use('/api/correlation', correlationRouter);
+  const signatureRouter = createSignatureRouter(() => runtimeLogCorpus, () => globalFlowCollectorEngine);
+  app.use('/api/v1/signatures', signatureRouter);
+  app.use('/api/signatures', signatureRouter);
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {
@@ -3066,6 +3074,7 @@ async function startServer() {
       50
     );
 
+    globalFingerbankEngine.annotateLogEvent(record);
     runtimeLogCorpus.unshift(record);
     if (runtimeLogCorpus.length > 2500) {
       runtimeLogCorpus = runtimeLogCorpus.slice(0, 2500);
