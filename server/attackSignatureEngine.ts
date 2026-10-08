@@ -607,6 +607,241 @@ export const ATTACK_SIGNATURES: AttackSignatureDef[] = [
         ]
       };
     }
+  },
+
+  // 11. High-Speed Lateral Port Reconnaissance & Scanning Probe
+  {
+    id: 'SIG-NET-SCAN-011',
+    name: '高速內網橫向特權通訊埠探測與掃描 (Network Service Discovery)',
+    category: 'apt',
+    mitreTTP: 'T1046 Network Service Discovery',
+    mitreTactic: 'Discovery',
+    mitreStage: 'Recon',
+    riskScore: 7.8,
+    cve: 'MITRE-T1046',
+    match: (text, log) => {
+      const lower = text.toLowerCase();
+      return lower.includes('port scan') || lower.includes('nmap') || lower.includes('syn scan') || lower.includes('rapid reconnaissance') || (log.protocol === 'TCP' && (log.flags || []).includes('SYN') && (log.durationMs || 0) < 300);
+    },
+    parse: (text, log) => {
+      const remoteIP = log.remoteIP || log.srcIp || '10.88.88.106';
+      return {
+        signatureId: 'SIG-NET-SCAN-011',
+        signatureName: '高速內網橫向特權通訊埠探測與掃描',
+        category: 'apt',
+        mitreTTP: 'T1046 Network Service Discovery',
+        mitreTactic: 'Discovery',
+        mitreStage: 'Recon',
+        riskScore: 7.8,
+        confidence: 94.2,
+        cve: 'MITRE-T1046',
+        summary: `NetFlow 與 NDR 引擎偵測到主機 ${remoteIP} 於 5 秒內對內網核心網段連續發起超過 30 次未完成連線之 SYN 埠探測 (含 22, 135, 445, 3389, 5432)，判定為自動化橫向偵查載荷。`,
+        decodedPayload: 'NMAP_SYN_SWEEP: rate=1200pps target_ports=22,80,135,139,445,1433,3389,5432,8080 flags=SYN seq_dist=uniform',
+        hexDump: '45 00 00 28 d4 12 00 00 40 06 9a 11 0a 58 58 6a ... (NMAP SCAN)',
+        extractedIocs: [
+          { type: 'ipv4', value: remoteIP, context: '掃描探測發起源主機', risk: 'high' },
+          { type: 'port', value: '445,3389,5432', context: '探測之核心服務埠', risk: 'medium' }
+        ],
+        forensicEvidence: {
+          matchedPatterns: ['Rapid SYN Sweep', 'Sub-second Half-Open Probing', 'Privileged Port Enum'],
+          logTimestamp: log['@timestamp'] || new Date().toISOString(),
+          protocol: 'TCP SYN Sweep',
+          attackVector: '無狀態半開掃描探針'
+        },
+        recommendedActions: [
+          { title: '下發交換機動態 ACL 限制探測 IP 速率', description: '針對該來源主機限制每秒連線建立次數 <= 5 conn/s', type: 'block' },
+          { title: '排程 EDR 主動檢查該來源程序', description: '識別執行掃描之本機執行檔路徑 (nmap, masscan, fscan 等)', type: 'isolate' }
+        ]
+      };
+    }
+  },
+
+  // 12. Remote Desktop Protocol (RDP) High-Velocity Brute Force
+  {
+    id: 'SIG-BRUTE-RDP-012',
+    name: 'RDP / SMB 遠端桌面連線暴力密碼破解 (RDP Credential Stuffing)',
+    category: 'bruteforce',
+    mitreTTP: 'T1110.001 Password Guessing',
+    mitreTactic: 'Credential Access',
+    mitreStage: 'Lateral Movement',
+    riskScore: 8.9,
+    cve: 'MITRE-T1110',
+    match: (text) => {
+      const lower = text.toLowerCase();
+      return lower.includes('rdp brute') || lower.includes('credssp') || (lower.includes('port 3389') && lower.includes('fail')) || lower.includes('mstsc credential guessing') || lower.includes('rdp logon failure');
+    },
+    parse: (text, log) => {
+      const remoteIP = log.remoteIP || log.srcIp || '198.51.100.44';
+      return {
+        signatureId: 'SIG-BRUTE-RDP-012',
+        signatureName: 'RDP / SMB 遠端桌面連線暴力密碼破解',
+        category: 'bruteforce',
+        mitreTTP: 'T1110.001 Password Guessing',
+        mitreTactic: 'Credential Access',
+        mitreStage: 'Lateral Movement',
+        riskScore: 8.9,
+        confidence: 98.1,
+        cve: 'MITRE-T1110',
+        summary: `NDR 深度檢測 RDP (Port 3389) 握手封包，捕獲來自 ${remoteIP} 連續觸發超過 80 次 CredSSP/NLA 認證失敗封包，帳號字典涵蓋 administrator, svc_admin, backup_op。`,
+        decodedPayload: 'RDP_NLA_FAIL: Status=STATUS_LOGON_FAILURE (0xC000006D), SubStatus=STATUS_WRONG_PASSWORD (0xC000006A), TargetUser=Administrator',
+        hexDump: '03 00 00 13 0e e0 00 00 00 00 00 01 00 08 00 03 00 00 00 (RDP TPKT / X.224)',
+        extractedIocs: [
+          { type: 'ipv4', value: remoteIP, context: 'RDP 暴力爆破來源 IP', risk: 'critical' },
+          { type: 'port', value: '3389', context: 'RDP 遠端連線埠', risk: 'medium' }
+        ],
+        forensicEvidence: {
+          matchedPatterns: ['STATUS_LOGON_FAILURE (0xC000006D)', 'CredSSP Auth Cycle', 'RDP TPKT Anomaly'],
+          logTimestamp: log['@timestamp'] || new Date().toISOString(),
+          protocol: 'RDP / MS-RDPBCGR (Port 3389)',
+          attackVector: '網路層驗證憑證撞庫爆破'
+        },
+        recommendedActions: [
+          { title: '啟用邊界防火牆 RDP 封鎖並切斷連線', description: '立即將攻擊來源加入永久 Drop 策略', type: 'block' },
+          { title: '觸發 AD 帳號鎖定保護策略', description: '暫時停用連續失敗達 5 次之管理者帳號', type: 'revoke' }
+        ]
+      };
+    }
+  },
+
+  // 13. China Chopper / Godzilla WebShell Traffic Detection
+  {
+    id: 'SIG-WEBSHELL-013',
+    name: '中國菜刀 / 哥斯拉 (Godzilla) 加密 WebShell 通道特徵',
+    category: 'c2',
+    mitreTTP: 'T1505.003 Web Shell',
+    mitreTactic: 'Persistence',
+    mitreStage: 'Privilege Escalation',
+    riskScore: 9.8,
+    cve: 'CWE-434 / WebShell-2026',
+    match: (text) => {
+      const lower = text.toLowerCase();
+      return lower.includes('webshell') || lower.includes('godzilla') || lower.includes('chopper') || lower.includes('pass=') || lower.includes('eval(base64_decode') || lower.includes('cmd.jsp');
+    },
+    parse: (text, log) => {
+      const remoteIP = log.remoteIP || log.srcIp || '185.220.101.45';
+      return {
+        signatureId: 'SIG-WEBSHELL-013',
+        signatureName: '中國菜刀 / 哥斯拉 (Godzilla) 加密 WebShell 通道特徵',
+        category: 'c2',
+        mitreTTP: 'T1505.003 Web Shell',
+        mitreTactic: 'Persistence',
+        mitreStage: 'Privilege Escalation',
+        riskScore: 9.8,
+        confidence: 99.2,
+        cve: 'CWE-434',
+        summary: `NDR 於 HTTP POST /upload/shell.jsp 負載檢測出哥斯拉 AES-128-ECB 密鑰協商特徵碼，並成功還原執行系統指令 'whoami /priv' 與 'ipconfig /all'。`,
+        decodedPayload: 'POST /uploads/assets.jsp HTTP/1.1 -> AES_DECRYPT: eval(base64_decode("c3lzdGVtKCRfUE9TVFsndycndSk7")); whoami /all',
+        hexDump: '50 4f 53 54 20 2f 75 70 6c 6f 61 64 73 2f 61 73 73 65 74 73 2e 6a 73 70 ...',
+        extractedIocs: [
+          { type: 'ipv4', value: remoteIP, context: 'WebShell 操作者來源 IP', risk: 'critical' },
+          { type: 'url', value: '/uploads/assets.jsp', context: '植入之後門 WebShell 路徑', risk: 'critical' }
+        ],
+        forensicEvidence: {
+          matchedPatterns: ['Godzilla AES Payload', 'Eval Base64 Execution', 'JSP Raw Byte Injection'],
+          logTimestamp: log['@timestamp'] || new Date().toISOString(),
+          protocol: 'HTTP/1.1 POST (Port 80/443)',
+          attackVector: '應用程式目錄後門持久化與即時指令下發'
+        },
+        recommendedActions: [
+          { title: '刪除 Web 伺服器之 WebShell 檔案並重啟服務', description: '隔離並移除 /uploads/assets.jsp 檔案', type: 'block' },
+          { title: '即時隔離受感染之 Web 伺服器容器/主機', description: '切斷對外網路連線，防止橫向擴散', type: 'isolate' }
+        ]
+      };
+    }
+  },
+
+  // 14. DNS DGA (Domain Generation Algorithm) Botnet Query
+  {
+    id: 'SIG-DNS-DGA-014',
+    name: '殭屍網路演算法動態生成網域名稱查詢 (DNS DGA Botnet Query)',
+    category: 'c2',
+    mitreTTP: 'T1568.002 Domain Generation Algorithms',
+    mitreTactic: 'Command and Control',
+    mitreStage: 'Privilege Escalation',
+    riskScore: 9.2,
+    cve: 'ATT&CK-T1568',
+    match: (text) => {
+      const lower = text.toLowerCase();
+      return lower.includes('dga') || lower.includes('high entropy domain') || lower.includes('botnet dga') || lower.includes('pseudo-random domain');
+    },
+    parse: (text, log) => {
+      const remoteIP = log.remoteIP || log.srcIp || '10.88.88.106';
+      return {
+        signatureId: 'SIG-DNS-DGA-014',
+        signatureName: '殭屍網路演算法動態生成網域名稱查詢 (DNS DGA Botnet Query)',
+        category: 'c2',
+        mitreTTP: 'T1568.002 Domain Generation Algorithms',
+        mitreTactic: 'Command and Control',
+        mitreStage: 'Privilege Escalation',
+        riskScore: 9.2,
+        confidence: 97.4,
+        cve: 'ATT&CK-T1568',
+        summary: `DNS 探針捕獲端點 ${remoteIP} 於 60 秒內發起 180 個超高香農熵值 (>4.8) 之隨機演算法網域名稱解析 (如 xk92lmf8q201.biz, qz88vb92la0.cc)，經比對與 Mirai / Emotet 家族種子演算法高度一致。`,
+        decodedPayload: 'DNS_QUERY: type=A name=xk92lmf8q201.biz entropy=4.88 rcode=NXDOMAIN query_rate=3.2qps',
+        hexDump: '00 01 01 00 00 01 00 00 00 00 00 00 0c 78 6b 39 32 6c 6d 66 38 71 32 30 31 03 62 69 7a',
+        extractedIocs: [
+          { type: 'ipv4', value: remoteIP, context: '感染 DGA 殭屍木馬之內網端點', risk: 'critical' },
+          { type: 'domain', value: 'xk92lmf8q201.biz', context: 'DGA 偽隨機 C2 解析網域名稱', risk: 'high' }
+        ],
+        forensicEvidence: {
+          matchedPatterns: ['Shannon Entropy > 4.8', 'High NXDOMAIN Ratio (>92%)', 'Emotet Seed Match'],
+          logTimestamp: log['@timestamp'] || new Date().toISOString(),
+          protocol: 'DNS UDP 53',
+          attackVector: '隱匿 C2 通訊節點尋址'
+        },
+        recommendedActions: [
+          { title: '下發 DNS RPZ 黑名單攔截動態解析', description: '將高熵值網域即時導向 Sinkhole 伺服器', type: 'block' },
+          { title: '對端點主機下發 EDR 即時全盤病毒掃描', description: '定位 DGA 行程並終止背景連線', type: 'isolate' }
+        ]
+      };
+    }
+  },
+
+  // 15. ICS DNP3 Protocol Rogue Function Code Injection
+  {
+    id: 'SIG-ICS-DNP3-015',
+    name: '工控 DNP3 變電所協議非授權冷暖重開指令 (DNP3 Cold Restart Injection)',
+    category: 'ics',
+    mitreTTP: 'T0814 Denial of Service for Control',
+    mitreTactic: 'Inhibit Response Function',
+    mitreStage: 'Lateral Movement',
+    riskScore: 9.9,
+    cve: 'ICS-VU-DNP3-2026',
+    match: (text) => {
+      const lower = text.toLowerCase();
+      return lower.includes('dnp3') || lower.includes('port 20000') || lower.includes('function 0x0d') || lower.includes('cold restart') || lower.includes('substation outstation');
+    },
+    parse: (text, log) => {
+      const remoteIP = log.remoteIP || log.srcIp || '10.88.88.106';
+      return {
+        signatureId: 'SIG-ICS-DNP3-015',
+        signatureName: '工控 DNP3 變電所協議非授權冷暖重開指令',
+        category: 'ics',
+        mitreTTP: 'T0814 Denial of Service for Control',
+        mitreTactic: 'Inhibit Response Function',
+        mitreStage: 'Lateral Movement',
+        riskScore: 9.9,
+        confidence: 99.8,
+        cve: 'ICS-VU-DNP3-2026',
+        summary: `電網監控 NetFlow 捕獲向變電所 RTU 遙測終端 (Port 20000) 發送非授權 DNP3 Function Code 0x0D (Cold Restart)，試圖強制變電所保護電驛重開機並切斷主輸電饋線。`,
+        decodedPayload: 'DNP3_APPLICATION_LAYER: FIR=1, FIN=1, CON=0, Function=0x0D (Cold Restart), DataObjects=None, CRC_CHECK=PASS',
+        hexDump: '05 64 05 c4 00 01 00 02 00 00 c0 c0 0d 3a 4f (DNP3 COLD RESTART)',
+        extractedIocs: [
+          { type: 'ipv4', value: remoteIP, context: 'DNP3 違規指令發送端', risk: 'critical' },
+          { type: 'port', value: '20000', context: 'DNP3 SCADA 工控通訊埠', risk: 'high' }
+        ],
+        forensicEvidence: {
+          matchedPatterns: ['DNP3 Function 0x0D', 'Substation RTU Target', 'Unsolicited Command'],
+          logTimestamp: log['@timestamp'] || new Date().toISOString(),
+          protocol: 'DNP3 / IEEE 1815 (TCP 20000)',
+          attackVector: '電網 SCADA 遙測終端指令篡改'
+        },
+        recommendedActions: [
+          { title: '變電所邊界網閘立即切斷 DNP3 控制連線', description: '重置 RTU 連線階段並阻斷來源 MAC/IP', type: 'isolate' },
+          { title: '切換電力調度為手動本地硬體開關控制', description: '防止遠端未授權指令影響變電所安全', type: 'block' }
+        ]
+      };
+    }
   }
 ];
 

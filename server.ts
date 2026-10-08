@@ -2085,7 +2085,9 @@ async function startServer() {
   const incidentsRouter = createIncidentsRouter(() => runtimeLogCorpus, broadcastOverviewUpdate);
   app.use('/api/v1/incidents', incidentsRouter);
   app.use('/api/incidents', incidentsRouter);
-  app.use('/api/v1/network', createNetworkRouter());
+  const networkRouter = createNetworkRouter(broadcastOverviewUpdate);
+  app.use('/api/v1/network', networkRouter);
+  app.use('/api/network', networkRouter);
   app.use('/api/v1/cti', createCtiRouter());
   app.use('/api/v1/threat-intel', createCtiRouter());
   app.use('/api/v1/malware', createMalwareRouter());

