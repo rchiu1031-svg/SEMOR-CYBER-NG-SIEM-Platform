@@ -27,6 +27,7 @@ import { createCasesRouter } from './server/casesRouter.ts';
 import { createApmRouter } from './server/apmRouter.ts';
 import { createOverviewRouter } from './server/overviewRouter.ts';
 import { createCustomDashboardRouter } from './server/customDashboardRouter.ts';
+import { createCorrelationRouter } from './server/correlationRouter.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
 import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMonitor.ts';
 import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker.ts';
@@ -2105,6 +2106,9 @@ async function startServer() {
   app.use('/api/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
   app.use('/api/v1/custom-dashboard', createCustomDashboardRouter(() => runtimeLogCorpus, broadcastOverviewUpdate));
   app.use('/api/custom-dashboard', createCustomDashboardRouter(() => runtimeLogCorpus, broadcastOverviewUpdate));
+  const correlationRouter = createCorrelationRouter();
+  app.use('/api/v1/correlation', correlationRouter);
+  app.use('/api/correlation', correlationRouter);
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {

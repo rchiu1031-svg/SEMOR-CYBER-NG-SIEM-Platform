@@ -1,0 +1,328 @@
+{
+  "rules": [
+    {
+      "id": "CORR-RULE-101",
+      "name": "多重登入失敗後緊接特權提升與橫向移動 (Brute Force + PrivEsc + Lateral Jump)",
+      "description": "同一來源 IP 或帳號在 60 秒內超過 5 次登入失敗，緊接著成功提升本機管理員權限並向 DC 發起 SMB 遠端連線。",
+      "severity": "Critical",
+      "tactic": "TA0008 Lateral Movement",
+      "technique": "T1021.002 Remote Services: SMB",
+      "sources": [
+        "Active Directory",
+        "EDR",
+        "Firewall"
+      ],
+      "window": "300s (5 min)",
+      "windowSeconds": 300,
+      "joinKey": "user.name, host.ip",
+      "enabled": true,
+      "hits24h": 148,
+      "ruleLogic": "EventA(Logon_Fail > 5 in 60s) -> EventB(PrivEsc_4672 in 120s) -> EventC(SMB_Session in 300s)",
+      "stages": [
+        {
+          "stageId": "A",
+          "name": "登入失敗衝擊 (Brute Force Attempt)",
+          "source": "Active Directory / Windows Security",
+          "condition": "event.code == 4625 AND failure.count >= 5"
+        },
+        {
+          "stageId": "B",
+          "name": "特權提升特權指派 (Privilege Escalation)",
+          "source": "EDR Telemetry / Win 4672",
+          "condition": "event.code == 4672 AND user.privileges contains 'SeDebugPrivilege'"
+        },
+        {
+          "stageId": "C",
+          "name": "橫向移動連線 (Lateral SMB Named Pipe)",
+          "source": "Firewall & Network NDR",
+          "condition": "destination.port == 445 AND protocol == 'SMB2'"
+        }
+      ],
+      "actions": [
+        "Generate High Incident",
+        "Trigger SOAR Host Quarantine",
+        "Notify SOC Duty Lead"
+      ],
+      "updatedAt": "2026-10-08T08:42:02.651Z"
+    },
+    {
+      "id": "CORR-RULE-102",
+      "name": "無檔案 PowerShell 記憶體注入且連線新註冊 C2 網域 (In-Memory PowerShell + C2)",
+      "description": "Office 處理序反常拉起混淆編碼的 PowerShell，且在 120 秒內透過 DNS 查詢新註冊網域並建立 TLS 連線。",
+      "severity": "Critical",
+      "tactic": "TA0011 Command & Control",
+      "technique": "T1059.001 PowerShell In-Memory",
+      "sources": [
+        "EDR Telemetry",
+        "Suricata NDR",
+        "DNS Server"
+      ],
+      "window": "120s (2 min)",
+      "windowSeconds": 120,
+      "joinKey": "host.ip, process.guid",
+      "enabled": true,
+      "hits24h": 89,
+      "ruleLogic": "EventA(EDR_Process_Inject) -> EventB(DNS_Query_NRD) -> EventC(TLS_JA3_Malicious)",
+      "stages": [
+        {
+          "stageId": "A",
+          "name": "異常程序衍生 (Process Spawning)",
+          "source": "EDR Telemetry",
+          "condition": "process.name in ['powershell.exe', 'pwsh.exe'] AND process.parent.name in ['WINWORD.EXE', 'EXCEL.EXE', 'wscript.exe']"
+        },
+        {
+          "stageId": "B",
+          "name": "可疑新註冊網域解析 (NRD Lookup)",
+          "source": "DNS Server Query Log",
+          "condition": "dns.question.domain matches regex('\\b[a-z0-9]{12,}\\.xyz\\b') OR threat.intel.is_nrd == true"
+        },
+        {
+          "stageId": "C",
+          "name": "外連 C2 惡意 JA3 指紋連線 (TLS C2 Traffic)",
+          "source": "Suricata NDR",
+          "condition": "tls.ja3 in ['6734f37431670b3ab4292b8f60f29984', '51c64c77e60f3980ebd90973b1554d7e']"
+        }
+      ],
+      "actions": [
+        "Kill Process Tree",
+        "Isolate Endpoint via EDR",
+        "Send Webhook to SOC"
+      ],
+      "updatedAt": "2026-10-08T08:41:41.903Z"
+    },
+    {
+      "id": "CORR-RULE-103",
+      "name": "不可能的移動登入 (異地 Tor 節點與內網特權存取) (Impossible Travel + Tor Exit Node)",
+      "description": "同一使用者在 15 分鐘內分別由不同相距數千公里地理位置登入，且來源 IP 列名 Tor 出口節點名單。",
+      "severity": "High",
+      "tactic": "TA0001 Initial Access",
+      "technique": "T1078 Valid Accounts",
+      "sources": [
+        "Okta SSO",
+        "Threat Intel CTI",
+        "WAF Gateway"
+      ],
+      "window": "900s (15 min)",
+      "windowSeconds": 900,
+      "joinKey": "user.id, user.email",
+      "enabled": true,
+      "hits24h": 42,
+      "ruleLogic": "EventA(Geo_Distance > 5000km in < 1hr) AND EventB(CTI_Tor_Exit == true)",
+      "stages": [
+        {
+          "stageId": "A",
+          "name": "異常跨國登入 (Multi-Geo Access)",
+          "source": "Okta SSO Audit",
+          "condition": "geo.country != user.home_country AND event.type == 'user.session.start'"
+        },
+        {
+          "stageId": "B",
+          "name": "威脅情報命中 (Tor Exit Tag)",
+          "source": "Threat Intel CTI",
+          "condition": "cti.reputation.threat_types contains 'TOR_EXIT_NODE'"
+        }
+      ],
+      "actions": [
+        "Revoke SSO Session Token",
+        "Enforce Step-Up MFA",
+        "Create Case"
+      ],
+      "updatedAt": "2026-10-08T08:41:41.903Z"
+    },
+    {
+      "id": "CORR-RULE-104",
+      "name": "暗夜時段大量資料庫導出與突發雲端 S3 上傳 (Off-Hours Massive DB Dump + S3 Exfil)",
+      "description": "非辦公時段核心資料庫被單一帳號執行跨表大批量 SELECT 導出，伴隨對外大量上傳流量至 S3 儲存貯體。",
+      "severity": "Critical",
+      "tactic": "TA0010 Exfiltration",
+      "technique": "T1567.002 Exfiltration to Cloud Storage",
+      "sources": [
+        "CloudTrail",
+        "PostgreSQL Audit",
+        "NetFlow"
+      ],
+      "window": "600s (10 min)",
+      "windowSeconds": 600,
+      "joinKey": "host.ip, aws.iam_arn",
+      "enabled": true,
+      "hits24h": 24,
+      "ruleLogic": "EventA(DB_Rows_Dump > 100000) -> EventB(S3_PutObject_Volume > 1GB in 600s)",
+      "stages": [
+        {
+          "stageId": "A",
+          "name": "資料庫批量提取 (Mass Database Read)",
+          "source": "PostgreSQL Audit",
+          "condition": "db.statement matches regex('(?i)select.+from.+limit\\s+([1-9][0-9]{5,})') AND time.is_after_hours == true"
+        },
+        {
+          "stageId": "B",
+          "name": "雲端外傳峰值 (Cloud S3 Exfil)",
+          "source": "AWS CloudTrail & NetFlow",
+          "condition": "event.name == 'PutObject' AND network.bytes_out > 1073741824"
+        }
+      ],
+      "actions": [
+        "Suspend IAM Access Key",
+        "Alert Data Protection Officer",
+        "Capture Network PCAP"
+      ],
+      "updatedAt": "2026-10-08T08:41:41.903Z"
+    },
+    {
+      "id": "CORR-RULE-105",
+      "name": "陰影副本抹除與大量檔案副檔名異動 (勒索特徵) (Volume Shadow Copy Delete + Rapid File Renames)",
+      "description": "偵測指令調用 vssadmin 或 bcdedit 破壞 Windows 還原點，隨後 60 秒內主機密集發生命名為勒索副檔名之事件。",
+      "severity": "Critical",
+      "tactic": "TA0040 Impact",
+      "technique": "T1490 Inhibit System Recovery",
+      "sources": [
+        "EDR File Audit",
+        "Windows Sysmon"
+      ],
+      "window": "60s (1 min)",
+      "windowSeconds": 60,
+      "joinKey": "host.name, host.ip",
+      "enabled": true,
+      "hits24h": 6,
+      "ruleLogic": "EventA(Cmd == \"vssadmin delete shadows\") -> EventB(File_Rename_Count > 500 in 60s)",
+      "stages": [
+        {
+          "stageId": "A",
+          "name": "備份破壞指令 (Shadow Copy Deletion)",
+          "source": "Windows Sysmon Event 1",
+          "condition": "process.command_line matches regex('(?i)(vssadmin.*delete\\s+shadows|wbadmin.*delete|bcdedit.*recoveryenabled\\s+no)')"
+        },
+        {
+          "stageId": "B",
+          "name": "急速檔案加密異動 (Mass File Extension Change)",
+          "source": "EDR File Audit",
+          "condition": "file.action == 'RENAME' AND file.extension in ['.locked', '.enc', '.crypto', '.crypted'] AND rate.per_minute > 500"
+        }
+      ],
+      "actions": [
+        "Emergency Endpoint Network Isolation",
+        "Halt VSS Driver Access",
+        "P0 Incident Trigger"
+      ],
+      "updatedAt": "2026-10-08T08:41:41.903Z"
+    },
+    {
+      "id": "CORR-RULE-106",
+      "name": "憑證傾印存取與 Kerberoasting 服務票證請求 (Credential Dump + Kerberoasting)",
+      "description": "端點發生 LSASS 記憶體讀取特徵，隨後由同主機發起不尋常的 RC4 加密 Kerberos TGS 服務票證請求。",
+      "severity": "High",
+      "tactic": "TA0006 Credential Access",
+      "technique": "T1558.003 Steal Kerberos Tickets",
+      "sources": [
+        "Sysmon",
+        "Active Directory Kerberos",
+        "EDR"
+      ],
+      "window": "300s (5 min)",
+      "windowSeconds": 300,
+      "joinKey": "host.ip, user.name",
+      "enabled": true,
+      "hits24h": 18,
+      "ruleLogic": "EventA(Process_Access_LSASS) -> EventB(Kerberos_TGS_Request_RC4 in 300s)",
+      "stages": [
+        {
+          "stageId": "A",
+          "name": "LSASS 存取 (LSASS Memory Read)",
+          "source": "Sysmon Event 10",
+          "condition": "target.process.name == 'lsass.exe' AND (granted_access == '0x1010' OR granted_access == '0x1FFFFF')"
+        },
+        {
+          "stageId": "B",
+          "name": "弱加密 Kerberos 票證請求 (TGS Request RC4)",
+          "source": "Active Directory Event 4769",
+          "condition": "ticket.encryption_type == '0x17' AND service.name not in ['krbtgt', '$']"
+        }
+      ],
+      "actions": [
+        "Reset Compromised Service Account Password",
+        "Generate High Alert"
+      ],
+      "updatedAt": "2026-10-08T08:41:41.903Z"
+    }
+  ],
+  "windowConfig": {
+    "burstWindowSeconds": 180,
+    "killChainWindowMinutes": 60,
+    "slowAptWindowDays": 7,
+    "allowedLatenessSeconds": 30,
+    "checkpointIntervalSeconds": 60,
+    "maxStateMemoryMB": 4096,
+    "rocksdbCompression": "LZ4",
+    "stateRetentionPolicy": "SLIDING_WATERMARK_LRU"
+  },
+  "schemaMappings": [
+    {
+      "id": "MAP-001",
+      "sourceField": "Win_Event.TargetUserName",
+      "targetField": "user.name",
+      "transformation": "Extract & Trim",
+      "description": "標準化 Windows 安全性稽核使用者名稱，移除網域前綴與多餘空格",
+      "sampleInput": "CORP\\alice.chen",
+      "sampleOutput": "alice.chen",
+      "active": true
+    },
+    {
+      "id": "MAP-002",
+      "sourceField": "Suricata.src_ip",
+      "targetField": "source.ip",
+      "transformation": "IPv4 Validate",
+      "description": "Suricata 網路連線來源 IP 格式檢驗並映射至標準 ECS 來源欄位",
+      "sampleInput": "192.168.10.55",
+      "sampleOutput": "192.168.10.55",
+      "active": true
+    },
+    {
+      "id": "MAP-003",
+      "sourceField": "CloudTrail.userIdentity.arn",
+      "targetField": "aws.iam_arn",
+      "transformation": "Parse ARN",
+      "description": "解析 AWS CloudTrail IAM ARN 實體標識",
+      "sampleInput": "arn:aws:iam::123456789012:role/ProductionAdmin",
+      "sampleOutput": "role/ProductionAdmin",
+      "active": true
+    },
+    {
+      "id": "MAP-004",
+      "sourceField": "Sysmon.ProcessCommandLine",
+      "targetField": "process.command_line",
+      "transformation": "De-obfuscate Base64",
+      "description": "偵測並自動解碼 PowerShell -Enc 混淆 Base64 參數以利字串比對",
+      "sampleInput": "powershell.exe -Enc JABjAGwAbwB1AGQA...",
+      "sampleOutput": "powershell.exe $cloud=New-Object...",
+      "active": true
+    },
+    {
+      "id": "MAP-005",
+      "sourceField": "PaloAlto.app_id",
+      "targetField": "network.application",
+      "transformation": "Lowercase",
+      "description": "防火牆應用程式識別碼標準化小寫字串",
+      "sampleInput": "MS-SMB",
+      "sampleOutput": "ms-smb",
+      "active": true
+    }
+  ],
+  "aggregationConfig": {
+    "entityClusteringEnabled": true,
+    "clusteringWindowMinutes": 10,
+    "clusteringKeys": [
+      "host.ip",
+      "user.name",
+      "host.name"
+    ],
+    "escalationMatrixEnabled": true,
+    "escalationThreshold": 3,
+    "escalationWindowMinutes": 30,
+    "escalateFrom": "Medium",
+    "escalateTo": "High",
+    "stormSuppressionRateLimit": 100,
+    "dedupWindowSeconds": 60,
+    "autoNoiseFilter": true
+  },
+  "lastUpdated": "2026-10-08T08:42:02.651Z"
+}
