@@ -10,7 +10,8 @@ import {
   ChevronUp, 
   Info,
   ShieldAlert,
-  ServerCrash
+  ServerCrash,
+  Zap
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -561,6 +562,26 @@ export default function SwitchesConfigEditor({
                         ) : (
                           <span className="text-[8px] text-gray-600 block font-normal leading-normal">{isZh ? 'PacketFence 用來強制斷線或進行 VLAN 修改所使用的安全 UDP 連接部號，預設 3799' : 'Standard RFC UDP Listener port for Change of Authorization packets, default 3799.'}</span>
                         )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/v1/nac/switches/${deviceForm.ip || '10.120.1.254'}/test-coa`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ coaPort: deviceForm.coaPort })
+                              });
+                              const json = await res.json();
+                              triggerToast(json.message || (isZh ? 'CoA 阻斷通訊測試成功！' : 'CoA Test passed!'), 'success');
+                            } catch (e: any) {
+                              triggerToast(isZh ? `CoA 測試失敗: ${e.message}` : 'CoA probe failed', 'error');
+                            }
+                          }}
+                          className="mt-2 py-1.5 px-3 bg-red-950/40 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded text-[9px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Zap size={11} />
+                          {isZh ? '測試 RFC 3576 CoA 阻斷下發握手' : 'Probe RFC 3576 CoA Port'}
+                        </button>
                       </div>
                     )}
                   </div>

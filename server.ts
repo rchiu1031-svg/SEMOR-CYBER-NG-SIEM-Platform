@@ -29,6 +29,7 @@ import { createOverviewRouter } from './server/overviewRouter.ts';
 import { createCustomDashboardRouter } from './server/customDashboardRouter.ts';
 import { createCorrelationRouter } from './server/correlationRouter.ts';
 import { createSignatureRouter } from './server/signatureRouter.ts';
+import { createNacRouter } from './server/nacRouter.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
 import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
@@ -2117,6 +2118,10 @@ async function startServer() {
   const signatureRouter = createSignatureRouter(() => runtimeLogCorpus, () => globalFlowCollectorEngine);
   app.use('/api/v1/signatures', signatureRouter);
   app.use('/api/signatures', signatureRouter);
+  const nacRouter = createNacRouter();
+  app.use('/api/v1/nac', nacRouter);
+  app.use('/api/nac', nacRouter);
+  app.use('/api/v1/packetfence', nacRouter);
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {

@@ -26,7 +26,7 @@ export interface ConnectionProfileRule {
     value: string;
   }[];
   logic: 'AND' | 'OR';
-  accessRole: 'Guest' | 'Employee' | 'Quarantine' | 'BYOD';
+  accessRole: 'Guest' | 'Employee' | 'Quarantine' | 'BYOD' | 'Blocked';
   sessionTimeout: number;
   sessionTimeoutUnit: 'hours' | 'days';
   defaultVlan?: number;
@@ -358,8 +358,13 @@ export default function ConnectionProfilesEditor({
                       <span className="text-red-500 font-black uppercase">THEN ACTIONS:</span>
                       <div className="pl-4 mt-1 grid grid-cols-2 gap-2 text-gray-300">
                         <div className="flex items-center gap-1">
-                          <Check size={11} className="text-green-400" />
-                          <span>Assign Role: <span className="font-bold text-green-400">{rule.accessRole}</span></span>
+                          <Check size={11} className={rule.accessRole === 'Blocked' ? "text-red-500" : rule.accessRole === 'Quarantine' ? "text-amber-500" : "text-green-400"} />
+                          <span>Assign Role: <span className={cn(
+                            "font-bold uppercase px-1 rounded text-[9px]",
+                            rule.accessRole === 'Blocked' ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                            rule.accessRole === 'Quarantine' ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" :
+                            "text-green-400"
+                          )}>{rule.accessRole}</span></span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Check size={11} className="text-green-400" />
@@ -605,10 +610,11 @@ export default function ConnectionProfilesEditor({
                     onChange={(e) => handleAddField('accessRole', e.target.value)}
                     className="w-full bg-[#0c0c0e] border border-gray-800 rounded px-2 py-2 text-white font-bold"
                   >
-                    <option value="Guest">Guest (訪客隔離網)</option>
-                    <option value="Employee">Employee (員工網)</option>
-                    <option value="Quarantine">Quarantine (病株隔離網)</option>
-                    <option value="BYOD">BYOD (自攜設備網)</option>
+                    <option value="Guest">{isZh ? 'Guest (訪客隔離網)' : 'Guest (Isolation Net)'}</option>
+                    <option value="Employee">{isZh ? 'Employee (員工網)' : 'Employee (Internal)'}</option>
+                    <option value="Quarantine">{isZh ? 'Quarantine (病株檢疫網 - VLAN 99)' : 'Quarantine (Remediation VLAN 99)'}</option>
+                    <option value="Blocked">{isZh ? 'Blocked (存取阻斷 / RADIUS Access-Reject 封鎖)' : 'Blocked (Access-Reject / Port Drop)'}</option>
+                    <option value="BYOD">{isZh ? 'BYOD (自攜設備網)' : 'BYOD (Restricted)'}</option>
                   </select>
                 </div>
 

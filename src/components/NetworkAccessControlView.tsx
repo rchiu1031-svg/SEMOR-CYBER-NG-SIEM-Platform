@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   ShieldCheck, 
@@ -45,7 +45,9 @@ import {
   QrCode,
   FileCode,
   Save,
-  Menu
+  Menu,
+  Ban,
+  PowerOff
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -55,7 +57,6 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  Legend, 
   PieChart, 
   Pie, 
   Cell 
@@ -68,18 +69,19 @@ import AuthenticationSourcesEditor from './AuthenticationSourcesEditor';
 import CaptivePortalDesigner from './CaptivePortalDesigner';
 import SwitchesConfigEditor from './SwitchesConfigEditor';
 
-
 // Interfaces
 interface NodeDevice {
   mac: string;
   ip: string;
   os: 'Windows' | 'macOS' | 'Linux' | 'iOS' | 'Android' | 'IoT';
-  status: 'Registered' | 'Unregistered' | 'Quarantine';
+  status: 'Registered' | 'Unregistered' | 'Quarantine' | 'Blocked';
   owner: string;
   lastSeen: string;
   switchIp: string;
   switchPort: string;
   vlan: number;
+  blockReason?: string;
+  blockedAt?: string;
 }
 
 interface GuestRequest {
@@ -89,8 +91,9 @@ interface GuestRequest {
   phone: string;
   email: string;
   duration: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'blocked';
   requestTime: string;
+  rejectionReason?: string;
 }
 
 interface ActiveSession {
@@ -101,6 +104,7 @@ interface ActiveSession {
   duration: string;
   traffic: string;
   authSource: string;
+  vlan?: number;
 }
 
 interface AlertEvent {
@@ -111,15 +115,40 @@ interface AlertEvent {
   mac: string;
   ip: string;
   message: string;
+  status?: 'active' | 'isolated' | 'blocked' | 'dismissed';
 }
 
-interface AccessRule {
+interface BlocklistEntry {
+  id: string;
+  target: string;
+  targetType: 'mac' | 'ip' | 'account';
+  status: 'blocked' | 'quarantined';
+  reason: string;
+  source: string;
+  enforcedActions: string[];
+  timestamp: string;
+  expiresAt: string;
+  switchIp?: string;
+  switchPort?: string;
+  vlan?: number;
+}
+
+interface ConnectionProfileRule {
   id: string;
   name: string;
-  deviceType: string;
-  authGroup: string;
-  vlan: number;
-  status: 'active' | 'inactive';
+  description: string;
+  isActive: boolean;
+  conditions: {
+    id: string;
+    criteriaType: 'ssid' | 'switch_ip' | 'user_group' | 'os_type' | 'time_window' | 'mac_list';
+    operator: 'equals' | 'not_equals' | 'contains' | 'matches_regex';
+    value: string;
+  }[];
+  logic: 'AND' | 'OR';
+  accessRole: 'Guest' | 'Employee' | 'Quarantine' | 'BYOD' | 'Blocked';
+  sessionTimeout: number;
+  sessionTimeoutUnit: 'hours' | 'days';
+  defaultVlan: number;
 }
 
 interface SwitchConfig {
@@ -130,21 +159,24 @@ interface SwitchConfig {
   snmpCommunity: string;
   radiusSecret: string;
   status: 'online' | 'offline';
+  enableCoa?: boolean;
+  coaPort?: number;
 }
 
 export default function NetworkAccessControlView({ isReadOnly = false }: { isReadOnly?: boolean }) {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const isZh = i18n.language === 'zh';
 
   // State Management
   const [activeTab, setActiveTab] = useState<'dashboard' | 'management' | 'policies'>('dashboard');
-  const [managementSubTab, setManagementSubTab] = useState<'nodes' | 'guests' | 'sessions'>('nodes');
+  const [managementSubTab, setManagementSubTab] = useState<'nodes' | 'guests' | 'sessions' | 'blocklist'>('nodes');
   const [policiesSubTab, setPoliciesSubTab] = useState<'rules' | 'auth_sources' | 'captive_portal' | 'switches'>('rules');
 
   // Search Terms
   const [searchNode, setSearchNode] = useState('');
   const [searchGuest, setSearchGuest] = useState('');
   const [searchSession, setSearchSession] = useState('');
+  const [searchBlocklist, setSearchBlocklist] = useState('');
 
   // Notifications / Toast Simulator
   const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'info' | 'error' }[]>([]);
@@ -154,22 +186,22 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    }, 4500);
   };
 
   // 1. Alert State & Live Feed
   const [alerts, setAlerts] = useState<AlertEvent[]>([
-    { id: 'a1', time: '20:30:12', type: 'MAC Spoofing', severity: 'high', mac: '00:1A:2B:3C:4D:5E', ip: '10.120.10.45', message: 'MAC Address is claimed by different vendor signatures than mapped history.' },
-    { id: 'a2', time: '20:15:34', type: 'Compliance Failed', severity: 'medium', mac: '70:88:6B:A2:3F:11', ip: '10.120.10.120', message: 'Corporate iPad failed compliance checker: iOS version 15.2 is outdated.' },
-    { id: 'a3', time: '19:42:01', type: 'Rogue Device', severity: 'high', mac: '5A:45:90:3C:99:BC', ip: '10.120.100.8', message: 'Unknown IoT hub registered on Switch port FastEthernet0/12 (VLAN 1).' },
-    { id: 'a4', time: '18:50:11', type: 'Malware DNS Activity', severity: 'high', mac: 'E0:DB:55:6C:12:3A', ip: '10.120.10.99', message: 'Suricata IDS signature triggered: command and control callback DNS pattern detected.' }
+    { id: 'a1', time: '20:30:12', type: 'MAC Spoofing', severity: 'high', mac: '00:1A:2B:3C:4D:5E', ip: '10.120.10.45', message: 'MAC Address is claimed by different vendor signatures than mapped history.', status: 'active' },
+    { id: 'a2', time: '20:15:34', type: 'Compliance Failed', severity: 'medium', mac: '70:88:6B:A2:3F:11', ip: '10.120.90.112', message: 'Corporate iPad failed compliance checker: iOS version 15.2 is outdated.', status: 'isolated' },
+    { id: 'a3', time: '19:42:01', type: 'Rogue Device', severity: 'high', mac: '5A:45:90:3C:99:BC', ip: '10.120.100.8', message: 'Unknown IoT hub registered on Switch port FastEthernet0/12 (VLAN 1).', status: 'active' },
+    { id: 'a4', time: '18:50:11', type: 'Malware DNS Activity', severity: 'high', mac: 'E0:DB:55:6C:12:3A', ip: '10.120.10.99', message: 'Suricata IDS signature triggered: command and control callback DNS pattern detected.', status: 'active' }
   ]);
 
   // 2. Nodes Data State
   const [nodes, setNodes] = useState<NodeDevice[]>([
     { mac: 'E0:DB:55:6C:12:3A', ip: '10.120.10.99', os: 'Windows', status: 'Registered', owner: 'chiur@ke-la.com', lastSeen: '2026-06-16 20:31:02', switchIp: '10.120.1.254', switchPort: 'GigabitEthernet1/12', vlan: 10 },
     { mac: '00:1A:2B:3C:4D:5E', ip: '10.120.10.45', os: 'Linux', status: 'Registered', owner: 'guest_service', lastSeen: '2026-06-16 20:28:44', switchIp: '10.120.1.254', switchPort: 'GigabitEthernet1/15', vlan: 50 },
-    { mac: '70:88:6B:A2:3F:11', os: 'iOS', status: 'Quarantine', owner: 'finance.john', ip: '10.120.90.112', lastSeen: '2026-06-16 20:15:34', switchIp: '10.120.1.253', switchPort: 'GigabitEthernet1/4', vlan: 99 },
+    { mac: '70:88:6B:A2:3F:11', os: 'iOS', status: 'Quarantine', owner: 'finance.john', ip: '10.120.90.112', lastSeen: '2026-06-16 20:15:34', switchIp: '10.120.1.253', switchPort: 'GigabitEthernet1/4', vlan: 99, blockReason: 'Outdated OS' },
     { mac: '3C:07:54:E9:10:8F', os: 'macOS', status: 'Registered', owner: 'dev.linda', ip: '10.120.10.101', lastSeen: '2026-06-16 19:45:12', switchIp: '10.120.1.254', switchPort: 'GigabitEthernet1/1', vlan: 10 },
     { mac: '5A:45:90:3C:99:BC', os: 'IoT', status: 'Unregistered', owner: 'Unknown', ip: '10.120.100.8', lastSeen: '2026-06-16 19:42:01', switchIp: '10.120.1.251', switchPort: 'FastEthernet0/12', vlan: 1 },
     { mac: '90:B6:86:1C:88:7A', os: 'Android', status: 'Registered', owner: 'guest_guest1', ip: '10.120.50.32', lastSeen: '2026-06-16 18:22:10', switchIp: '10.120.1.252', switchPort: 'AP-Guest-02', vlan: 50 }
@@ -188,30 +220,38 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
 
   // 4. Active Sessions State
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([
-    { id: 's1', account: 'chiur@ke-la.com', mac: 'E0:DB:55:6C:12:3A', ip: '10.120.10.99', duration: '02h 41m', traffic: '1.45 GB', authSource: 'Active Directory AD-01' },
-    { id: 's2', account: 'dev.linda', mac: '3C:07:54:E9:10:8F', ip: '10.120.10.101', duration: '08h 15m', traffic: '4.89 GB', authSource: 'Active Directory AD-01' },
-    { id: 's3', account: 'guest_sharon', mac: '90:B6:86:1C:88:7A', ip: '10.120.50.32', duration: '01h 05m', traffic: '320 MB', authSource: 'Captive Portal SMS' }
+    { id: 's1', account: 'chiur@ke-la.com', mac: 'E0:DB:55:6C:12:3A', ip: '10.120.10.99', duration: '02h 41m', traffic: '1.45 GB', authSource: 'Active Directory AD-01', vlan: 10 },
+    { id: 's2', account: 'dev.linda', mac: '3C:07:54:E9:10:8F', ip: '10.120.10.101', duration: '08h 15m', traffic: '4.89 GB', authSource: 'Active Directory AD-01', vlan: 10 },
+    { id: 's3', account: 'guest_sharon', mac: '90:B6:86:1C:88:7A', ip: '10.120.50.32', duration: '01h 05m', traffic: '320 MB', authSource: 'Captive Portal SMS', vlan: 50 }
   ]);
 
-  // 5. Connection Profiles Rules State (Visual Rule Builder)
-  interface ConnectionProfileRule {
-    id: string;
-    name: string;
-    description: string;
-    isActive: boolean;
-    conditions: {
-      id: string;
-      criteriaType: 'ssid' | 'switch_ip' | 'user_group' | 'os_type' | 'time_window' | 'mac_list';
-      operator: 'equals' | 'not_equals' | 'contains' | 'matches_regex';
-      value: string;
-    }[];
-    logic: 'AND' | 'OR';
-    accessRole: 'Guest' | 'Employee' | 'Quarantine' | 'BYOD';
-    sessionTimeout: number;
-    sessionTimeoutUnit: 'hours' | 'days';
-    defaultVlan: number;
-  }
+  // 5. Blocklist State
+  const [blocklist, setBlocklist] = useState<BlocklistEntry[]>([
+    {
+      id: 'blk-1',
+      target: '70:88:6B:A2:3F:11',
+      targetType: 'mac',
+      status: 'quarantined',
+      reason: 'iOS 15.2 Outdated Endpoint Compliance Failure',
+      source: 'compliance_fail',
+      enforcedActions: ['Switch VLAN 99 Isolation', 'RFC 3576 RADIUS CoA Redirect', 'Remediation Captive Portal Active'],
+      timestamp: '2026-06-16 20:15:34',
+      expiresAt: 'Pending Remediation',
+      switchIp: '10.120.1.253',
+      switchPort: 'GigabitEthernet1/4',
+      vlan: 99
+    }
+  ]);
 
+  // Manual Block Inputs
+  const [manualBlockTarget, setManualBlockTarget] = useState('');
+  const [manualBlockType, setManualBlockType] = useState<'mac' | 'ip' | 'account'>('mac');
+  const [manualBlockReason, setManualBlockReason] = useState('Administrative Zero-Trust Enforce Block');
+
+  // Backend sync indicator
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // 6. Rules State
   const [rules, setRules] = useState<ConnectionProfileRule[]>([
     {
       id: 'r1',
@@ -245,11 +285,26 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
     },
     {
       id: 'r3',
+      name: 'Rogue_Hardware_Enforce_Block',
+      description: 'Blocks untrusted MACs and unauthorized IoT bridge dongles (Access-Reject)',
+      isActive: true,
+      conditions: [
+        { id: 'c5', criteriaType: 'os_type', operator: 'equals', value: 'IoT' },
+        { id: 'c6', criteriaType: 'ssid', operator: 'equals', value: 'Corp_Secure' }
+      ],
+      logic: 'AND',
+      accessRole: 'Blocked',
+      sessionTimeout: 1,
+      sessionTimeoutUnit: 'hours',
+      defaultVlan: 999
+    },
+    {
+      id: 'r4',
       name: 'IoT_Printer_and_Camera_Isolate',
       description: 'Renders guest privilege level with narrow restricted bandwidth',
       isActive: true,
       conditions: [
-        { id: 'c5', criteriaType: 'os_type', operator: 'equals', value: 'IoT' }
+        { id: 'c7', criteriaType: 'os_type', operator: 'equals', value: 'IoT' }
       ],
       logic: 'AND',
       accessRole: 'Guest',
@@ -259,27 +314,13 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
     }
   ]);
 
-  const [newRule, setNewRule] = useState({
-    name: '',
-    description: '',
-    isActive: true,
-    logic: 'AND' as 'AND' | 'OR',
-    conditions: [
-      { id: 'init-1', criteriaType: 'os_type' as any, operator: 'equals' as any, value: 'iOS' }
-    ],
-    accessRole: 'Guest' as any,
-    sessionTimeout: 8,
-    sessionTimeoutUnit: 'hours' as 'hours' | 'days',
-    defaultVlan: 10
-  });
-
-  // 6. Captive Portal Config
+  // 7. Portal Config
   const [portalConfig, setPortalConfig] = useState({
     logoText: 'Secure corporate network access portal',
     welcomeMsg: 'Please complete validation to securely browse the internet',
     termsText: 'By using this network, you agree to secure monitoring and compliance configurations. All activities are audited.',
     requireAgreement: true,
-    primaryColor: '#dc2626', // bg-red-600 hex
+    primaryColor: '#dc2626',
     bgType: 'gradient' as 'solid' | 'gradient' | 'image',
     bgSolidColor: '#0c0c0e',
     logoFileName: 'logo_kela_networks.png',
@@ -293,60 +334,26 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
 
   const [logoPreviewUrl, setLogoPreviewUrl] = useState<string>('');
 
-  // 7. Switches & Port configuration
+  // 8. Switches Config
   const [switches, setSwitches] = useState<SwitchConfig[]>([
-    { id: 'sw1', ip: '10.120.1.254', name: 'Main Campus FortiSwitch_1', brand: 'Fortinet', snmpCommunity: 'pf_snmp_sec', radiusSecret: '•••••••••••••••••', status: 'online' },
-    { id: 'sw2', ip: '10.120.1.253', name: 'Server Area Distribution Cisco_C9300', brand: 'Cisco', snmpCommunity: 'pf_snmp_sec', radiusSecret: '•••••••••••••••••', status: 'online' },
-    { id: 'sw3', ip: '10.120.1.251', name: 'Lobby Edge Aruba_2930F', brand: 'Aruba', snmpCommunity: 'pf_snmp_public', radiusSecret: '•••••••••••••••••', status: 'online' }
+    { id: 'sw1', ip: '10.120.1.254', name: 'Main Campus FortiSwitch_1', brand: 'Fortinet', snmpCommunity: 'pf_snmp_sec', radiusSecret: '•••••••••••••••••', status: 'online', enableCoa: true, coaPort: 3799 },
+    { id: 'sw2', ip: '10.120.1.253', name: 'Server Area Distribution Cisco_C9300', brand: 'Cisco', snmpCommunity: 'pf_snmp_sec', radiusSecret: '•••••••••••••••••', status: 'online', enableCoa: true, coaPort: 3799 },
+    { id: 'sw3', ip: '10.120.1.251', name: 'Lobby Edge Aruba_2930F', brand: 'Aruba', snmpCommunity: 'pf_snmp_public', radiusSecret: '•••••••••••••••••', status: 'online', enableCoa: true, coaPort: 3799 }
   ]);
 
-  // Integrated Switch form state
-  const [switchForm, setSwitchForm] = useState({
-    ip: '10.120.1.250',
-    name: '3F-Core-Switch',
-    vendor: 'Cisco',
-    snmpVersion: 'v2c' as 'v2c' | 'v3',
-    snmpCommunity: 'pf_snmp_sec',
-    snmpV3User: 'pf_snmp_v3_user',
-    snmpV3AuthPass: 'authSecret123',
-    snmpV3PrivPass: 'privSecret456',
-    snmpV3AuthProto: 'SHA' as 'MD5' | 'SHA' | 'SHA-256',
-    snmpV3PrivProto: 'AES' as 'DES' | 'AES' | 'AES-256',
-    radiusSecret: 'radius_shared_secret_key',
-    enableCoa: true,
-    coaPort: 3799
-  });
-
-  // Authentication Directories stateful forms
-  interface AuthSourceLDAP {
-    sourceName: string;
-    serverHost: string;
-    port: number;
-    encryption: 'none' | 'starttls' | 'ssltls';
-    bindDn: string;
-    bindPass: string;
-    baseDn: string;
-  }
-  
-  interface AuthSourceOAuth {
-    provider: 'Google' | 'AzureAD';
-    clientId: string;
-    clientSecret: string;
-    hostedDomain: string;
-  }
-
-  const [ldapSource, setLdapSource] = useState<AuthSourceLDAP>({
+  // Auth Directories
+  const [ldapSource, setLdapSource] = useState({
     sourceName: 'Active Directory AD-01',
     serverHost: '10.120.100.2',
     port: 389,
-    encryption: 'starttls',
+    encryption: 'starttls' as 'none' | 'starttls' | 'ssltls',
     bindDn: 'cn=admin,dc=corp,dc=local',
     bindPass: '•••••••••••••••••',
     baseDn: 'ou=users,dc=corp,dc=local'
   });
 
-  const [oauthSource, setOauthSource] = useState<AuthSourceOAuth>({
-    provider: 'Google',
+  const [oauthSource, setOauthSource] = useState({
+    provider: 'Google' as 'Google' | 'AzureAD',
     clientId: '96321-googleclientid123.apps.googleusercontent.com',
     clientSecret: 'GOCSPX-secretkey987654321',
     hostedDomain: 'company.com'
@@ -354,26 +361,358 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
 
   const [ldapVerified, setLdapVerified] = useState(true);
   const [oauthVerified, setOauthVerified] = useState(true);
-  
-  // Test connection logs dialog state
-  const [ldapErrorDetail, setLdapErrorDetail] = useState<string | null>(null);
 
-  // Form dirty states (leaving before unsaved warnings)
+  // Form dirty states
   const [isRulesDirty, setIsRulesDirty] = useState(false);
   const [isAuthDirty, setIsAuthDirty] = useState(false);
   const [isPortalDirty, setIsPortalDirty] = useState(false);
   const [isSwitchesDirty, setIsSwitchesDirty] = useState(false);
 
-  // Warning Modal triggers
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingSubTab, setPendingSubTab] = useState<string | null>(null);
   const [pendingTab, setPendingTab] = useState<'dashboard' | 'management' | 'policies' | null>(null);
 
-  // Client-side Validation feedback buffer
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-
   const isAnyFormDirty = isRulesDirty || isAuthDirty || isPortalDirty || isSwitchesDirty;
 
+  // ==================== FETCH DATA FROM BACKEND ====================
+  const fetchAllNacData = useCallback(async (quiet = false) => {
+    if (!quiet) setIsRefreshing(true);
+    try {
+      const [nodesRes, alertsRes, guestsRes, sessionsRes, rulesRes, switchesRes, blkRes] = await Promise.all([
+        fetch('/api/v1/nac/nodes').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/nac/alerts').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/nac/guests').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/nac/sessions').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/nac/rules').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/nac/switches').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/nac/blocklist').then(r => r.json()).catch(() => null)
+      ]);
+
+      if (nodesRes?.success && Array.isArray(nodesRes.data)) setNodes(nodesRes.data);
+      if (alertsRes?.success && Array.isArray(alertsRes.data)) setAlerts(alertsRes.data);
+      if (guestsRes?.success && Array.isArray(guestsRes.data)) setGuestRequests(guestsRes.data);
+      if (sessionsRes?.success && Array.isArray(sessionsRes.data)) setActiveSessions(sessionsRes.data);
+      if (rulesRes?.success && Array.isArray(rulesRes.data)) setRules(rulesRes.data);
+      if (switchesRes?.success && Array.isArray(switchesRes.data)) setSwitches(switchesRes.data);
+      if (blkRes?.success && Array.isArray(blkRes.data)) setBlocklist(blkRes.data);
+    } catch (err) {
+      console.warn('Backend NAC sync error:', err);
+    } finally {
+      if (!quiet) setIsRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllNacData(true);
+  }, [fetchAllNacData]);
+
+  // ==================== REAL BACKEND BLOCKING & CONTAINMENT ACTIONS ====================
+
+  /**
+   * 1. Isolate Node (VLAN 99 Quarantine)
+   */
+  const handleIsolateNode = async (mac: string, reason = 'Administrative isolation policy enforcement') => {
+    try {
+      const res = await fetch(`/api/v1/nac/nodes/${encodeURIComponent(mac)}/isolate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === mac.toUpperCase() ? { ...n, status: 'Quarantine', vlan: 99, blockReason: reason } : n));
+        setActiveSessions(prev => prev.filter(s => s.mac.toUpperCase() !== mac.toUpperCase()));
+        triggerToast(json.data?.message || (isZh ? `已隔離主機 ${mac} 至 VLAN 99` : `Host ${mac} isolated to VLAN 99`), 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Isolation failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `隔離失敗: ${err.message}` : `Isolate failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 2. Full Block Node (RADIUS Access-Reject & Port Down & Blacklist)
+   */
+  const handleBlockNode = async (mac: string, reason = 'Administrative Zero-Trust Enforce Block') => {
+    try {
+      const res = await fetch(`/api/v1/nac/nodes/${encodeURIComponent(mac)}/block`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, source: 'manual_admin' })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === mac.toUpperCase() ? { ...n, status: 'Blocked', vlan: 999, blockReason: reason } : n));
+        setActiveSessions(prev => prev.filter(s => s.mac.toUpperCase() !== mac.toUpperCase()));
+        triggerToast(json.data?.message || (isZh ? `已永久阻斷主機 ${mac} 並下發 RADIUS 拒絕與交換器斷線！` : `Host ${mac} fully blocked across RADIUS and Switch!`), 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Block failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `阻斷失敗: ${err.message}` : `Block failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 3. Restore Node
+   */
+  const handleRestoreNode = async (mac: string) => {
+    try {
+      const res = await fetch(`/api/v1/nac/nodes/${encodeURIComponent(mac)}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetVlan: 10 })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === mac.toUpperCase() ? { ...n, status: 'Registered', vlan: 10, blockReason: undefined } : n));
+        triggerToast(json.data?.message || (isZh ? `已解除主機 ${mac} 的阻斷/隔離狀態，重定回常規 VLAN 10` : `Host ${mac} restored to VLAN 10`), 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Restore failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `解除失敗: ${err.message}` : `Restore failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 4. Change Node VLAN
+   */
+  const handleChangeVlan = async (mac: string, targetVlan: string) => {
+    const vlanNum = parseInt(targetVlan);
+    try {
+      const res = await fetch(`/api/v1/nac/nodes/${encodeURIComponent(mac)}/vlan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vlan: vlanNum })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === mac.toUpperCase() ? {
+          ...n,
+          vlan: vlanNum,
+          status: vlanNum === 99 ? 'Quarantine' : (n.status === 'Quarantine' ? 'Registered' : n.status)
+        } : n));
+        triggerToast(json.data?.message || (isZh ? `已更新 VLAN 為 ${vlanNum}` : `Updated VLAN to ${vlanNum}`), 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'VLAN change failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `切換 VLAN 失敗: ${err.message}` : `Change VLAN failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 5. Disconnect Host via RFC 3576 CoA
+   */
+  const handleCoaDisconnect = async (mac: string) => {
+    try {
+      const res = await fetch(`/api/v1/nac/nodes/${encodeURIComponent(mac)}/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      if (json.success) {
+        setActiveSessions(prev => prev.filter(s => s.mac.toUpperCase() !== mac.toUpperCase()));
+        triggerToast(json.data?.message || (isZh ? `已發送 RFC 3576 CoA 踢除封包強制 ${mac} 下線！` : `RFC 3576 CoA disconnect dispatched for ${mac}`), 'info');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'CoA disconnect failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `CoA 踢除失敗: ${err.message}` : `CoA failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 6. Switch Physical Port Shutdown
+   */
+  const handlePortShutdown = async (switchIp: string, port: string, mac: string) => {
+    try {
+      const res = await fetch(`/api/v1/nac/switches/${encodeURIComponent(switchIp)}/ports/${encodeURIComponent(port)}/shutdown`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: `Administrative port shutdown for host ${mac}` })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === mac.toUpperCase() ? { ...n, status: 'Blocked', vlan: 999 } : n));
+        setActiveSessions(prev => prev.filter(s => s.mac.toUpperCase() !== mac.toUpperCase()));
+        triggerToast(json.data?.message || (isZh ? `交換器埠 ${switchIp} (${port}) 已成功實體關閉阻斷！` : `Port ${port} shutdown executed`), 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Port shutdown failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `連接埠關閉失敗: ${err.message}` : `Port shutdown failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 7. Alert Containment: Isolate Node
+   */
+  const handleIsolateAlert = async (alert: AlertEvent) => {
+    try {
+      const res = await fetch(`/api/v1/nac/alerts/${alert.id}/isolate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      if (json.success) {
+        setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, status: 'isolated' } : a));
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === alert.mac.toUpperCase() ? { ...n, status: 'Quarantine', vlan: 99 } : n));
+        triggerToast(isZh ? `通報 #${alert.id} 已執行處置：成功隔離主機 ${alert.mac} 至 VLAN 99` : `Alert #${alert.id} handled: host ${alert.mac} isolated to VLAN 99`, 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Failed to isolate');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `隔離處置失敗: ${err.message}` : `Isolation failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 8. Alert Containment: Full Block Host
+   */
+  const handleBlockAlert = async (alert: AlertEvent) => {
+    try {
+      const res = await fetch(`/api/v1/nac/alerts/${alert.id}/block`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const json = await res.json();
+      if (json.success) {
+        setAlerts(prev => prev.map(a => a.id === alert.id ? { ...a, status: 'blocked' } : a));
+        setNodes(prev => prev.map(n => n.mac.toUpperCase() === alert.mac.toUpperCase() ? { ...n, status: 'Blocked', vlan: 999 } : n));
+        triggerToast(isZh ? `高危通報 #${alert.id} 阻斷成功！已向全域 RADIUS/交換器下發 ${alert.mac} 永久阻斷！` : `Alert #${alert.id} blocked: ${alert.mac} banned network-wide!`, 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Failed to block');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `阻斷處置失敗: ${err.message}` : `Block failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 9. Dismiss Alert
+   */
+  const handleDismissAlert = async (alertId: string) => {
+    try {
+      await fetch(`/api/v1/nac/alerts/${alertId}/dismiss`, { method: 'POST' });
+      setAlerts(prev => prev.filter(a => a.id !== alertId));
+      triggerToast(isZh ? '已暫時忽略此通報' : 'Alert dismissed', 'info');
+      fetchAllNacData(true);
+    } catch {
+      setAlerts(prev => prev.filter(a => a.id !== alertId));
+    }
+  };
+
+  /**
+   * 10. Guest Approval or Rejection / Blacklist
+   */
+  const handleGuestApproval = async (id: string, isApprove: boolean, blockApplicant = false) => {
+    try {
+      const endpoint = isApprove ? `/api/v1/nac/guests/${id}/approve` : `/api/v1/nac/guests/${id}/reject`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockApplicant, reason: blockApplicant ? 'Guest application rejected and blacklisted' : 'Administrative refusal' })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setGuestRequests(prev => prev.map(g => g.id === id ? { ...g, status: isApprove ? 'approved' : (blockApplicant ? 'blocked' : 'rejected') } : g));
+        triggerToast(json.data?.message || (isApprove ? (isZh ? '訪客申請已核准' : 'Approved') : (isZh ? '訪客申請已拒絕' : 'Rejected')), isApprove ? 'success' : 'error');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Guest operation failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `訪客操作失敗: ${err.message}` : `Guest action failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 11. Disconnect Session & Optional Host Block
+   */
+  const handleDisconnectSession = async (id: string, mac: string, blockMac = false) => {
+    try {
+      const res = await fetch(`/api/v1/nac/sessions/${id}/disconnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blockMac, reason: blockMac ? 'Active session terminated with instant host block' : 'Admin forced teardown' })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setActiveSessions(prev => prev.filter(s => s.id !== id));
+        if (blockMac) {
+          setNodes(prev => prev.map(n => n.mac.toUpperCase() === mac.toUpperCase() ? { ...n, status: 'Blocked', vlan: 999 } : n));
+        }
+        triggerToast(json.data?.message || (blockMac ? (isZh ? `已踢除連線並永久阻斷 MAC ${mac}` : `Kicked and blocked MAC ${mac}`) : (isZh ? `已踢除 MAC ${mac} 會話` : `Session disconnected`)), blockMac ? 'success' : 'info');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Disconnect failed');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `踢除會話失敗: ${err.message}` : `Disconnect failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 12. Manual Quick Block Target (IP / MAC / Account)
+   */
+  const handleManualBlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualBlockTarget.trim()) return;
+
+    try {
+      const res = await fetch('/api/v1/nac/blocklist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target: manualBlockTarget.trim(),
+          targetType: manualBlockType,
+          reason: manualBlockReason.trim() || 'Manual admin blacklist injection'
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        triggerToast(json.data?.message || (isZh ? `已成功將 ${manualBlockTarget} 加入全域阻斷黑名單！` : `Target ${manualBlockTarget} added to blocklist`), 'success');
+        setManualBlockTarget('');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Failed to block target');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `手動阻斷失敗: ${err.message}` : `Block failed: ${err.message}`, 'error');
+    }
+  };
+
+  /**
+   * 13. Remove from Blocklist / Quarantine Pool
+   */
+  const handleRemoveBlocklistEntry = async (id: string, target: string) => {
+    try {
+      const res = await fetch(`/api/v1/nac/blocklist/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.success) {
+        setBlocklist(prev => prev.filter(b => b.id !== id));
+        triggerToast(json.message || (isZh ? `已解除對 ${target} 的黑名單阻斷限制！` : `Block revoked for ${target}`), 'success');
+        fetchAllNacData(true);
+      } else {
+        throw new Error(json.error || 'Failed to remove');
+      }
+    } catch (err: any) {
+      triggerToast(isZh ? `解鎖失敗: ${err.message}` : `Unblock failed: ${err.message}`, 'error');
+    }
+  };
+
+  // Subtab navigation helpers
   const handleSubTabNavigate = (targetSubTab: 'rules' | 'auth_sources' | 'captive_portal' | 'switches') => {
     if (policiesSubTab === targetSubTab) return;
     if (isAnyFormDirty) {
@@ -382,7 +721,6 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
       setShowConfirmModal(true);
     } else {
       setPoliciesSubTab(targetSubTab);
-      setValidationErrors({});
     }
   };
 
@@ -394,168 +732,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
       setShowConfirmModal(true);
     } else {
       setActiveTab(targetTab);
-      setValidationErrors({});
     }
-  };
-
-  const [newSwitch, setNewSwitch] = useState({
-    ip: '',
-    name: '',
-    brand: 'Cisco',
-    snmpCommunity: 'pf_snmp_sec',
-    radiusSecret: ''
-  });
-
-  // 8. Auth Testing States
-  const [testingAuthConnection, setTestingAuthConnection] = useState<string | null>(null);
-
-  // Isolate Quick Action
-  const handleIsolateNode = (mac: string, ip: string) => {
-    // Shifting node status to quarantine
-    setNodes(prev => prev.map(node => {
-      if (node.mac === mac) {
-        return { ...node, status: 'Quarantine', vlan: 99 };
-      }
-      return node;
-    }));
-
-    // Trigger toast notification imitating rest calls to PacketFence CoA v2 endpoints
-    triggerToast(
-      isZh 
-        ? `成功調用 PacketFence RESTful API (v2/nodes/${mac}/isolate)。隔離封鎖 VLAN 99 已成功下架 MAC / IP: ${ip} 並且觸發 RADIUS 802.1X CoA 踢除。`
-        : `PacketFence API (v2/nodes/${mac}/isolate) invoked successfully. Dispatched CoA disconnect payload over RADIUS, pushing host on VLAN 99 (Quarantine Network).`,
-      'success'
-    );
-  };
-
-  // Re-Connect / Un-quarantine node
-  const handleRestoreNode = (mac: string) => {
-    setNodes(prev => prev.map(node => {
-      if (node.mac === mac) {
-        return { ...node, status: 'Registered', vlan: 10 };
-      }
-      return node;
-    }));
-
-    triggerToast(
-      isZh 
-        ? `已撤銷隔離。已呼叫 PacketFence API 解除綁定，將網卡重定回常規 VLAN 10。`
-        : `Quarantine revoked. REST API called to restore host profile back into operational VLAN 10.`,
-      'success'
-    );
-  };
-
-  // Approve Guest Request
-  const handleGuestApproval = (id: string, isApprove: boolean) => {
-    setGuestRequests(prev => prev.map(req => {
-      if (req.id === id) {
-        return { ...req, status: isApprove ? 'approved' : 'rejected' };
-      }
-      return req;
-    }));
-
-    const req = guestRequests.find(r => r.id === id);
-    if (isApprove && req) {
-      triggerToast(
-        isZh 
-          ? `帳號 ${req.account} 核准成功！PacketFence 即時簡訊發送系統已向 ${req.phone} 發送專屬認證憑證與網路條款。`
-          : `Account ${req.account} approved. PacketFence SMS engine issued transient credentials dynamically to ${req.phone}.`,
-        'success'
-      );
-    } else if (req) {
-      triggerToast(
-        isZh ? `已拒絕該訪客申請 (帳號 ${req.account})` : `Guest application rejected (Account ${req.account}).`,
-        'error'
-      );
-    }
-  };
-
-  // Kick out session
-  const handleDisconnectSession = (id: string, mac: string) => {
-    setActiveSessions(prev => prev.filter(s => s.id !== id));
-    triggerToast(
-      isZh 
-        ? `發起 PacketFence Disconnect-Request (RFC 3576). 已將 MAC ${mac} 強制踢除當前在線 RADIUS 會話。`
-        : `Issued RFC 3576 Disconnect-Request via RADIUS engine. Forcefully cleared session state for MAC ${mac}.`,
-      'info'
-    );
-  };
-
-  // Test Connection
-  const handleTestAuthConnection = (sourceName: string) => {
-    setTestingAuthConnection(sourceName);
-    setTimeout(() => {
-      setTestingAuthConnection(null);
-      triggerToast(
-        isZh 
-          ? `與 ${sourceName} 的通訊檢測成功！LDAP 同步/Radius 通訊協定握手正常，延遲 14ms。`
-          : `Handshake test with ${sourceName} successful! Protocol synchronization normal, latency: 14ms.`,
-        'success'
-      );
-    }, 1800);
-  };
-
-  // Create new rule
-  const handleCreateRule = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newRule.name) return;
-    const ruleObj: ConnectionProfileRule = {
-      id: 'r' + (rules.length + 1),
-      name: newRule.name,
-      description: newRule.description || 'Dynamic created rule',
-      isActive: newRule.isActive,
-      conditions: newRule.conditions,
-      logic: newRule.logic,
-      accessRole: newRule.accessRole,
-      sessionTimeout: newRule.sessionTimeout,
-      sessionTimeoutUnit: newRule.sessionTimeoutUnit,
-      defaultVlan: newRule.defaultVlan
-    };
-    setRules([...rules, ruleObj]);
-    setNewRule({
-      name: '',
-      description: '',
-      isActive: true,
-      logic: 'AND',
-      conditions: [
-        { id: 'init-1', criteriaType: 'os_type', operator: 'equals', value: 'iOS' }
-      ],
-      accessRole: 'Guest',
-      sessionTimeout: 8,
-      sessionTimeoutUnit: 'hours',
-      defaultVlan: 10
-    });
-    triggerToast(
-      isZh ? `存取策略 [${ruleObj.name}] 成功儲存，已同步至 PacketFence 認證引擎規則庫。` : `Access rule [${ruleObj.name}] saved successfully and loaded into Active Profiles.`,
-      'success'
-    );
-  };
-
-  // Add Switch Config
-  const handleAddSwitch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSwitch.ip || !newSwitch.name) return;
-    const swObj: SwitchConfig = {
-      id: 'sw' + (switches.length + 1),
-      ip: newSwitch.ip,
-      name: newSwitch.name,
-      brand: newSwitch.brand,
-      snmpCommunity: newSwitch.snmpCommunity,
-      radiusSecret: newSwitch.radiusSecret ? '•••••••••••••••••' : 'pf_shared_radius_secret',
-      status: 'online'
-    };
-    setSwitches([...switches, swObj]);
-    setNewSwitch({
-      ip: '',
-      name: '',
-      brand: 'Cisco',
-      snmpCommunity: 'pf_snmp_sec',
-      radiusSecret: ''
-    });
-    triggerToast(
-      isZh ? `硬體設備 [${swObj.name}] 註冊成功， PacketFence 將自動觸發 CLI/SNMP v2 端口探針與 VLAN 切換協調。` : `Network element [${swObj.name}] enrolled. Automatic SNMP/CLI port scanning initiated.`,
-      'success'
-    );
   };
 
   // Charts data preparation
@@ -597,7 +774,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
             {toast.type === 'error' && <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />}
             {toast.type === 'info' && <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-400" />}
             <div className="flex-1">
-              <span className="font-bold block mb-1 uppercase tracking-wider">{toast.type === 'success' ? 'SUCCESS REST API' : toast.type === 'error' ? 'ERROR PACKETFENCE' : 'ENGINE DISPATCH'}</span>
+              <span className="font-bold block mb-1 uppercase tracking-wider">{toast.type === 'success' ? 'SUCCESS REST API' : toast.type === 'error' ? 'NAC BLOCKING NOTICE' : 'ENGINE DISPATCH'}</span>
               <span>{toast.message}</span>
             </div>
           </div>
@@ -608,21 +785,31 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-gray-900/40 p-6 rounded-2xl border border-gray-800">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 bg-red-600 text-white rounded text-[9px] font-black tracking-widest uppercase animate-pulse">{isZh ? 'NAC 整合就緒' : 'NAC Integrated'}</span>
-            <span className="text-[10px] font-mono text-gray-500 font-bold uppercase">{isZh ? 'PF 核心代理服務運行於 Port 443' : 'PF Core Agent Active on Port 443'}</span>
+            <span className="px-2.5 py-0.5 bg-red-600 text-white rounded text-[9px] font-black tracking-widest uppercase animate-pulse">{isZh ? 'NAC 存取控制就緒' : 'NAC Integrated'}</span>
+            <span className="text-[10px] font-mono text-gray-500 font-bold uppercase">{isZh ? 'PacketFence 802.1X / RADIUS 雙向阻斷引擎在線' : 'PF Core RADIUS & Block Engine Active'}</span>
           </div>
-          <h2 className="text-xl font-bold font-sans text-white tracking-tight">
-            {isZh ? 'PacketFence REST 核心控制器 (NAC Core Controller)' : 'PacketFence REST Core Controller'} <span className="text-gray-500 font-normal">v12.2.0</span>
+          <h2 className="text-xl font-bold font-sans text-white tracking-tight flex items-center gap-2.5">
+            {isZh ? '網路存取控制後台控制器 (Network Access Control)' : 'Network Access Control Controller'} <span className="text-gray-500 font-normal text-sm">v12.2.0</span>
           </h2>
           <p className="text-xs text-gray-400 leading-relaxed">
             {isZh 
-              ? '三層式網管自動化存取控制系統。提供強健 802.1X RADIUS 認證、DHCP指紋偵測、Captive Portal 配置與 SNMP/CLI 彈性開關連動。' 
+              ? '全方位 802.1X RADIUS 認證、DHCP 指紋識別、連線會話動態踢除、VLAN 99 隔離檢疫與交換器實體埠關閉阻斷系統。' 
               : 'Direct API integrations with PacketFence Core. Live dashboard for RADIUS 802.1x compliance, guest provisioning, active sessions teardown, and granular access profile workflows.'}
           </p>
         </div>
 
-        {/* REST API Endpoints Quick status */}
-        <div className="flex gap-3 justify-end">
+        {/* REST API Endpoints Quick status & Refresh button */}
+        <div className="flex flex-wrap items-center gap-3 justify-end">
+          <button
+            onClick={() => fetchAllNacData(false)}
+            disabled={isRefreshing}
+            className="p-2.5 bg-black/50 border border-gray-800 hover:border-red-500/40 rounded-xl text-gray-400 hover:text-white transition-all flex items-center gap-2 text-xs font-mono"
+            title="Refresh NAC Live Telemetry"
+          >
+            <RefreshCw size={14} className={cn(isRefreshing && "animate-spin text-red-500")} />
+            <span className="hidden sm:inline">{isZh ? '重新整理' : 'Sync'}</span>
+          </button>
+
           <div className="bg-black/40 border border-gray-800 p-3 rounded-xl flex items-center gap-3">
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
             <div className="text-[10px] font-mono">
@@ -633,8 +820,8 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
           <div className="bg-black/40 border border-gray-800 p-3 rounded-xl flex items-center gap-3">
             <Activity className="text-purple-400 w-4 h-4 animate-spin-slow" />
             <div className="text-[10px] font-mono">
-              <span className="text-gray-500 block uppercase">{isZh ? 'RADIUS 認證引擎' : 'RADIUS ENGINE'}</span>
-              <span className="text-purple-400 font-bold font-mono">{isZh ? '運作中' : 'ONLINE'}</span>
+              <span className="text-gray-500 block uppercase">{isZh ? '阻斷處置引擎' : 'BLOCKING ENGINE'}</span>
+              <span className="text-purple-400 font-bold font-mono">{isZh ? '運作中 (ACTIVE)' : 'ONLINE'}</span>
             </div>
           </div>
         </div>
@@ -665,7 +852,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
           )}
         >
           <Sliders size={14} />
-          {isZh ? '控制與管理功能' : 'Detail Management'}
+          {isZh ? '控制與管理功能 (含阻斷)' : 'Detail Management & Blocking'}
         </button>
 
         <button
@@ -687,58 +874,73 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
         <div className="space-y-6">
           
           {/* KPI Metrics Tiles */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             
             {/* KPI 1: Total Online */}
             <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/20 transition-all">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:scale-110 transition-all">
                 <Laptop size={64} className="text-white" />
               </div>
-              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">{isZh ? '在線端點設備總數' : 'Total Online Endpoints'}</span>
+              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">{isZh ? '在線端點設備總數' : 'Total Endpoints'}</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black font-mono text-white">{nodes.length + 1242}</span>
                 <span className="text-[10px] text-green-400 font-bold font-mono">+12.4%</span>
               </div>
-              <p className="text-[10px] text-gray-400 mt-2">{isZh ? '當前對接 RADIUS + DHCP 在線設備' : 'Actively bound sessions in LDAP'}</p>
+              <p className="text-[10px] text-gray-400 mt-2">{isZh ? '對接 RADIUS + DHCP 在線設備' : 'Actively bound sessions in LDAP'}</p>
             </div>
 
             {/* KPI 2: Violating / Quarantine */}
-            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/20 transition-all">
+            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-amber-500/20 transition-all">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:scale-110 transition-all">
-                <ShieldAlert size={64} className="text-red-500" />
+                <ShieldAlert size={64} className="text-amber-500" />
               </div>
-              <span className="text-[9px] font-black text-red-500 uppercase tracking-widest block mb-1">{isZh ? '待處理 / 未合規端點' : 'Pending / Compliance Flaws'}</span>
+              <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest block mb-1">{isZh ? '隔離檢疫設備 (Quarantine)' : 'Quarantined Endpoints'}</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black font-mono text-red-500 animate-pulse">{nodes.filter(n => n.status === 'Quarantine').length + 2}</span>
-                <span className="px-1.5 py-0.5 bg-red-500/10 text-red-500 text-[8px] font-black rounded uppercase tracking-widest">{isZh ? '高度警戒' : 'HIGH ALERT'}</span>
+                <span className="text-2xl font-black font-mono text-amber-400 animate-pulse">{nodes.filter(n => n.status === 'Quarantine').length}</span>
+                <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-500 text-[8px] font-black rounded uppercase tracking-widest">{isZh ? 'VLAN 99 隔離' : 'VLAN 99'}</span>
               </div>
-              <p className="text-[10px] text-red-400/80 mt-2">{isZh ? '觸發隔離設定或合規性檢查失敗' : 'Failing security threshold logs'}</p>
+              <p className="text-[10px] text-amber-400/80 mt-2">{isZh ? '觸發檢疫並導向修復頁面' : 'Failing security threshold logs'}</p>
             </div>
 
-            {/* KPI 3: Today's Guest */}
-            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/20 transition-all">
+            {/* KPI 3: Blocked / Blacklist */}
+            <div className="bg-[#111114] border border-red-500/30 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/50 transition-all bg-gradient-to-br from-red-950/20 to-transparent">
+              <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none group-hover:scale-110 transition-all">
+                <Ban size={64} className="text-red-500" />
+              </div>
+              <span className="text-[9px] font-black text-red-400 uppercase tracking-widest block mb-1">{isZh ? '完全阻斷設備 (Blocked)' : 'Blocked / Blacklisted'}</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black font-mono text-red-500">{nodes.filter(n => n.status === 'Blocked').length + blocklist.filter(b => b.status === 'blocked').length}</span>
+                <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[8px] font-black rounded uppercase tracking-widest">{isZh ? '永久阻斷' : 'BLOCKED'}</span>
+              </div>
+              <p className="text-[10px] text-red-300/80 mt-2">{isZh ? 'RADIUS Reject & 端口強制關閉' : 'Access-Reject and Port Shutdown'}</p>
+            </div>
+
+            {/* KPI 4: Today's Guest */}
+            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-blue-500/20 transition-all">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:scale-110 transition-all">
                 <Users size={64} className="text-blue-500" />
               </div>
-              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">{isZh ? '今日註冊訪客總數' : 'Today Guests Registered'}</span>
+              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">{isZh ? '今日訪客申請總數' : 'Guest Registrations'}</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black font-mono text-purple-400">{guestRequests.length + 81}</span>
-                <span className="text-[10px] text-purple-400 font-bold font-mono">+8.9%</span>
+                <span className="text-[10px] text-purple-400 font-bold font-mono">
+                  {guestRequests.filter(g => g.status === 'rejected' || g.status === 'blocked').length} {isZh ? '筆阻斷' : 'Denied'}
+                </span>
               </div>
-              <p className="text-[10px] text-gray-400 mt-2">{isZh ? '今日通過 Captive Portal 認證的訪客' : 'Dynamic transient accounts'}</p>
+              <p className="text-[10px] text-gray-400 mt-2">{isZh ? 'Captive Portal 認證審核佇列' : 'Dynamic transient accounts'}</p>
             </div>
 
-            {/* KPI 4: Authorization Fail Rate */}
-            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/20 transition-all">
+            {/* KPI 5: Active Sessions */}
+            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-5 relative overflow-hidden group hover:border-emerald-500/20 transition-all">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:scale-110 transition-all">
                 <Lock size={64} className="text-emerald-500" />
               </div>
-              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">{isZh ? 'RADIUS 認證失敗率' : 'RADIUS Fail Rate'}</span>
+              <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1">{isZh ? '即時在線連線會話' : 'Active Sessions'}</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black font-mono text-emerald-400">1.21%</span>
-                <span className="px-1.5 py-0.5 bg-green-500/10 text-green-400 text-[8px] font-black rounded uppercase tracking-widest">{isZh ? '狀態正常' : 'HEALTHY'}</span>
+                <span className="text-2xl font-black font-mono text-emerald-400">{activeSessions.length + 348}</span>
+                <span className="px-1.5 py-0.5 bg-green-500/10 text-green-400 text-[8px] font-black rounded uppercase tracking-widest">{isZh ? '可一鍵踢除' : 'ONLINE'}</span>
               </div>
-              <p className="text-[10px] text-gray-400 mt-2">{isZh ? '近 24 小時認證拒絕與超時統計' : 'Radius Handshake Fail stats'}</p>
+              <p className="text-[10px] text-gray-400 mt-2">{isZh ? 'RFC 3576 CoA 踢除通道就緒' : 'Radius Session Teardown Ready'}</p>
             </div>
 
           </div>
@@ -841,12 +1043,12 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
 
           </div>
 
-          {/* Sub-area: Real-time Alerts Streams and Isolate actions */}
+          {/* Sub-area: Real-time Alerts Streams and Multi-Action Containment */}
           <div className="bg-[#111114] border border-gray-800 rounded-2xl p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800 pb-4 mb-4">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                <h4 className="text-xs font-black uppercase text-gray-200 tracking-widest">{isZh ? 'PacketFence 異常事件即時監控' : 'Active PacketFence IDS / MAC Anomalies Stream'}</h4>
+                <h4 className="text-xs font-black uppercase text-gray-200 tracking-widest">{isZh ? 'PacketFence 異常事件即時監控與阻斷處置' : 'Active PacketFence IDS / MAC Anomalies & Rapid Blocking'}</h4>
               </div>
               <span className="text-[10px] font-mono text-gray-500">{alerts.length} {isZh ? '筆事件待審查處置' : 'Events Pending triage'}</span>
             </div>
@@ -872,6 +1074,18 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                         </span>
                         <span className="px-1.5 py-0.5 bg-gray-900 border border-gray-800 text-gray-300 rounded text-[9px] font-mono">{alert.type}</span>
                         
+                        {alert.status && alert.status !== 'active' && (
+                          <span className={cn(
+                            "px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-widest font-mono",
+                            alert.status === 'isolated' ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" :
+                            alert.status === 'blocked' ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                            "bg-gray-800 text-gray-400"
+                          )}>
+                            {alert.status === 'isolated' ? (isZh ? '已隔離' : 'ISOLATED') :
+                             alert.status === 'blocked' ? (isZh ? '已完全阻斷' : 'BLOCKED') : alert.status}
+                          </span>
+                        )}
+
                         {/* Interactive matching node link label */}
                         <span className="text-[10px] text-gray-400 font-mono font-bold">IP: {alert.ip} / MAC: {alert.mac}</span>
                       </div>
@@ -880,20 +1094,31 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                       </p>
                     </div>
 
-                    {/* Quick containment button action */}
-                    <div className="flex gap-2 shrink-0 w-full md:w-auto justify-end">
+                    {/* Quick containment & blocking button actions */}
+                    <div className="flex flex-wrap gap-2 shrink-0 w-full md:w-auto justify-end">
+                      {/* Action 1: Isolate */}
                       <button 
-                        onClick={() => handleIsolateNode(alert.mac, alert.ip)}
-                        className="py-1.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-red-900/10"
+                        onClick={() => handleIsolateAlert(alert)}
+                        className="py-1.5 px-3 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-amber-900/10"
+                        title="Isolate host to VLAN 99 Quarantine"
                       >
                         <Lock size={11} />
-                        {isZh ? '一鍵隔離設備' : 'Isolate Node'}
+                        {isZh ? '一鍵隔離 (VLAN 99)' : 'Isolate (VLAN 99)'}
                       </button>
+
+                      {/* Action 2: Full Block */}
                       <button 
-                        onClick={() => {
-                          setAlerts(prev => prev.filter(a => a.id !== alert.id));
-                          triggerToast(isZh ? '已暫時忽略此通報' : 'Alert dismissed/acknowledged in session.', 'info');
-                        }}
+                        onClick={() => handleBlockAlert(alert)}
+                        className="py-1.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-red-900/20"
+                        title="Permanently block host across RADIUS and Switch"
+                      >
+                        <Ban size={11} />
+                        {isZh ? '一鍵阻斷 (Access-Reject)' : 'Block Host (Ban)'}
+                      </button>
+
+                      {/* Action 3: Dismiss */}
+                      <button 
+                        onClick={() => handleDismissAlert(alert.id)}
                         className="py-1.5 px-3 bg-[#0d0d0f] hover:bg-gray-800 border border-gray-800 text-gray-400 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
                       >
                         {isZh ? '忽略' : 'Acknowledge'}
@@ -912,12 +1137,13 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
       {activeTab === 'management' && (
         <div className="space-y-6">
           
-          {/* Sub Navigation Bar for management */}
-          <div className="flex border-b border-gray-800 pb-0 bg-[#111114] px-4 pt-4 rounded-xl border">
+          {/* Sub Navigation Bar for management with 4 tabs including Blocklist */}
+          <div className="flex border-b border-gray-800 pb-0 bg-[#111114] px-4 pt-4 rounded-xl border flex-wrap">
             {[
               { id: 'nodes', label: isZh ? '節點與設備管理 (Nodes)' : 'Nodes & Devices', icon: <Laptop size={13} /> },
               { id: 'guests', label: isZh ? '使用者與訪客稽核 (Guests)' : 'Guest Approval Desk', icon: <UserCheck size={13} /> },
-              { id: 'sessions', label: isZh ? '即時連線會話 (Active Sessions)' : 'Active RADIUS Sessions', icon: <Wifi size={13} /> }
+              { id: 'sessions', label: isZh ? '即時連線會話 (Active Sessions)' : 'Active RADIUS Sessions', icon: <Wifi size={13} /> },
+              { id: 'blocklist', label: isZh ? '黑名單與阻斷隔離池 (Blocklist)' : 'Blocklist & Quarantine', icon: <Ban size={13} /> }
             ].map((subTab) => (
               <button
                 key={subTab.id}
@@ -946,7 +1172,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                     {isZh ? '網路端點節點狀態庫' : 'Registered Device Repository'}
                   </h3>
                   <p className="text-[10px] text-gray-500">
-                    {isZh ? '同步自 PacketFence PostgreSQL 主資料庫，過濾 MAC、狀態與交換器埠號' : 'Real-time database sync mapping MAC profiles & RADIUS history'}
+                    {isZh ? '同步自 PacketFence PostgreSQL 主資料庫，支援實時隔離、永久阻斷與 VLAN 切換' : 'Real-time database sync mapping MAC profiles, RADIUS history, and blocking states'}
                   </p>
                 </div>
                 
@@ -974,7 +1200,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                       <th className="p-4">{isZh ? '當前狀態' : 'HEALTH STATUS'}</th>
                       <th className="p-4">{isZh ? '綁定所有人' : 'OWNER IDENTITY'}</th>
                       <th className="p-4">{isZh ? '位置 (Switch / Port)' : 'NAS LOCATION'}</th>
-                      <th className="p-4 text-center">{isZh ? '操作' : 'ACTIONS'}</th>
+                      <th className="p-4 text-center">{isZh ? '阻斷與控制操作' : 'CONTAINMENT ACTIONS'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/50 bg-black/20">
@@ -1002,10 +1228,12 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                             <span className={cn(
                               "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest block w-max",
                               node.status === 'Registered' ? "bg-green-500/10 text-green-400 border border-green-500/20" :
-                              node.status === 'Quarantine' ? "bg-red-500/10 text-red-500 border border-red-500/20 animate-pulse" :
+                              node.status === 'Quarantine' ? "bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse" :
+                              node.status === 'Blocked' ? "bg-red-500/20 text-red-400 border border-red-500/30" :
                               "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
                             )}>
-                              {node.status}
+                              {node.status === 'Blocked' ? (isZh ? '已完全阻斷' : 'BLOCKED') :
+                               node.status === 'Quarantine' ? (isZh ? '隔離檢疫中' : 'QUARANTINE') : node.status}
                             </span>
                           </td>
                           <td className="p-4 text-[11px] font-bold text-gray-400">{node.owner}</td>
@@ -1026,20 +1254,47 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                                 {isZh ? '詳細日誌' : 'Diag Logs'}
                               </button>
                               
-                              {node.status === 'Quarantine' ? (
+                              {/* Containment action buttons */}
+                              {node.status === 'Blocked' ? (
                                 <button 
                                   onClick={() => handleRestoreNode(node.mac)}
-                                  className="px-2 py-1 bg-green-950/40 text-green-400 hover:bg-green-600 hover:text-white font-black text-[9px] rounded uppercase transition-all"
+                                  className="px-2.5 py-1 bg-green-950/40 text-green-400 hover:bg-green-600 hover:text-white font-black text-[9px] rounded uppercase transition-all flex items-center gap-1"
                                 >
-                                  {isZh ? '解鎖' : 'Restore'}
+                                  <Check size={10} />
+                                  {isZh ? '解除阻斷' : 'Unblock'}
                                 </button>
+                              ) : node.status === 'Quarantine' ? (
+                                <>
+                                  <button 
+                                    onClick={() => handleRestoreNode(node.mac)}
+                                    className="px-2.5 py-1 bg-green-950/40 text-green-400 hover:bg-green-600 hover:text-white font-black text-[9px] rounded uppercase transition-all"
+                                  >
+                                    {isZh ? '解除隔離' : 'Restore'}
+                                  </button>
+                                  <button 
+                                    onClick={() => handleBlockNode(node.mac, 'Escalated to Full Network Block from Quarantine')}
+                                    className="px-2.5 py-1 bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white font-black text-[9px] rounded uppercase transition-all flex items-center gap-1"
+                                  >
+                                    <Ban size={10} />
+                                    {isZh ? '升級阻斷' : 'Block'}
+                                  </button>
+                                </>
                               ) : (
-                                <button 
-                                  onClick={() => handleIsolateNode(node.mac, node.ip)}
-                                  className="px-2 py-1 bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white font-black text-[9px] rounded uppercase transition-all"
-                                >
-                                  {isZh ? '隔離' : 'Isolate'}
-                                </button>
+                                <>
+                                  <button 
+                                    onClick={() => handleIsolateNode(node.mac, 'Administrative isolation from nodes console')}
+                                    className="px-2 py-1 bg-amber-950/40 text-amber-400 hover:bg-amber-600 hover:text-white font-black text-[9px] rounded uppercase transition-all"
+                                  >
+                                    {isZh ? '隔離' : 'Isolate'}
+                                  </button>
+                                  <button 
+                                    onClick={() => handleBlockNode(node.mac, 'Direct administrative block from nodes console')}
+                                    className="px-2 py-1 bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white font-black text-[9px] rounded uppercase transition-all flex items-center gap-1"
+                                  >
+                                    <Ban size={10} />
+                                    {isZh ? '阻斷' : 'Block'}
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>
@@ -1050,7 +1305,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                 </table>
               </div>
 
-              {/* Node Detail Drawer Modal Panel (Simulated Floating Panel) */}
+              {/* Node Detail Drawer Modal Panel */}
               {selectedNode && (
                 <div className="fixed inset-y-0 right-0 z-50 bg-[#0c0c0e] border-l border-gray-800 w-full sm:w-[480px] p-6 shadow-2xl overflow-y-auto animate-in slide-in-from-right flex flex-col justify-between">
                   
@@ -1059,7 +1314,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                     <div className="flex items-center justify-between border-b border-gray-800 pb-4">
                       <div>
                         <span className="px-2 py-0.5 bg-gray-900 border border-gray-800 rounded text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">
-                          {isZh ? 'PacketFence 節點診斷日誌' : 'PacketFence Node Diagnostics'}
+                          {isZh ? 'PacketFence 節點診斷與阻斷面板' : 'PacketFence Node Diagnostics & Blocking Panel'}
                         </span>
                         <h4 className="text-md font-black text-white uppercase italic tracking-wider">{selectedNode.mac}</h4>
                       </div>
@@ -1091,11 +1346,11 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                       </div>
                     </div>
 
-                    {/* Change VLAN Actions */}
+                    {/* Change VLAN Actions & Blocking Triggers */}
                     <div className="bg-red-600/5 border border-red-500/10 p-4 rounded-xl space-y-4">
                       <h5 className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
                         <Sliders size={12} className="text-red-500" />
-                        {isZh ? '控制動作與 VLAN 切換配置' : 'VLAN Modification & Active CoA'}
+                        {isZh ? '控制動作與阻斷處置操作' : 'VLAN Modification & Enforcement Actions'}
                       </h5>
                       
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1110,26 +1365,13 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                             <option value="20">{isZh ? 'VLAN 20 (研發與工程網段)' : 'VLAN 20 (R&D Department)'}</option>
                             <option value="40">{isZh ? 'VLAN 40 (物聯網隔離沙箱)' : 'VLAN 40 (IoT Sandbox)'}</option>
                             <option value="50">{isZh ? 'VLAN 50 (動態訪客網路)' : 'VLAN 50 (Dynamic Guests)'}</option>
-                            <option value="99">{isZh ? 'VLAN 99 (隔離檢疫網區)' : 'VLAN 99 (Quarantine Network)'}</option>
+                            <option value="99">{isZh ? 'VLAN 99 (隔離檢疫網區 - Quarantine)' : 'VLAN 99 (Quarantine Network)'}</option>
                           </select>
                         </div>
 
                         <div className="flex items-end">
                           <button
-                            onClick={() => {
-                              setNodes(prev => prev.map(n => {
-                                if (n.mac === selectedNode.mac) {
-                                  return { ...n, vlan: parseInt(vlanToChange), status: parseInt(vlanToChange) === 99 ? 'Quarantine' : 'Registered' };
-                                }
-                                return n;
-                              }));
-                              triggerToast(
-                                isZh 
-                                  ? `已切換 VLAN。調用 REST API 給 Switch ${selectedNode.switchIp} 將埠 ${selectedNode.vlan} 更改為 VLAN ${vlanToChange}。`
-                                  : `Port reallocation pushed. Switch port for ${selectedNode.mac} updated to VLAN ${vlanToChange}.`,
-                                'success'
-                              );
-                            }}
+                            onClick={() => handleChangeVlan(selectedNode.mac, vlanToChange)}
                             className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded text-[9px] uppercase font-black tracking-widest transition-colors"
                           >
                             {isZh ? '切換並生效 VLAN' : 'Change VLAN'}
@@ -1137,21 +1379,35 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                         </div>
                       </div>
 
-                      {/* Power disconnect action */}
-                      <button
-                        onClick={() => {
-                          triggerToast(
-                            isZh 
-                              ? `已發送 RFC 3576 RADIUS Change-of-Authorization (CoA) 至 ${selectedNode.switchIp}。終端執行強制下線 (RADIUS Disconnect) 重啟 DHCP 獲取流程。`
-                              : `Triggered RADIUS Change-of-Authorization (CoA) disconnect packet to host ${selectedNode.mac}.`,
-                            'info'
-                          );
-                        }}
-                        className="w-full py-2.5 bg-black border border-red-500/30 hover:bg-red-500/10 text-red-400 hover:text-white rounded text-[9px] uppercase font-black tracking-wider transition-all flex items-center justify-center gap-1.5"
-                      >
-                        <Zap size={12} />
-                        {isZh ? '強制登出 (RADIUS CoA Disconnect)' : 'RADIUS CoA Disconnect'}
-                      </button>
+                      {/* Multi-Enforcement Action Group */}
+                      <div className="space-y-2 pt-2 border-t border-gray-800/80">
+                        {/* Power disconnect action */}
+                        <button
+                          onClick={() => handleCoaDisconnect(selectedNode.mac)}
+                          className="w-full py-2.5 bg-black border border-red-500/30 hover:bg-red-500/10 text-red-400 hover:text-white rounded text-[9px] uppercase font-black tracking-wider transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Zap size={12} />
+                          {isZh ? '強制登出 (RADIUS CoA Disconnect)' : 'RADIUS CoA Disconnect'}
+                        </button>
+
+                        {/* Full Blacklist Block action */}
+                        <button
+                          onClick={() => handleBlockNode(selectedNode.mac, 'Manual zero-trust enforcement from node drawer')}
+                          className="w-full py-2.5 bg-red-950/40 border border-red-500/50 hover:bg-red-600 text-red-300 hover:text-white rounded text-[9px] uppercase font-black tracking-wider transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Ban size={12} />
+                          {isZh ? '永久阻斷黑名單 (Access-Reject / Drop)' : 'Block & Blacklist MAC'}
+                        </button>
+
+                        {/* Physical Port Shutdown action */}
+                        <button
+                          onClick={() => handlePortShutdown(selectedNode.switchIp, selectedNode.switchPort, selectedNode.mac)}
+                          className="w-full py-2.5 bg-black border border-gray-700 hover:border-red-500 hover:bg-red-950/20 text-gray-300 hover:text-red-400 rounded text-[9px] uppercase font-black tracking-wider transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <PowerOff size={12} />
+                          {isZh ? `實體連接埠斷線 (Switch Port Shutdown: ${selectedNode.switchPort})` : `Shutdown Port (${selectedNode.switchPort})`}
+                        </button>
+                      </div>
                     </div>
 
                     {/* RADIUS Logging stream */}
@@ -1216,15 +1472,15 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
           {managementSubTab === 'guests' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
-              {/* Approval interactive desk desk (left) */}
+              {/* Approval interactive desk (left) */}
               <div className="lg:col-span-8 bg-[#111114] border border-gray-800 rounded-2xl p-6 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800/60 pb-3">
                   <div className="space-y-1">
                     <h3 className="text-xs font-black uppercase text-gray-200 tracking-wider">
-                      {isZh ? '臨時研討會與訪客臨時註冊審核' : 'Captive Portal Visitor Registration Desk'}
+                      {isZh ? '臨時研討會與訪客臨時註冊審核 (含黑名單阻斷)' : 'Captive Portal Visitor Desk & Access Denial'}
                     </h3>
                     <p className="text-[10px] text-gray-500">
-                      {isZh ? '管理通過簡訊(SMS)/條款認證之臨時對象帳號生命週期。' : 'Dynamic transient accounts triggered over SMS validation queues'}
+                      {isZh ? '管理通過簡訊(SMS)/條款認證之臨時對象帳號，可執行核准、拒絕或永久黑名單阻斷。' : 'Dynamic transient accounts triggered over SMS queues with instant blacklisting capabilities.'}
                     </p>
                   </div>
                   
@@ -1262,19 +1518,21 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                                 "font-bold font-sans tracking-wide ml-1 uppercase text-[9px]",
                                 req.status === 'approved' ? "text-green-400" :
                                 req.status === 'rejected' ? "text-red-400" :
+                                req.status === 'blocked' ? "text-red-500 font-black" :
                                 "text-yellow-400 animate-pulse"
                               )}>
                                 {isZh 
-                                  ? (req.status === 'approved' ? '已核准 (Approved)' : req.status === 'rejected' ? '已拒絕 (Rejected)' : '待審核 (Pending)') 
+                                  ? (req.status === 'approved' ? '已核准 (Approved)' : req.status === 'blocked' ? '已永久阻斷 (Blocked)' : req.status === 'rejected' ? '已拒絕 (Rejected)' : '待審核 (Pending)') 
                                   : req.status}
                               </span>
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-center">
                           {req.status === 'pending' ? (
                             <>
+                              {/* Approve */}
                               <button 
                                 onClick={() => handleGuestApproval(req.id, true)}
                                 className="py-1.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
@@ -1282,16 +1540,33 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                                 <CheckCircle2 size={11} />
                                 {isZh ? '核准並送憑證' : 'Approve & Dispatch'}
                               </button>
+
+                              {/* Reject */}
                               <button 
-                                onClick={() => handleGuestApproval(req.id, false)}
+                                onClick={() => handleGuestApproval(req.id, false, false)}
                                 className="py-1.5 px-3 bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-400 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all"
                               >
                                 {isZh ? '拒絕' : 'Deny'}
                               </button>
+
+                              {/* Reject & Block */}
+                              <button 
+                                onClick={() => handleGuestApproval(req.id, false, true)}
+                                className="py-1.5 px-3 bg-red-950/40 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                                title="Reject and permanently block applicant phone and account"
+                              >
+                                <Ban size={11} />
+                                {isZh ? '拒絕並加入黑名單阻斷' : 'Deny & Block'}
+                              </button>
                             </>
                           ) : (
-                            <span className="px-3 py-1 bg-black text-[10px] font-black text-gray-500 border border-gray-800 rounded uppercase">
-                              {isZh ? '已完成審核' : 'Handled'}
+                            <span className={cn(
+                              "px-3 py-1 text-[10px] font-black border rounded uppercase",
+                              req.status === 'approved' ? "bg-green-950/30 text-green-400 border-green-500/20" :
+                              req.status === 'blocked' ? "bg-red-950/40 text-red-400 border-red-500/30" :
+                              "bg-black text-gray-500 border-gray-800"
+                            )}>
+                              {isZh ? (req.status === 'approved' ? '已核准發照' : req.status === 'blocked' ? '已列入黑名單' : '已完成審核') : req.status}
                             </span>
                           )}
                         </div>
@@ -1315,7 +1590,6 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                   </p>
 
                   <div className="bg-white p-4 rounded-xl flex items-center justify-center max-w-[170px] mx-auto border-4 border-purple-950/20 shadow-xl">
-                    {/* Simulated vector QR layout */}
                     <div className="grid grid-cols-5 gap-1.5 w-32 h-32 bg-white text-black p-1 filter contrast-125">
                       <div className="bg-black col-span-2 row-span-2 rounded" />
                       <div className="bg-white" />
@@ -1365,7 +1639,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                     {isZh ? '網上連接會話與 RADIUS 連線即時狀態' : 'Active Connection Cores (RADIUS Sessions)'}
                   </h3>
                   <p className="text-[10px] text-gray-500">
-                    {isZh ? '此清單列出已通過認證並被分配 IP 地區的主機會話，可執行立即強退。' : 'RADIUS Live authenticated tuples actively sending internet streams'}
+                    {isZh ? '此清單列出已通過認證並被分配 IP 地區的主機會話，可執行單純踢除或踢除並立即阻斷設備。' : 'RADIUS Live authenticated tuples actively sending internet streams, supporting RFC 3576 disconnect and instant block.'}
                   </p>
                 </div>
 
@@ -1387,12 +1661,12 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                       <th className="p-4">{isZh ? '連線持續時間' : 'SESSION TTL'}</th>
                       <th className="p-4">{isZh ? '已消耗網路流量' : 'VOLUME CONSUMED'}</th>
                       <th className="p-4">{isZh ? '認證來源' : 'AUTHENTICATION ENTITY'}</th>
-                      <th className="p-4 text-center">{isZh ? '踢除操作' : 'ADMIN ACTION'}</th>
+                      <th className="p-4 text-center">{isZh ? '踢除與阻斷操作' : 'ADMIN DISCONNECT & BLOCK'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800/50 bg-black/20">
                     {activeSessions
-                      .filter(s => s.account.toLowerCase().includes(searchSession.toLowerCase()))
+                      .filter(s => s.account.toLowerCase().includes(searchSession.toLowerCase()) || s.mac.toLowerCase().includes(searchSession.toLowerCase()))
                       .map((session, idx) => (
                         <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
                           <td className="p-4 font-bold text-white">
@@ -1407,11 +1681,196 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                           <td className="p-4 text-purple-400 font-bold">{session.traffic}</td>
                           <td className="p-4 text-gray-400 text-[11px]">{session.authSource}</td>
                           <td className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              {/* Option 1: Disconnect */}
+                              <button
+                                onClick={() => handleDisconnectSession(session.id, session.mac, false)}
+                                className="py-1 px-3 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/20 text-[9px] font-black uppercase rounded transition-all"
+                              >
+                                {isZh ? '踢除會話' : 'Disconnect'}
+                              </button>
+
+                              {/* Option 2: Kick & Block */}
+                              <button
+                                onClick={() => handleDisconnectSession(session.id, session.mac, true)}
+                                className="py-1 px-3 bg-red-950/40 hover:bg-red-700 text-red-300 hover:text-white border border-red-500/30 text-[9px] font-black uppercase rounded transition-all flex items-center gap-1"
+                                title="Kill active session and permanently block this MAC"
+                              >
+                                <Ban size={10} />
+                                {isZh ? '踢除並立即阻斷 MAC' : 'Kick & Block MAC'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Sub Content: Section 4. Blocklist & Quarantine Pool */}
+          {managementSubTab === 'blocklist' && (
+            <div className="bg-[#111114] border border-gray-800 rounded-2xl p-6 space-y-6">
+              
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800/60 pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 bg-red-600/20 text-red-500 rounded border border-red-500/30">
+                      <Ban size={14} />
+                    </span>
+                    <h3 className="text-xs font-black uppercase text-red-400 tracking-wider">
+                      {isZh ? '全域黑名單與阻斷隔離池 (Active Blocklist & Quarantine Pool)' : 'Active Blocklist & Quarantine Pool'}
+                    </h3>
+                  </div>
+                  <p className="text-[10px] text-gray-500">
+                    {isZh 
+                      ? '集中管理所有被 RADIUS Access-Reject、實體交換器埠 Shutdown、VLAN 99 隔離檢疫或防火牆封鎖的主機、MAC 位址與訪客帳號。' 
+                      : 'Central repository of all quarantined hosts, RADIUS access-rejected MACs, and blacklisted entities.'}
+                  </p>
+                </div>
+
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-3 top-2.5 text-gray-500 w-4 h-4" />
+                  <input
+                    type="text"
+                    value={searchBlocklist}
+                    onChange={(e) => setSearchBlocklist(e.target.value)}
+                    placeholder={isZh ? "搜尋黑名單目標或原因..." : "Search Target or Reason..."}
+                    className="w-full bg-black/40 border border-gray-800 rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-white outline-none focus:border-red-500"
+                  />
+                </div>
+              </div>
+
+              {/* Quick Manual Block Toolbar */}
+              <form onSubmit={handleManualBlock} className="bg-black/40 border border-gray-800 p-4 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest flex items-center gap-1.5 font-mono">
+                    <PlusCircle size={12} className="text-red-500" />
+                    {isZh ? '手動下發立即阻斷 (Manual Quick Block)' : 'Manual Quick Block Dispatch'}
+                  </span>
+                  <span className="text-[9px] text-gray-500 font-mono">Real-time RADIUS + Switch ACL Injection</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
+                  <div className="sm:col-span-4">
+                    <input
+                      type="text"
+                      required
+                      value={manualBlockTarget}
+                      onChange={(e) => setManualBlockTarget(e.target.value)}
+                      placeholder={isZh ? "輸入 MAC (如 AA:BB:CC:DD:EE:FF) 或 IP / 帳號..." : "MAC or IP or Account..."}
+                      className="w-full bg-[#0c0c0e] border border-gray-800 rounded-lg px-3 py-2 text-white font-mono font-bold outline-none focus:border-red-500"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <select
+                      value={manualBlockType}
+                      onChange={(e) => setManualBlockType(e.target.value as any)}
+                      className="w-full bg-[#0c0c0e] border border-gray-800 rounded-lg px-3 py-2 text-gray-300 font-bold outline-none"
+                    >
+                      <option value="mac">MAC 位址</option>
+                      <option value="ip">IP 位址</option>
+                      <option value="account">帳號 / 手機</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-4">
+                    <input
+                      type="text"
+                      value={manualBlockReason}
+                      onChange={(e) => setManualBlockReason(e.target.value)}
+                      placeholder={isZh ? "阻斷原因 (例：零信任違規 / 惡意程式連線)..." : "Block Reason..."}
+                      className="w-full bg-[#0c0c0e] border border-gray-800 rounded-lg px-3 py-2 text-gray-300 outline-none focus:border-red-500"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-center">
+                    <button
+                      type="submit"
+                      className="w-full py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-red-900/20"
+                    >
+                      <Ban size={12} />
+                      {isZh ? '執行阻斷' : 'Enforce Block'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {/* Blocklist Table */}
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left font-mono text-xs border text-gray-300 border-gray-800/60 rounded-xl overflow-hidden divide-y divide-gray-800">
+                  <thead className="bg-[#0c0c0e] text-gray-400 text-[10px] font-black uppercase tracking-wider">
+                    <tr>
+                      <th className="p-4">{isZh ? '阻斷目標' : 'TARGET'}</th>
+                      <th className="p-4">{isZh ? '類型' : 'TYPE'}</th>
+                      <th className="p-4">{isZh ? '阻斷狀態' : 'STATUS'}</th>
+                      <th className="p-4">{isZh ? '已下發處置措施' : 'ENFORCED ACTIONS'}</th>
+                      <th className="p-4">{isZh ? '阻斷原因與來源' : 'REASON & SOURCE'}</th>
+                      <th className="p-4">{isZh ? '時間 / 有效期' : 'TIMESTAMP / TTL'}</th>
+                      <th className="p-4 text-center">{isZh ? '解鎖操作' : 'REVOKE ACTION'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800/50 bg-black/20">
+                    {blocklist
+                      .filter(b => {
+                        const term = searchBlocklist.toLowerCase();
+                        return (
+                          b.target.toLowerCase().includes(term) ||
+                          b.reason.toLowerCase().includes(term) ||
+                          b.source.toLowerCase().includes(term)
+                        );
+                      })
+                      .map((entry, idx) => (
+                        <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
+                          <td className="p-4 font-bold text-white selection:bg-red-500">
+                            <span className="block">{entry.target}</span>
+                            {entry.switchIp && (
+                              <span className="text-[9px] text-gray-500 block font-normal">{entry.switchIp} : {entry.switchPort}</span>
+                            )}
+                          </td>
+                          <td className="p-4">
+                            <span className="px-2 py-0.5 bg-gray-900 border border-gray-800 text-gray-300 rounded text-[9px] uppercase font-bold">
+                              {entry.targetType}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <span className={cn(
+                              "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest block w-max",
+                              entry.status === 'blocked' ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                              "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                            )}>
+                              {entry.status === 'blocked' ? (isZh ? '永久阻斷' : 'BLOCKED') : (isZh ? '隔離檢疫中' : 'QUARANTINE')}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <div className="space-y-1">
+                              {entry.enforcedActions.map((act, aidx) => (
+                                <span key={aidx} className="block text-[9.5px] text-gray-400 flex items-center gap-1">
+                                  <span className="w-1 h-1 bg-red-500 rounded-full shrink-0" />
+                                  {act}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <span className="text-gray-200 block font-medium">{entry.reason}</span>
+                            <span className="text-[9px] text-purple-400 block uppercase font-mono">[{entry.source}]</span>
+                          </td>
+                          <td className="p-4 text-gray-400 text-[10px]">
+                            <div>{entry.timestamp}</div>
+                            <div className="text-amber-400 font-bold">{entry.expiresAt}</div>
+                          </td>
+                          <td className="p-4 text-center">
                             <button
-                              onClick={() => handleDisconnectSession(session.id, session.mac)}
-                              className="py-1 px-3 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/20 text-[9px] font-black uppercase rounded transition-all"
+                              onClick={() => handleRemoveBlocklistEntry(entry.id, entry.target)}
+                              className="py-1 px-3 bg-green-950/40 hover:bg-green-600 text-green-400 hover:text-white border border-green-500/30 text-[9px] font-black uppercase rounded transition-all flex items-center justify-center gap-1 mx-auto"
                             >
-                              {isZh ? '踢除會話' : 'Disconnect Session'}
+                              <Check size={10} />
+                              {isZh ? '解除阻斷' : 'Unblock / Revoke'}
                             </button>
                           </td>
                         </tr>
@@ -1420,6 +1879,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                   </tbody>
                 </table>
               </div>
+
             </div>
           )}
 
@@ -1444,7 +1904,7 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
               {/* Navigation buttons and icons mapping */}
               <div className="space-y-2">
                 {[
-                  { id: 'rules', label: isZh ? '存取策略與角色集 (Rules)' : 'Connection Rules', icon: <Sliders size={14} />, desc: isZh ? 'Visual If/Then 決策優先鏈' : 'If-Then prioritizing builder' },
+                  { id: 'rules', label: isZh ? '存取策略與角色集 (Rules)' : 'Connection Rules', icon: <Sliders size={14} />, desc: isZh ? 'Visual If/Then 決策與阻斷鏈' : 'If-Then prioritizing builder' },
                   { id: 'auth_sources', label: isZh ? '身分認證源系統 (Sources)' : 'Auth Directories', icon: <Database size={14} />, desc: isZh ? 'Windows AD / Cloud SSO' : 'LDAP / Cloud OAuth credentials' },
                   { id: 'captive_portal', label: isZh ? '網頁入口設計器 (Portal)' : 'Captive Designer', icon: <Smartphone size={14} />, desc: isZh ? '主題配色與條款預覽模擬' : 'Live simulator logo & colors' },
                   { id: 'switches', label: isZh ? '網路 NAS 暨交換器 (NAS)' : 'Device Config table', icon: <Server size={14} />, desc: isZh ? 'RADIUS Clients/SNMP Creds' : 'Dynamic Switch port & CoA' }
@@ -1605,12 +2065,10 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
               <button
                 type="button"
                 onClick={() => {
-                  // Discard all changes
                   setIsRulesDirty(false);
                   setIsAuthDirty(false);
                   setIsPortalDirty(false);
                   setIsSwitchesDirty(false);
-                  setValidationErrors({});
                   setShowConfirmModal(false);
                   if (pendingSubTab) setPoliciesSubTab(pendingSubTab as any);
                   if (pendingTab) setActiveTab(pendingTab as any);
