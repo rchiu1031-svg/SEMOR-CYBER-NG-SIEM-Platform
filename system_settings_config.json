@@ -1,0 +1,329 @@
+{
+  "network": {
+    "ip": "192.168.1.100",
+    "netmask": "255.255.255.0",
+    "gateway": "192.168.1.1",
+    "dns": [
+      "8.8.8.8",
+      "8.8.4.4",
+      "1.1.1.1"
+    ],
+    "ntp": "pool.ntp.org",
+    "routes": [
+      {
+        "destination": "10.0.0.0/24",
+        "gateway": "192.168.1.1"
+      },
+      {
+        "destination": "172.16.0.0/16",
+        "gateway": "192.168.1.254"
+      }
+    ],
+    "interfaces": {
+      "mgmt": {
+        "name": "eth0",
+        "status": "Up",
+        "speed": "1000Mbps",
+        "mac": "00:0C:29:4F:8B:34"
+      },
+      "bypass": {
+        "name": "eth1/eth2",
+        "status": "Enabled",
+        "mode": "Bypass",
+        "mac": "00:0C:29:4F:8B:35 / 36"
+      }
+    }
+  },
+  "general": {
+    "hostIdentifier": "SEMOR-SOC-NODE-01",
+    "orgName": "SEMOR CYBER Security Operations HQ",
+    "systemTimezone": "Asia/Taipei",
+    "defaultLanguage": "zh-TW",
+    "themeMode": "cyber-dark",
+    "aiEngine": {
+      "model": "gemini-2.5-flash",
+      "temperature": 0.2,
+      "maxOutputTokens": 8192,
+      "enableGrounding": true,
+      "enableAutoTriage": true
+    },
+    "securityPolicies": {
+      "sessionTimeoutMinutes": 30,
+      "loginMaxFailures": 5,
+      "lockoutDurationMinutes": 15,
+      "enforceMFA": true,
+      "strictPasswordPolicy": true,
+      "auditRetentionDays": 365
+    },
+    "maintenance": {
+      "maintenanceTime": "04:00",
+      "pcapRetentionGB": 150,
+      "autoPurgeLogs": true
+    }
+  },
+  "auth": {
+    "ad": {
+      "enabled": true,
+      "server": "ad.corp.internal",
+      "port": 636,
+      "domain": "corp.internal",
+      "baseDn": "dc=corp,dc=internal",
+      "bindUser": "svc_siem_ldap@corp.internal",
+      "ssl": true,
+      "tls": false,
+      "allowSelfSigned": false,
+      "syncInterval": "15",
+      "timeout": 5,
+      "userFilter": "(&(objectClass=user)(sAMAccountName={username}))"
+    },
+    "ldap": {
+      "enabled": false,
+      "serverUrl": "ldap://ldap.enterprise.local:389",
+      "baseDn": "ou=accounts,dc=enterprise,dc=local",
+      "bindDn": "cn=admin,dc=enterprise,dc=local",
+      "encryption": "starttls",
+      "userSearchFilter": "(uid={username})",
+      "timeout": 5
+    },
+    "radius": {
+      "enabled": false,
+      "primaryServer": "192.168.10.50",
+      "authPort": 1812,
+      "acctPort": 1813,
+      "secondaryServer": "192.168.10.51",
+      "authProtocol": "MS-CHAPv2",
+      "timeout": 5
+    },
+    "sso": {
+      "enabled": true,
+      "provider": "entra",
+      "protocol": "saml2",
+      "entityId": "https://siem.corp.internal/saml/metadata",
+      "ssoLoginUrl": "https://login.microsoftonline.com/a1b2c3d4-e5f6-7890-abcd-ef1234567890/saml2",
+      "ssoLogoutUrl": "https://login.microsoftonline.com/a1b2c3d4-e5f6-7890-abcd-ef1234567890/saml2/logout",
+      "clientId": "siem-enterprise-client-id-9988",
+      "issuer": "https://login.microsoftonline.com/a1b2c3d4-e5f6-7890-abcd-ef1234567890/v2.0",
+      "autoProvisionUsers": true,
+      "defaultRole": "viewer"
+    },
+    "mfa": {
+      "enforceMfa": true,
+      "allowedMethods": {
+        "totp": true,
+        "fido2": true,
+        "emailOtp": false,
+        "smsOtp": false
+      },
+      "enforceRoles": [
+        "supervisor",
+        "admin",
+        "auditor"
+      ],
+      "gracePeriodDays": 7
+    },
+    "policy": {
+      "sessionTimeout": 30,
+      "maxConcurrentSessions": 3,
+      "ipWhitelist": {
+        "enabled": true,
+        "cidrs": "192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12"
+      }
+    }
+  },
+  "dataCollection": {
+    "modes": [
+      "syslog",
+      "eventlog",
+      "flow"
+    ],
+    "syslog": {
+      "sources": [
+        {
+          "id": "src-1",
+          "sourceIp": "192.168.1.0/24",
+          "port": 514,
+          "protocol": "udp",
+          "description": "DMZ 核心交換器與邊界閘道日誌",
+          "status": "active"
+        },
+        {
+          "id": "src-2",
+          "sourceIp": "10.0.0.0/16",
+          "port": 5140,
+          "protocol": "tcp",
+          "description": "內部應用微服務與 API Gateway",
+          "status": "active"
+        },
+        {
+          "id": "src-3",
+          "sourceIp": "172.16.10.50",
+          "port": 6514,
+          "protocol": "tls",
+          "description": "核心主幹安全防火牆日誌",
+          "status": "active"
+        }
+      ]
+    },
+    "windowsEventLog": {
+      "method": "agent",
+      "winrmEndpoint": "https://*:5986/wsman",
+      "winrmPort": 5986,
+      "status": "active"
+    },
+    "networkFlow": {
+      "activeInterfaces": [
+        "ens192",
+        "ens32",
+        "eth0"
+      ],
+      "mirrorSource": "ens192",
+      "promiscuousMode": true,
+      "erspanEnabled": true
+    }
+  },
+  "remoteLog": {
+    "forwarders": [
+      {
+        "id": "fwd-1",
+        "name": "主要 Splunk 核心叢集 (HEC)",
+        "type": "splunk",
+        "destination": "10.88.90.11",
+        "port": "8088",
+        "protocol": "https",
+        "status": "active",
+        "token": "e82b7c91-44aa-4921-b0e2-993d0fba1092",
+        "scope": "all",
+        "format": "json",
+        "latency": 14,
+        "eventsSent": 1248921,
+        "lastActive": "Just now"
+      },
+      {
+        "id": "fwd-2",
+        "name": "SOC 外部 Syslog 歸檔節點",
+        "type": "syslog",
+        "destination": "192.168.100.50",
+        "port": "514",
+        "protocol": "tls",
+        "status": "active",
+        "scope": "audit",
+        "format": "rfc5424",
+        "latency": 22,
+        "eventsSent": 489310,
+        "lastActive": "2s ago"
+      },
+      {
+        "id": "fwd-3",
+        "name": "大數據分析 Kafka 主題通道",
+        "type": "kafka",
+        "destination": "10.200.40.15",
+        "port": "9092",
+        "protocol": "tcp",
+        "status": "active",
+        "scope": "flow",
+        "format": "json",
+        "latency": 8,
+        "eventsSent": 3410290,
+        "lastActive": "Just now"
+      }
+    ],
+    "globalSettings": {
+      "localCaching": true,
+      "cacheSizeGB": 30,
+      "retryIntervalSec": 5,
+      "overflowPolicy": "fifo",
+      "alertOnFailure": true,
+      "maskPII": true,
+      "excludeNoise": true,
+      "compressPayload": true,
+      "rawCEFFormat": false,
+      "minSeverity": "all"
+    }
+  },
+  "threatIntelFeeds": [
+    {
+      "id": "feed-cisa-ais",
+      "name": "CISA AIS (Automated Indicator Sharing)",
+      "provider": "U.S. Cybersecurity and Infrastructure Security Agency",
+      "description": "Real-time bidirectional machine-to-machine STIX 2.1 threat exchange for federal civilian and critical infrastructure.",
+      "protocol": "TAXII 2.1",
+      "discoveryUrl": "https://taxii.cisa.gov/taxii2/",
+      "apiRoot": "/api/v2.1/",
+      "collectionId": "urn:cisa:collection:ais-indicators-stream",
+      "collectionTitle": "Federal Inter-Agency Threat Stream",
+      "authType": "api_key",
+      "autoRefresh": true,
+      "refreshIntervalMinutes": 15,
+      "pollMode": "incremental",
+      "iocTypes": [
+        "ipv4",
+        "domain",
+        "url",
+        "file_hash",
+        "cve"
+      ],
+      "confidenceThreshold": 80,
+      "tlpCeiling": "TLP:AMBER",
+      "autoEnforceBlocklist": true,
+      "verifySsl": true,
+      "status": "active",
+      "lastSyncTime": "2 分鐘前",
+      "lastSyncTimestamp": 1791784974691,
+      "nextSyncCountdownSeconds": 780,
+      "indicatorCount": 148250,
+      "correlationHitsCount": 412,
+      "latencyMs": 142,
+      "httpStatusCode": 200,
+      "ingestionSuccessRate": 100,
+      "ingestedInLastSync": 42,
+      "droppedCount": 0,
+      "tags": [
+        "Critical-Infra",
+        "Zero-Day",
+        "Government",
+        "Ransomware"
+      ]
+    },
+    {
+      "id": "feed-abuse-ch",
+      "name": "abuse.ch ThreatFox & URLhaus STIX/TAXII Feed",
+      "provider": "abuse.ch / Bern University of Applied Sciences",
+      "description": "Community-driven IOC database sharing malicious URLs, C2 server IPs, and malware sample hashes.",
+      "protocol": "TAXII 2.1",
+      "discoveryUrl": "https://threatfox.abuse.ch/taxii2/",
+      "apiRoot": "/api/v2.1/",
+      "collectionId": "threatfox-recent-iocs",
+      "collectionTitle": "High-Confidence Malware C2 & Payload URLs",
+      "authType": "none",
+      "autoRefresh": true,
+      "refreshIntervalMinutes": 30,
+      "pollMode": "full_replacement",
+      "iocTypes": [
+        "ipv4",
+        "domain",
+        "url",
+        "file_hash"
+      ],
+      "confidenceThreshold": 75,
+      "tlpCeiling": "TLP:WHITE",
+      "autoEnforceBlocklist": true,
+      "verifySsl": true,
+      "status": "active",
+      "lastSyncTime": "15 分鐘前",
+      "lastSyncTimestamp": 1791784194692,
+      "nextSyncCountdownSeconds": 900,
+      "indicatorCount": 92430,
+      "correlationHitsCount": 189,
+      "latencyMs": 88,
+      "httpStatusCode": 200,
+      "ingestionSuccessRate": 100,
+      "ingestedInLastSync": 110,
+      "droppedCount": 2,
+      "tags": [
+        "Botnet",
+        "Malware-C2",
+        "OpenSource"
+      ]
+    }
+  ]
+}

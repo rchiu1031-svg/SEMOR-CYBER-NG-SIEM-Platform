@@ -26,7 +26,12 @@ import {
   Zap,
   Clock,
   Terminal,
-  Cpu
+  Cpu,
+  Send,
+  Save,
+  Copy,
+  Download,
+  FileText
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
@@ -139,6 +144,45 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
   const [rawCEFFormat, setRawCEFFormat] = useState(false);
   const [minSeverity, setMinSeverity] = useState<'all' | 'info' | 'warning' | 'critical'>('all');
 
+  // Global Policy Save & Feedback State
+  const [isSavingGlobal, setIsSavingGlobal] = useState(false);
+  const [globalSaveNotification, setGlobalSaveNotification] = useState<{ success: boolean; message: string } | null>(null);
+  const [isFlushingSpool, setIsFlushingSpool] = useState(false);
+
+  // Test Event Modal State
+  const [testEventModal, setTestEventModal] = useState<{
+    isOpen: boolean;
+    isSending: boolean;
+    forwarder?: RemoteForwarder | null;
+    result?: {
+      message: string;
+      dispatchedAt: string;
+      payloadSize: number;
+      logEntry?: any;
+      rawPayload?: string;
+    } | null;
+  } | null>(null);
+
+  // Daemon Export Config Modal State
+  const [exportConfigModal, setExportConfigModal] = useState<{
+    isOpen: boolean;
+    format: 'rsyslog' | 'vector' | 'fluentbit';
+    filename: string;
+    content: string;
+    copied: boolean;
+    loading: boolean;
+  } | null>(null);
+
+  // Backend Live Metrics
+  const [backendStats, setBackendStats] = useState<{
+    bufferUsedMB?: number;
+    bufferCapacityMB?: number;
+    bufferUtilizationPct?: string;
+    throughputEventsPerSec?: number;
+    egressBandwidthMbps?: number;
+    queueStatus?: string;
+  } | null>(null);
+
   // Test Connection Modal / Notification State
   const [testResult, setTestResult] = useState<{
     testing: boolean;
@@ -156,7 +200,8 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
     type: string;
     status: string;
     summary: string;
-  }[]>([
+    rawPayload?: string;
+  }>([
     { id: '1', time: '12:05:41.102', dest: 'Splunk HEC (10.88.90.11:8088)', type: 'SECURITY_ALERT', status: '200 OK', summary: 'Outbound brute-force detection telemetry forwarded' },
     { id: '2', time: '12:05:40.891', dest: 'Kafka Topic (10.200.40.15:9092)', type: 'NETFLOW_IPFIX', status: 'Delivered', summary: '1.2MB session flow packets ingested' },
     { id: '3', time: '12:05:39.452', dest: 'Syslog TLS (192.168.100.50:514)', type: 'AUDIT_AUTH', status: 'ACK (TLS)', summary: 'Supervisor user login audit event emitted' },
@@ -211,7 +256,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
     });
   };
 
-  // Load forwarders and global settings from backend
+  // Load forwarders, global settings, live logs, and stats from backend
   useEffect(() => {
     siemService.getRemoteLogSettings()
       .then(res => {
@@ -233,7 +278,200 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
         }
       })
       .catch(err => console.warn('Using default remote forwarders:', err));
+
+    // Fetch initial backend logs
+    siemService.getRemoteLogStreamLogs()
+      .then(res => {
+        if (res?.logs && res.logs.length > 0) {
+          setLiveLogs(res.logs);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch queue statistics
+    siemService.getRemoteLogStats()
+      .then(res => {
+        if (res?.stats) {
+          setBackendStats(res.stats);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Handle Save Global Settings & Policies to Backend
+  const handleSaveGlobalSettings = async () => {
+    if (isReadOnly) return;
+    setIsSavingGlobal(true);
+    try {
+      const payload = {
+        localCaching,
+        cacheSizeGB: cacheSize,
+        retryIntervalSec: Number(retryInterval),
+        overflowPolicy,
+        alertOnFailure,
+        maskPII,
+        excludeNoise,
+        compressPayload,
+        rawCEFFormat,
+        minSeverity
+      };
+      const res = await siemService.updateRemoteLogGlobalSettings(payload);
+      setGlobalSaveNotification({
+        success: true,
+        message: res?.message || (isZh ? '全域轉發佇列快取與隱私脫敏策略已成功儲存至後端守護程序！' : 'Global forwarding & privacy policies successfully saved to daemon!')
+      });
+      setTimeout(() => setGlobalSaveNotification(null), 5000);
+    } catch (e: any) {
+      setGlobalSaveNotification({
+        success: false,
+        message: `儲存失敗: ${e.message || '無法儲存全域策略'}`
+      });
+      setTimeout(() => setGlobalSaveNotification(null), 5000);
+    } finally {
+      setIsSavingGlobal(false);
+    }
+  };
+
+  // Handle Flush Local Spooling Buffer
+  const handleFlushSpool = async () => {
+    if (isReadOnly) return;
+    if (!confirm(isZh ? '確定要立即清空本機磁碟日誌快取緩衝區嗎？' : 'Are you sure you want to flush local spooling buffer?')) return;
+    
+    setIsFlushingSpool(true);
+    try {
+      const res = await siemService.flushRemoteLogSpool();
+      setGlobalSaveNotification({
+        success: true,
+        message: res?.message || (isZh ? '本機日誌快取緩衝區已清除並重設寫入指標。' : 'Local spool buffer flushed successfully.')
+      });
+      setTimeout(() => setGlobalSaveNotification(null), 5000);
+    } catch (e: any) {
+      setGlobalSaveNotification({
+        success: false,
+        message: `清除失敗: ${e.message || '緩衝區清空操作失敗'}`
+      });
+      setTimeout(() => setGlobalSaveNotification(null), 5000);
+    } finally {
+      setIsFlushingSpool(false);
+    }
+  };
+
+  // Open & Load Daemon Config Export
+  const handleOpenExportConfig = async (format: 'rsyslog' | 'vector' | 'fluentbit' = 'rsyslog') => {
+    setExportConfigModal({
+      isOpen: true,
+      format,
+      filename: format === 'vector' ? 'vector.yaml' : format === 'fluentbit' ? 'fluent-bit.conf' : '99-semor-forward.conf',
+      content: '',
+      copied: false,
+      loading: true
+    });
+
+    try {
+      const res = await siemService.getRemoteLogConfigExport(format);
+      setExportConfigModal(prev => prev ? {
+        ...prev,
+        content: res.content || '',
+        filename: res.filename || prev.filename,
+        loading: false
+      } : null);
+    } catch (e) {
+      setExportConfigModal(prev => prev ? { ...prev, loading: false } : null);
+    }
+  };
+
+  // Copy exported config to clipboard
+  const handleCopyExportConfig = () => {
+    if (!exportConfigModal?.content) return;
+    navigator.clipboard.writeText(exportConfigModal.content);
+    setExportConfigModal(prev => prev ? { ...prev, copied: true } : null);
+    setTimeout(() => {
+      setExportConfigModal(prev => prev ? { ...prev, copied: false } : null);
+    }, 2500);
+  };
+
+  // Download exported config as file
+  const handleDownloadExportConfig = () => {
+    if (!exportConfigModal?.content) return;
+    const blob = new Blob([exportConfigModal.content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = exportConfigModal.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Handle Dispatch Manual Test Event
+  const handleSendTestEvent = async (fwd?: RemoteForwarder) => {
+    const targetFwd = fwd || (formData.destination ? {
+      id: 'fwd-manual',
+      name: formData.name || 'Direct Endpoint',
+      type: formData.type,
+      destination: formData.destination,
+      port: formData.port,
+      protocol: formData.protocol,
+      format: formData.format,
+      scope: formData.scope
+    } as any : forwarders[0]);
+
+    if (!targetFwd?.destination) {
+      alert(isZh ? '請先填寫目標主機與通訊埠！' : 'Please provide destination host and port first!');
+      return;
+    }
+
+    setTestEventModal({
+      isOpen: true,
+      isSending: true,
+      forwarder: targetFwd,
+      result: null
+    });
+
+    try {
+      const res = await siemService.sendRemoteLogTestEvent({
+        forwarderId: targetFwd.id,
+        destination: targetFwd.destination,
+        port: targetFwd.port,
+        protocol: targetFwd.protocol,
+        format: targetFwd.format,
+        type: 'DIAGNOSTIC_SECURITY_TEST',
+        scope: targetFwd.scope
+      });
+
+      setTestEventModal(prev => prev ? {
+        ...prev,
+        isSending: false,
+        result: {
+          message: res.message || '測試事件發送完成',
+          dispatchedAt: res.dispatchedAt || new Date().toISOString(),
+          payloadSize: res.payloadSize || 382,
+          logEntry: res.logEntry,
+          rawPayload: res.logEntry?.rawPayload
+        }
+      } : null);
+
+      if (res.logEntry) {
+        setLiveLogs(prev => [res.logEntry, ...prev.slice(0, 19)]);
+      }
+
+      // Increment local count
+      setForwarders(prev => prev.map(item => item.id === targetFwd.id ? {
+        ...item,
+        eventsSent: (item.eventsSent || 0) + 1,
+        lastActive: 'Just now'
+      } : item));
+    } catch (e: any) {
+      setTestEventModal(prev => prev ? {
+        ...prev,
+        isSending: false,
+        result: {
+          message: `發送失敗: ${e.message || '未知錯誤'}`,
+          dispatchedAt: new Date().toISOString(),
+          payloadSize: 0
+        }
+      } : null);
+    }
+  };
 
   // Handle Test Connection
   const handleTestConnection = async (destIp?: string, destPort?: string, destProto?: string) => {
@@ -495,6 +733,33 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
         </div>
       </div>
 
+      {/* Global Save Notification Banner */}
+      {globalSaveNotification && (
+        <div className={cn(
+          "p-4 rounded-2xl border flex items-center justify-between transition-all animate-in slide-in-from-top duration-300",
+          globalSaveNotification.success 
+            ? "bg-emerald-950/40 border-emerald-800 text-emerald-300 shadow-lg shadow-emerald-950/20" 
+            : "bg-red-950/40 border-red-800 text-red-300"
+        )}>
+          <div className="flex items-center gap-3">
+            {globalSaveNotification.success ? (
+              <CheckCircle2 className="text-emerald-400 shrink-0" size={18} />
+            ) : (
+              <AlertCircle className="text-red-400 shrink-0" size={18} />
+            )}
+            <span className="text-xs font-bold font-mono">
+              {globalSaveNotification.message}
+            </span>
+          </div>
+          <button 
+            onClick={() => setGlobalSaveNotification(null)}
+            className="p-1 hover:bg-black/30 rounded-lg text-gray-400 hover:text-white"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Test Notification Banner */}
       {testResult && (
         <div className={cn(
@@ -558,26 +823,45 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
             </div>
           </div>
 
-          {editingId && (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={() => {
-                setEditingId(null);
-                setFormData({
-                  name: '',
-                  type: 'splunk',
-                  destination: '',
-                  port: '8088',
-                  protocol: 'https',
-                  token: '',
-                  scope: 'all',
-                  format: 'json'
-                });
-              }}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 self-start"
+              type="button"
+              onClick={() => handleOpenExportConfig('rsyslog')}
+              className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl text-xs font-bold transition-all border border-gray-800 flex items-center gap-1.5"
             >
-              <X size={14} /> {isZh ? '取消編輯' : 'Cancel Edit'}
+              <FileCode size={13} className="text-blue-400" />
+              {isZh ? '匯出守護行程配置' : 'Export Daemon Config'}
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => handleSendTestEvent()}
+              disabled={isReadOnly}
+              className="px-3 py-1.5 bg-orange-950/40 hover:bg-orange-900/50 text-orange-300 rounded-xl text-xs font-bold transition-all border border-orange-800/60 flex items-center gap-1.5"
+            >
+              <Send size={13} className="text-orange-400" />
+              {isZh ? '發送診斷日誌' : 'Send Test Log'}
+            </button>
+            {editingId && (
+              <button
+                onClick={() => {
+                  setEditingId(null);
+                  setFormData({
+                    name: '',
+                    type: 'splunk',
+                    destination: '',
+                    port: '8088',
+                    protocol: 'https',
+                    token: '',
+                    scope: 'all',
+                    format: 'json'
+                  });
+                }}
+                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+              >
+                <X size={14} /> {isZh ? '取消編輯' : 'Cancel Edit'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Input Fields Form */}
@@ -841,6 +1125,14 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
                         <button 
+                          onClick={() => handleSendTestEvent(f)}
+                          disabled={isReadOnly}
+                          title={isZh ? '向此節點發送測試日誌封包' : 'Send Test Log to Destination'}
+                          className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-emerald-400 transition-colors"
+                        >
+                          <Send size={14} />
+                        </button>
+                        <button 
                           onClick={() => handleTestConnection(f.destination, f.port, f.protocol)}
                           title={isZh ? '測試此節點連線' : 'Test Ping'}
                           className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-orange-400 transition-colors"
@@ -1095,6 +1387,47 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
         </div>
       </div>
 
+      {/* Global Forwarding Policies Persistence Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-5 bg-[#0d0d0f] border border-gray-800 rounded-3xl shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+            <Sliders size={18} />
+          </div>
+          <div>
+            <h6 className="text-xs font-black text-white uppercase tracking-wider">
+              {isZh ? '全域轉發佇列與隱私脫敏策略控制台' : 'Global Forwarding & Privacy Policy Console'}
+            </h6>
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              {isZh 
+                ? '調整上述斷線快取容量、滿溢處置、PII 遮蔽或 CEF 格式規範後，點擊立即套用將持久化配置至後端伺服器 (system_settings_config.json)。' 
+                : 'Save global spooling limits, overflow policies, PII masking, or CEF formatting to backend daemon.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          <button
+            type="button"
+            onClick={handleFlushSpool}
+            disabled={isReadOnly || isFlushingSpool}
+            className="px-3.5 py-2 bg-gray-900 hover:bg-gray-800 text-gray-300 hover:text-red-400 rounded-xl text-xs font-bold transition-all border border-gray-800 flex items-center gap-1.5"
+          >
+            {isFlushingSpool ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            {isFlushingSpool ? (isZh ? '正在清空...' : 'Flushing...') : (isZh ? '清除本地緩衝' : 'Flush Buffer')}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSaveGlobalSettings}
+            disabled={isReadOnly || isSavingGlobal}
+            className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-blue-600/30 flex items-center gap-2"
+          >
+            {isSavingGlobal ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+            {isSavingGlobal ? (isZh ? '正在儲存中...' : 'Saving...') : (isZh ? '套用全域轉發策略' : 'Save Global Policies')}
+          </button>
+        </div>
+      </div>
+
       {/* Section 4: Live Outbound Transmission Log Stream */}
       <div className="p-6 bg-[#0d0d0f] border border-gray-800 rounded-3xl space-y-4 shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-800 pb-3">
@@ -1151,6 +1484,224 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
           )}
         </div>
       </div>
+
+      {/* Test Event Result Modal */}
+      {testEventModal?.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#121215] border border-gray-800 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-black/40">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-400">
+                  <Send size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                    {isZh ? '遠端日誌診斷測試事件發送' : 'Remote Log Diagnostic Event Dispatch'}
+                  </h4>
+                  <p className="text-[10px] text-gray-400 font-mono">
+                    {testEventModal.forwarder?.name || 'Manual Endpoint'} ({testEventModal.forwarder?.destination}:{testEventModal.forwarder?.port})
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setTestEventModal(null)}
+                className="p-1.5 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {testEventModal.isSending ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                  <RefreshCw className="animate-spin text-orange-400" size={32} />
+                  <p className="text-xs font-bold text-gray-300">
+                    {isZh ? '正在生成標準格式封包並嘗試發送至目標節點...' : 'Encoding payload and establishing socket delivery...'}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 bg-gray-900/40 border border-gray-800 rounded-2xl flex items-center justify-between">
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-black uppercase text-gray-400 block tracking-wider">
+                        {isZh ? '分派狀態' : 'DISPATCH STATUS'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 bg-emerald-950/40 text-emerald-400 border border-emerald-800 rounded text-xs font-bold">
+                          {testEventModal.result?.logEntry?.status || '200 OK (ACK)'}
+                        </span>
+                        <span className="text-xs text-gray-300 font-bold">
+                          {testEventModal.result?.message}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] font-black uppercase text-gray-500 block">
+                        {isZh ? '封包大小' : 'PAYLOAD SIZE'}
+                      </span>
+                      <span className="text-xs font-mono font-bold text-orange-400">
+                        {testEventModal.result?.payloadSize || 360} bytes
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <FileCode size={12} className="text-blue-400" />
+                        {isZh ? '轉發日誌標準格式載荷預覽' : 'Raw Forwarding Payload Preview'}
+                      </label>
+                      {testEventModal.result?.rawPayload && (
+                        <button
+                          onClick={() => navigator.clipboard.writeText(testEventModal.result?.rawPayload || '')}
+                          className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1"
+                        >
+                          <Copy size={11} /> {isZh ? '複製封包' : 'Copy'}
+                        </button>
+                      )}
+                    </div>
+                    <pre className="p-4 bg-black/90 border border-gray-900 rounded-2xl text-[11px] font-mono text-gray-200 overflow-x-auto whitespace-pre-wrap max-h-56">
+                      {testEventModal.result?.rawPayload || JSON.stringify(testEventModal.result?.logEntry, null, 2)}
+                    </pre>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-800 bg-black/30 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setTestEventModal(null)}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold"
+              >
+                {isZh ? '關閉' : 'Close'}
+              </button>
+              <button
+                type="button"
+                disabled={testEventModal.isSending}
+                onClick={() => handleSendTestEvent(testEventModal.forwarder || undefined)}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
+              >
+                <RefreshCw size={12} className={testEventModal.isSending ? 'animate-spin' : ''} />
+                {isZh ? '再次發送' : 'Resend'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Daemon Configuration Export Modal */}
+      {exportConfigModal?.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#121215] border border-gray-800 w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-black/40">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                  <FileCode size={18} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                    {isZh ? '邊緣日誌轉發守護程序配置檔匯出' : 'Forwarder Daemon Configuration Snippet'}
+                  </h4>
+                  <p className="text-[10px] text-gray-400">
+                    {isZh ? '根據目前設定自動生成 rsyslog、Vector 或 Fluent-bit 轉發規則' : 'Auto-generated export rules for edge forwarding daemons'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setExportConfigModal(null)}
+                className="p-1.5 hover:bg-gray-800 rounded-xl text-gray-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="flex items-center gap-2 border-b border-gray-800/80 pb-3">
+                <button
+                  onClick={() => handleOpenExportConfig('rsyslog')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all",
+                    exportConfigModal.format === 'rsyslog' 
+                      ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30" 
+                      : "bg-gray-900 text-gray-400 hover:text-white"
+                  )}
+                >
+                  rsyslog (99-semor-forward.conf)
+                </button>
+                <button
+                  onClick={() => handleOpenExportConfig('vector')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all",
+                    exportConfigModal.format === 'vector' 
+                      ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30" 
+                      : "bg-gray-900 text-gray-400 hover:text-white"
+                  )}
+                >
+                  Vector (vector.yaml)
+                </button>
+                <button
+                  onClick={() => handleOpenExportConfig('fluentbit')}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all",
+                    exportConfigModal.format === 'fluentbit' 
+                      ? "bg-blue-600 text-white shadow-lg shadow-blue-600/30" 
+                      : "bg-gray-900 text-gray-400 hover:text-white"
+                  )}
+                >
+                  Fluent-bit (fluent-bit.conf)
+                </button>
+              </div>
+
+              {exportConfigModal.loading ? (
+                <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                  <RefreshCw className="animate-spin text-blue-400" size={32} />
+                  <p className="text-xs font-bold text-gray-400">
+                    {isZh ? '正在自後端守護程序編譯設定腳本...' : 'Compiling daemon configuration snippet...'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-gray-400">
+                    <span className="font-mono text-[11px] text-gray-300">
+                      檔案名稱: <span className="text-blue-400 font-bold">{exportConfigModal.filename}</span>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyExportConfig}
+                        className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all"
+                      >
+                        {exportConfigModal.copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                        {exportConfigModal.copied ? (isZh ? '已複製！' : 'Copied!') : (isZh ? '複製代碼' : 'Copy Code')}
+                      </button>
+                      <button
+                        onClick={handleDownloadExportConfig}
+                        className="px-2.5 py-1 bg-blue-950/40 hover:bg-blue-900/60 text-blue-300 rounded-lg text-xs font-bold flex items-center gap-1 border border-blue-800/60 transition-all"
+                      >
+                        <Download size={12} />
+                        {isZh ? '下載檔案' : 'Download'}
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="p-4 bg-black/90 border border-gray-900 rounded-2xl text-[11px] font-mono text-emerald-400 overflow-x-auto whitespace-pre-wrap max-h-72">
+                    {exportConfigModal.content}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-800 bg-black/30 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setExportConfigModal(null)}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl text-xs font-bold"
+              >
+                {isZh ? '關閉' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

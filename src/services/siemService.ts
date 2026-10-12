@@ -203,6 +203,41 @@ export const siemService = {
     return response.data;
   },
 
+  async sendRemoteLogTestEvent(params: {
+    forwarderId?: string;
+    destination?: string;
+    port?: string;
+    protocol?: string;
+    format?: string;
+    type?: string;
+    scope?: string;
+  }) {
+    const response = await axios.post('/api/v1/settings/remotelog/send-test-event', params);
+    return response.data;
+  },
+
+  async flushRemoteLogSpool() {
+    const response = await axios.post('/api/v1/settings/remotelog/flush-spool');
+    return response.data;
+  },
+
+  async getRemoteLogConfigExport(format: 'rsyslog' | 'vector' | 'fluentbit' = 'rsyslog') {
+    const response = await axios.get('/api/v1/settings/remotelog/export-config', {
+      params: { format }
+    });
+    return response.data;
+  },
+
+  async getRemoteLogStreamLogs() {
+    const response = await axios.get('/api/v1/settings/remotelog/stream');
+    return response.data;
+  },
+
+  async getRemoteLogStats() {
+    const response = await axios.get('/api/v1/settings/remotelog/stats');
+    return response.data;
+  },
+
   async getThreatIntelFeeds() {
     const response = await axios.get('/api/v1/settings/threat-intel/feeds');
     return response.data;
