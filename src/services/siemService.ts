@@ -63,6 +63,54 @@ export const siemService = {
   },
 
   /**
+   * Live Engine Monitoring & Subsystem Telemetry
+   */
+  async getEngineMetrics() {
+    const response = await axios.get('/api/v1/engine/metrics');
+    return response.data;
+  },
+
+  async getEngineDetail(id: string) {
+    const response = await axios.get(`/api/v1/engine/${id}`);
+    return response.data;
+  },
+
+  async testEngineConnection(id: string, url?: string) {
+    const response = await axios.post(`/api/v1/engine/${id}/test-connection`, { url });
+    return response.data;
+  },
+
+  async restartEngine(id: string) {
+    const response = await axios.post(`/api/v1/engine/${id}/restart`);
+    return response.data;
+  },
+
+  async restartAllEngines() {
+    const response = await axios.post('/api/v1/engine/restart-all');
+    return response.data;
+  },
+
+  async toggleEngineStatus(id: string) {
+    const response = await axios.post(`/api/v1/engine/${id}/toggle`);
+    return response.data;
+  },
+
+  async getEngineLogs(id: string) {
+    const response = await axios.get(`/api/v1/engine/${id}/logs`);
+    return response.data;
+  },
+
+  async getEngineThresholdRules() {
+    const response = await axios.get('/api/v1/engine/thresholds/rules');
+    return response.data;
+  },
+
+  async updateEngineThresholdRules(rules: any) {
+    const response = await axios.put('/api/v1/engine/thresholds/rules', rules);
+    return response.data;
+  },
+
+  /**
    * User Management
    */
   async login(credentials: any) {
