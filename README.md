@@ -21,14 +21,21 @@
    - [11. 工業控制與智慧基礎設施安全 (OT/SCADA & Traffic Control)](#11-工業控制與智慧基礎設施安全-otscada--traffic-control)
    - [12. 軍方網絡兵棋推演 (Cyber Wargaming & CALDERA Simulation)](#12-軍方網絡兵棋推演-cyber-wargaming--caldera-simulation)
    - [13. AI 智慧資安分析師 (AI SecOps Analyst)](#13-ai-智慧資安分析師-ai-secops-analyst)
-4. [後端 RESTful API 規格概覽](#-後端-restful-api-規格概覽)
-5. [專案目錄結構](#-專案目錄結構)
-6. [環境需求與快速開始 (Quick Start)](#-環境需求與快速開始-quick-start)
-   - [本機全端開發模式](#方法一本地開發環境-nodejs)
-   - [Docker Compose 一鍵微服務部署](#方法二docker-compose-一鍵微服務部署)
-   - [Go 收集器與 Rust 儲存核心獨立編譯](#方法三獨立核心編譯-go--rust)
-7. [Git 版本控制與上傳指南](#-git-版本控制與上傳指南)
-8. [安全性、權限架構與授權](#-安全性權限架構與授權)
+6. [完整安裝與部署指南 (Comprehensive Installation Guide)](#-完整安裝與部署指南-comprehensive-installation-guide)
+   - [系統前置環境與硬體建議](#系統前置需求與硬體規格建議)
+   - [環境相依工具安裝 (Ubuntu / Debian / RHEL / macOS)](#步驟零系統依賴環境安裝)
+   - [步驟一：原始碼取得與環境變數設定](#步驟一原始碼取得與環境變數設定)
+   - [步驟二：方法 A - Node.js 全端伺服器本地快速安裝 (建議開發與評估)](#方法-a-nodejs-全端伺服器本地快速安裝-建議開發與評估)
+   - [步驟三：方法 B - Docker Compose 容器化全核心一鍵部署 (建議生產運維)](#方法-b-docker-compose-容器化全核心一鍵部署-建議生產運維)
+   - [步驟四：方法 C - 原生 Go & Rust 雙底層核心獨立編譯](#方法-c-原生-go--rust-雙底層核心獨立編譯)
+   - [步驟五：Linux Systemd 守護行程 (Daemon) 服務化配置](#步驟五linux-systemd-守護行程-daemon-服務化配置)
+   - [步驟六：Nginx 反向代理、HTTPS SSL 與防火牆設定](#步驟六nginx-反向代理https-ssl-與防火牆設定)
+   - [步驟七：平台初始化、預設管理者帳號與登入驗證](#步驟七平台初始化預設管理者帳號與登入驗證)
+   - [步驟八：日誌收集驗證 (Syslog / WinRM / Flow 測試命令)](#步驟八日誌收集驗證-syslog--winrm--flow-測試命令)
+7. [後端 RESTful API 規格概覽](#-後端-restful-api-規格概覽)
+8. [專案目錄結構](#-專案目錄結構)
+9. [Git 版本控制與上傳指南](#-git-版本控制與上傳指南)
+10. [系統安全性、權限架構與故障排除 (Troubleshooting)](#-安全性權限架構與故障排除-troubleshooting)
 
 ---
 
@@ -256,88 +263,458 @@
 
 ---
 
-## 🚀 環境需求與快速開始 (Quick Start)
+## 🛠 完整安裝與部署指南 (Comprehensive Installation Guide)
 
-### 系統環境要求
-- **作業系統**：Linux (Ubuntu 22.04+ / Debian 12 / RHEL 9) 或 macOS
-- **Node.js**：v20.x 或更高版本 (建議 v22 LTS)
-- **套件管理器**：npm 或 bun
-- **Docker & Docker Compose**：v24+ (若使用容器化部署)
-- **Go** (選用)：v1.22+ (若需自行修改/編譯 Go 接收器)
-- **Rust** (選用)：v1.78+ (若需自行編譯 Rust 儲存核心)
+本章節提供 **SEMOR CYBER NG-SIEM** 平台的完整安裝手冊，包含系統底層依賴、原始碼設定、三種部署路徑（Node.js 本地運行、Docker Compose 容器微服務、Go/Rust 原生編譯）、Linux Systemd 守護行程、Nginx 反向代理與日誌收集驗證測試。
 
 ---
 
-### 方法一：本地開發環境 (Node.js)
+### 系統前置需求與硬體規格建議
 
-1. **安裝相依套件**：
-   ```bash
-   npm install
-   ```
+| 部署規模 | 適用場景 / 預期 EPS | 建議 CPU | 建議記憶體 (RAM) | 磁碟空間 (NVMe SSD 推薦) |
+| :--- | :--- | :--- | :--- | :--- |
+| **PoC / 評估模式** | < 1,000 EPS (本機沙盒測試) | 4 核心 | 8 GB | 50 GB |
+| **標準中小型企業** | 1,000 ~ 10,000 EPS | 8 核心 | 16 ~ 32 GB | 200 GB ~ 500 GB |
+| **企業 / 關鍵基礎設施** | 10,000 ~ 100,000+ EPS | 16 ~ 32 核心 | 64 ~ 128 GB | 1 TB ~ 4 TB (RAID 10) |
 
-2. **啟動全端開發伺服器** (包含 Express API 與 Vite 前端)：
-   ```bash
-   npm run dev
-   ```
-   伺服器預設啟動於 `http://localhost:3000`。
-
-3. **靜態型別與語法檢查**：
-   ```bash
-   npm run lint
-   ```
-
-4. **生產環境打包**：
-   ```bash
-   npm run build
-   ```
+- **作業系統**：Ubuntu 22.04 LTS / 24.04 LTS、Debian 12、RHEL 8/9、Rocky Linux 9 或 macOS (Apple Silicon / Intel)。
+- **通訊埠需求清單**：
+  - `3000/TCP`：Web 前端與 SOC 操作台 (可透過 Nginx 80/443 反代)
+  - `8080/TCP`：Go 接收器 HTTP Ingest API (`/insert/jsonline`)
+  - `5140/UDP` & `5140/TCP`：Syslog 高速接收通道
+  - `9527/TCP`：Rust VictoriaLogs 核心內部 RPC 通訊
+  - `5986/TCP`：Windows WinRM 遠端事件收集 (選用)
 
 ---
 
-### 方法二：Docker Compose 一鍵微服務部署
+### 步驟零：系統依賴環境安裝
 
-專案提供完整的 `docker-compose.engine.yml`，可一鍵啟動 **Rust 儲存核心**、**Go 高效日誌接收器** 與 **Web 控制台平台**：
+請根據您伺服器的 Linux 發行版執行以下指令安裝基礎開發工具、Node.js 22 LTS 與 Docker：
 
+#### 1. Ubuntu / Debian 系統環境準備
 ```bash
-# 啟動所有微服務容器 (背景執行)
-docker-compose -f docker-compose.engine.yml up -d --build
+# 更新軟體源並安裝基本編譯工具
+sudo apt update && sudo apt install -y curl wget git build-essential ufw net-tools pkg-config libssl-dev
 
-# 檢視運行狀態
-docker-compose -f docker-compose.engine.yml ps
+# 安裝 Node.js 22.x LTS (NodeSource 官方來源)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
 
-# 檢視服務日誌
-docker-compose -f docker-compose.engine.yml logs -f
+# 確認 Node.js 與 npm 版本
+node -v   # 需顯示 v20.x 或 v22.x
+npm -v    # 需顯示 v10.x 或更高版本
+
+# 安裝 Docker 與 Docker Compose 插件 (選用，若使用容器化部署)
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+sudo apt install -y docker-compose-plugin
 ```
 
-容器埠號對應：
-- **Web 平台控制台**：`http://localhost:3000`
-- **Go 收集器 HTTP**：`http://localhost:8080` (相容 VictoriaLogs `/insert/jsonline`)
-- **Go Syslog 接收埠**：`5140/udp` 與 `5140/tcp`
-- **Rust 儲存核心 TCP**：`9527` (內部通訊)
+#### 2. RHEL 9 / Rocky Linux 9 / AlmaLinux 系統環境準備
+```bash
+# 安裝開發工具包
+sudo dnf groupinstall -y "Development Tools"
+sudo dnf install -y git curl wget firewalld openssl-devel
+
+# 安裝 Node.js 22
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+sudo dnf install -y nodejs
+
+# 安裝 Docker CE
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl enable --now docker
+```
 
 ---
 
-### 方法三：獨立核心編譯 (Go & Rust)
+### 步驟一：原始碼取得與環境變數設定
 
-#### 1. 編譯與執行 Go Collector
 ```bash
-cd engine/collector-go
+# 1. 複製專案至伺服器目錄
+git clone <YOUR_REPOSITORY_URL> /opt/semor-ng-siem
+cd /opt/semor-ng-siem
 
-# 編譯接收器與管線
-go build -o bin/semor-collector main.go
+# 2. 複製環境變數範本檔
+cp .env.example .env
 
-# 執行收集器 (預設監聽 5140 埠與 8080 埠)
+# 3. 依據需求調整 .env 設定檔
+nano .env
+```
+
+`.env` 典型配置說明：
+```bash
+# VictoriaLogs / Rust Core 儲存節點端點位址
+VICTORIALOGS_URL=http://localhost:9428
+VICTORIALOGS_ACCOUNT_ID=0
+VICTORIALOGS_PROJECT_ID=0
+
+# 平台辨識名稱與監聽連接埠
+PORT=3000
+SIEM_PLATFORM_NAME=SEMOR CYBER NG-SIEM Platform
+
+# Google Gemini API 金鑰 (選用，啟動 AI SecOps 智慧分析師)
+# GEMINI_API_KEY=AIzaSy...
+```
+
+---
+
+### 步驟二：安裝方式 A — Node.js 全端本地快速安裝 (建議開發與評估)
+
+此方式適用於單機獨立運維、功能驗證與 SOC 本地測試：
+
+```bash
+# 1. 安裝專案 NPM 核心與前端相依套件 (由 package.json 自動處理)
+npm install
+
+# 2. 執行語法與 TypeScript 靜態型別編譯檢驗
+npm run lint
+
+# 3. 啟動開發伺服器 (包含 Express 全端 API 與 Vite 即時熱載入)
+npm run dev
+```
+
+如需以**生產環境效能模式**運行：
+```bash
+# 1. 編譯前端靜態資產 (輸出至 dist 目錄)
+npm run build
+
+# 2. 啟動正式環境伺服器
+npm start
+```
+開啟瀏覽器訪問 `http://<伺服器IP>:3000` 即可進入 SEMOR CYBER 操作首頁。
+
+---
+
+### 步驟三：安裝方式 B — Docker Compose 容器化全核心一鍵部署 (建議生產運維)
+
+此方式會同時構建並啟動 **Rust 區塊儲存核心**、**Go 高效能日誌接收器** 與 **Node.js Web 控制台** 三大獨立微服務容器：
+
+```bash
+# 1. 建置並背景啟動所有微服務容器
+docker compose -f docker-compose.engine.yml up -d --build
+
+# 2. 檢查各容器運行健康狀態
+docker compose -f docker-compose.engine.yml ps
+
+# 輸出範例：
+# NAME                  IMAGE                 STATUS          PORTS
+# semor-storage-rust    semor-storage-rust    Up (healthy)    0.0.0.0:9527->9527/tcp
+# semor-collector-go    semor-collector-go    Up (healthy)    0.0.0.0:5140->5140/udp, 0.0.0.0:5140->5140/tcp, 0.0.0.0:8080->8080/tcp
+# semor-web-platform    semor-web-platform    Up (healthy)    0.0.0.0:3000->3000/tcp
+
+# 3. 即時檢視各引擎輸出日誌
+docker compose -f docker-compose.engine.yml logs -f --tail=100
+
+# 4. 如需停止服務
+docker compose -f docker-compose.engine.yml down
+```
+
+---
+
+### 步驟四：安裝方式 C — 原生 Go & Rust 雙底層核心獨立編譯
+
+若欲追求極限百萬級 EPS 裸機吞吐效能，可直接在 Host 作業系統編譯原生執行檔：
+
+#### 1. 編譯 Go Collector 接收器 (Golang 1.22+)
+```bash
+# 安裝 Go 1.22+ (若尚未安裝)
+sudo apt install -y golang-go || sudo snap install go --classic
+
+# 進入 Go 核心模組目錄
+cd /opt/semor-ng-siem/engine/collector-go
+
+# 下載 Go 模組依賴
+go mod download
+
+# 編譯優化二進位執行檔 (Strip debug symbols 降低體積)
+CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/semor-collector main.go
+
+# 執行收集器 (監聽 UDP/TCP 5140 與 HTTP 8080)
 ./bin/semor-collector
 ```
 
-#### 2. 編譯與執行 Rust Storage Core
+#### 2. 編譯 Rust Storage Core 儲存核心 (Rust 1.78+)
 ```bash
-cd engine/storage-rust
+# 安裝 Rust 工具鏈 (Cargo)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
 
-# 執行單元測試
+# 進入 Rust 核心模組目錄
+cd /opt/semor-ng-siem/engine/storage-rust
+
+# 執行單元測試 (驗證 Block 壓縮、ZSTD 與 Bloom Filter 正確性)
 cargo test --release
 
-# 發行模式編譯與運行
-cargo run --release
+# 以發行最高效能等級 (Level 3) 編譯
+cargo build --release
+
+# 啟動儲存核心 (資料儲存路徑 /var/lib/semor/vlog)
+sudo mkdir -p /var/lib/semor/vlog /var/run/semor
+sudo chown -R $USER:$USER /var/lib/semor /var/run/semor
+./target/release/semor-storage-rust
+```
+
+---
+
+### 步驟五：Linux Systemd 守護行程 (Daemon) 服務化配置
+
+為確保伺服器重開機時自動復原運行，建議配置 Systemd 服務：
+
+建立 `/etc/systemd/system/semor-siem.service`：
+```bash
+sudo tee /etc/systemd/system/semor-siem.service > /dev/null << 'EOF'
+[Unit]
+Description=SEMOR CYBER NG-SIEM Unified Platform Service
+After=network.target docker.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/semor-ng-siem
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+啟用並啟動服務：
+```bash
+# 重新載入 Systemd 設定檔
+sudo systemctl daemon-reload
+
+# 設定開機自動啟動並立即啟動
+sudo systemctl enable --now semor-siem
+
+# 查看服務即時狀態
+sudo systemctl status semor-siem
+```
+
+---
+
+### 步驟六：Nginx 反向代理、HTTPS SSL 與防火牆設定
+
+#### 1. Nginx 反向代理配置範例
+建立 `/etc/nginx/sites-available/semor-siem.conf`：
+```nginx
+server {
+    listen 80;
+    server_name siem.yourcompany.com;
+
+    # 建議強制轉向 HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name siem.yourcompany.com;
+
+    ssl_certificate     /etc/ssl/certs/semor-siem.crt;
+    ssl_certificate_key /etc/ssl/private/semor-siem.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # 客戶端最大上傳封包大小 (支援 Raw PCAP 數位鑑識上傳)
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}
+```
+
+啟用站點設定：
+```bash
+sudo ln -s /etc/nginx/sites-available/semor-siem.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+#### 2. Linux 防火牆 (UFW / firewalld) 規則開放
+```bash
+# Ubuntu UFW 防火牆
+sudo ufw allow 22/tcp comment "SSH Remote Access"
+sudo ufw allow 80/tcp comment "HTTP Web"
+sudo ufw allow 443/tcp comment "HTTPS Web (NG-SIEM)"
+sudo ufw allow 3000/tcp comment "SEMOR Direct Port"
+sudo ufw allow 5140/udp comment "Syslog UDP Receiver"
+sudo ufw allow 5140/tcp comment "Syslog TCP Receiver"
+sudo ufw allow 8080/tcp comment "Go HTTP Ingestion"
+sudo ufw enable
+```
+
+---
+
+### 步驟七：平台初始化、預設管理者帳號與登入驗證
+
+系統首次啟動時會自動於根目錄產生 `users_config.json` 與 `system_settings_config.json`，預設內建三組測試與營運帳號：
+
+| 帳號 (Username) | 預設密碼 (Password) | 角色層級 (Role) | 具備權限清單 |
+| :--- | :--- | :--- | :--- |
+| **`supervisor`** | `password123` | **系統主管 (Supervisor)** | 最高權限：可存取所有 14 大模組、底層引擎監控、使用者權限陣列與全域配置 |
+| **`admin`** | `password123` | **資安管理員 (Admin)** | 可管理案件、SOAR、FIM、網路控制、日誌規則與使用者矩陣 |
+| **`auditor`** | `password123` | **合規稽核員 (Auditor)** | 唯讀 (Read-Only) 存取：可檢視所有事件、日誌歷史、鑑識報告與證物鏈雜湊 |
+
+> ⚠️ **生產環境安全警告**：完成首次登入後，請立即至側邊欄 **「設定 > 使用者管理 (User Access Matrix)」** 修改預設密碼或整合企業 Active Directory / LDAP / SSO 單一登入。
+
+---
+
+### 步驟八：日誌收集驗證 (Syslog / WinRM / Flow 測試命令)
+
+部署完成後，可透過下列命令測試日誌是否正常流經接收器並寫入系統：
+
+#### 1. 發送測試 Syslog 訊息 (UDP / TCP 5140)
+```bash
+# 透過 logger 指令發送測試 Syslog UDP 封包
+logger -n 127.0.0.1 -P 5140 -d -T "SEMOR_TEST: SSH Brute force detected from 203.0.113.88 on host db-node-01"
+
+# 透過 netcat 發送 TCP Syslog 訊息
+echo "<14>1 $(date -u +%Y-%m-%dT%H:%M:%SZ) edge-firewall-01 cisco-asa - - - [SECURITY] Denied TCP from 198.51.100.22 to 10.0.0.1" | nc -w 1 127.0.0.1 5140
+```
+
+#### 2. 測試 Go 接收器 HTTP Ingestion API (`/insert/jsonline`)
+```bash
+curl -X POST http://localhost:8080/insert/jsonline \
+  -H "Content-Type: application/stream+json" \
+  -d '{"_msg":"Unauthorized administrator privilege elevation detected","host":"dc01.corp.internal","severity":"Critical","mitre":"T1078"}'
+```
+
+#### 3. 測試後端核心 API 健康檢查
+```bash
+# 檢查平台健康狀態
+curl -s http://localhost:3000/api/health | jq .
+
+# 檢查 FIM 遙測端點
+curl -s http://localhost:3000/api/v1/fim/telemetry | jq .
+
+# 檢查案件管理統計端點
+curl -s http://localhost:3000/api/v1/cases/metrics | jq .
+
+# 檢查網路探測 Ping 診斷
+curl -s -X POST http://localhost:3000/api/v1/settings/network/test \
+  -H "Content-Type: application/json" \
+  -d '{"target":"8.8.8.8"}' | jq .
+```
+
+---
+
+## 📡 後端 RESTful API 規格概覽
+
+系統主要 RESTful API 路由掛載於 Express 伺服器 (`server.ts` & `server/settingsRouter.ts`)：
+
+| 模組領域 | 端點路徑 | 支援方法 | 功能描述 |
+| :--- | :--- | :--- | :--- |
+| **案件管理 (Cases)** | `/api/v1/cases` | `GET`, `POST` | 查詢案件清單 (支援狀態/嚴重度過濾) / 建立新案件 |
+| | `/api/v1/cases/:id` | `GET`, `PATCH`, `DELETE` | 查詢單一案件詳情 / 更新階段與進度 / 刪除案件 |
+| | `/api/v1/cases/:id/timeline` | `POST` | 新增案件調查時序事件 (活動歷程) |
+| | `/api/v1/cases/:id/evidence` | `POST` | 上傳保全數位證據項與 SHA-256 雜湊校驗 |
+| | `/api/v1/cases/:id/iocs` | `POST` | 加入關聯 IoC 威脅指標 |
+| | `/api/v1/cases/:id/report` | `GET`, `POST` | 取得或自動產生案件結案 War Room 鑑識報告 |
+| | `/api/v1/cases/metrics` | `GET` | 取得案件總體統計指標 (MTTR, 階段分佈, 嚴重度統計) |
+| **檔案完整性 (FIM)** | `/api/v1/fim/telemetry` | `GET` | 取得 FIM 即時遙測數據 (受監控檔案數, 漂移率, 隔離主機) |
+| | `/api/v1/fim/events` | `GET`, `POST` | 查詢未授權檔案異動事件 / 模擬注入新異動事件 |
+| | `/api/v1/fim/events/:id/rollback` | `POST` | 執行檔案一鍵加密復原並比對還原雜湊 |
+| | `/api/v1/fim/events/:id/isolate` | `POST` | 觸發主機網路微隔離防火牆規則 |
+| | `/api/v1/fim/playbooks` | `GET` | 取得 FIM 聯防劇本清單與啟用狀態 |
+| | `/api/v1/fim/playbooks/:id/simulate` | `POST` | 觸發指定防篡改自動處置劇本測試演練 |
+| | `/api/v1/fim/baselines` | `GET`, `POST` | 查詢叢集基線快照庫 / 建立新系統黃金基線快照 |
+| | `/api/v1/fim/baselines/:id/recalculate`| `POST` | 重新計算並校準叢集 SHA-256 雜湊樹 |
+| | `/api/v1/fim/scan` | `POST` | 發動即時路徑雜湊深度掃描 |
+| **自動化響應 (SOAR)** | `/api/v1/soar/playbooks` | `GET`, `POST` | 查詢及註冊 SOAR 防禦劇本 |
+| | `/api/v1/soar/playbooks/:id/run` | `POST` | 觸發劇本執行流程 |
+| | `/api/v1/soar/telemetry` | `GET` | 取得 SOAR 平台運作指標與平均響應時間 |
+| **全域設定 (Settings)** | `/api/v1/settings/all` | `GET`, `POST` | 取得或全域更新所有系統設定配置 |
+| | `/api/v1/settings/network` | `GET`, `PUT` | 查詢與更新網路介面、DNS、Gateway 與靜態路由 |
+| | `/api/v1/settings/network/test` | `POST` | 執行 ICMP 閘道與主機連線延遲探測 |
+| | `/api/v1/settings/general` | `GET`, `PUT` | 平台主機 ID、組織、安全策略與 AI 參數設定 |
+| | `/api/v1/settings/auth` | `GET`, `PUT` | AD / LDAP / RADIUS / SAML SSO 認證設定 |
+| | `/api/v1/settings/auth/test-connection`| `POST`| 測試目錄服務連線與 TLS 憑證驗證 |
+| | `/api/v1/settings/collection` | `GET`, `PUT` | 資料採集模式配置 (Syslog / WinRM / Flow) |
+| | `/api/v1/settings/collection/add-source`| `POST` | 動態註冊新增 Syslog 監聽端點 |
+| | `/api/v1/settings/remotelog` | `GET` | 取得 Splunk/Syslog/Kafka 遠端轉發器清單 |
+| | `/api/v1/settings/threat-intel/feeds` | `GET`, `POST`| 取得或註冊 STIX/TAXII 2.1 外部威脅饋送來源 |
+| **網路流量 (NDR)** | `/api/v1/ndr/traffic` | `GET` | 取得即時網路流量統計與 24 小時時序數據 |
+| | `/api/v1/ndr/rules` | `GET`, `POST` | 取得與設定 NDR 流量告警門檻規則 |
+| **威脅情資 (CTI)** | `/api/v1/intel/feeds` | `GET`, `POST` | 查詢威脅情報來源與更新狀態 |
+| | `/api/v1/intel/lookup` | `POST` | 查詢指定 IP / Domain / Hash 的威脅信譽評分 |
+| **收集器 (Collector)**| `/api/v1/collector/metrics` | `GET` | 取得 Go 收集器連線池、記憶體與即時吞吐量 |
+| | `/api/v1/collector/config` | `GET`, `PUT` | 動態調整接收器批次大小與超時門檻 |
+| **日誌儲存 (Storage)** | `/api/v1/storage/health` | `GET` | 檢查 Rust 儲存引擎連線狀態、UDS 通道與磁碟容量 |
+| **AI 分析 (AI Analyst)**| `/api/v1/ai-analyst/chat` | `POST` | 向 AI SecOps 助手提問日誌分析與處置指引 |
+
+---
+
+## 📂 專案目錄結構
+
+```text
+├── Dockerfile                      # Web 平台生產環境多階段構建設定檔 (Node 22 Alpine)
+├── docker-compose.engine.yml       # 微服務容器編排定義 (Web + Collector + Rust Storage)
+├── package.json                    # 全端相依性套件與 NPM 腳本 (dev, start, build, lint)
+├── tsconfig.json                   # TypeScript 編譯器組態
+├── vite.config.ts                  # Vite 建置工具設定
+├── server.ts                       # Node.js + Express 主伺服器入口 (掛載所有 API 路由)
+├── server/                         # 平台後端核心業務引擎與 REST 路由器
+│   ├── casesEngine.ts              # 案件管理狀態機 (SIRP, Evidence, Timeline, Report)
+│   ├── casesRouter.ts              # 案件管理 RESTful API
+│   ├── fimEngine.ts                # 檔案完整性監控狀態機 (Rollback, Containment, Scan)
+│   ├── fimRouter.ts                # 檔案完整性 RESTful API
+│   ├── settingsRouter.ts           # 全域設定管理 API (Network, Auth, Collection, RemoteLog, CTI)
+│   ├── soarEngine.ts               # SOAR 安全編排與自動化劇本引擎
+│   ├── soarRouter.ts               # SOAR RESTful API
+│   ├── collectorRouter.ts          # Go 接收器連接池與記憶體管理路由
+│   ├── ndrRouter.ts                # 網路流量檢測與 Arkime PCAP 路由
+│   ├── ctiRouter.ts                # 威脅情資來源與 IoC 查詢路由
+│   ├── malwareEngine.ts            # 惡意程式分析引擎與沙盒
+│   ├── uebaEngine.ts               # 使用者與實體行為分析引擎
+│   ├── apmRouter.ts                # Apache SkyWalking APM 觀測性路由
+│   ├── honeypotRouter.ts           # T-Pot 蜜罐誘捕節點狀態路由
+│   └── aiAnalystRouter.ts          # AI 智慧分析師對話端點
+├── engine/                         # 底層高效能日誌引擎
+│   ├── collector-go/               # Go 高併發 Syslog & HTTP 接收器 (VictoriaLogs 相容)
+│   │   ├── main.go                 # Go 收集器服務入口
+│   │   ├── receiver/               # UDP/TCP 監聽與 32MB Socket 緩衝擴展
+│   │   ├── pipeline/               # 16 分區環形緩衝與自適應協程池
+│   │   └── Dockerfile              # Go 收集器容器構建設定
+│   └── storage-rust/               # Rust VictoriaLogs-Style 列式不可變存儲核心
+│       ├── Cargo.toml              # Rust 依賴套件定義
+│       ├── src/block.rs            # VictoriaBlock、Delta-of-Delta、ZSTD 壓縮
+│       ├── src/bloom.rs            # 雙重散列 Bloom Filter 快速過濾
+│       ├── src/storage.rs          # 三層剪枝磁碟分區管理器
+│       └── Dockerfile              # Rust 儲存引擎容器構建設定
+└── src/                            # 前端 React 19 + TypeScript SPA 原始碼
+    ├── App.tsx                     # 平台頂層佈局、多分頁導航與 SOC 側邊欄
+    ├── main.tsx                    # React 應用程式掛載點
+    ├── types.ts                    # 全域資料型別定義與 12 大模組清單
+    ├── services/                   # 前端後端通訊 Service 層 (siemService.ts)
+    ├── components/                 # UI 元件庫
+    │   ├── case-management/        # 案件管理與 Incident Response 戰情室
+    │   ├── soar/                   # SOAR 劇本編排與 FIM 完整性監控視圖
+    │   ├── apm/                    # SkyWalking APM 鏈路追蹤與拓撲圖視圖
+    │   ├── cti/                    # 威脅情資視覺化看板
+    │   ├── honeypot/               # T-Pot 攻擊地圖與蜜罐管理
+    │   ├── GeneralSettingsView.tsx # 一般設定與 AI 引擎配置視圖
+    │   ├── AuthenticationSettingsView.tsx # 身分認證與 SSO 管理視圖
+    │   ├── UserSettingsView.tsx    # 使用者帳號與 RBAC 矩陣視圖
+    │   ├── RemoteLogServerSettingView.tsx # 遠端日誌轉發器配置視圖
+    │   └── ThreatIntelSourcesSettingView.tsx # 外部情資來源訂閱視圖
+    └── locales/                    # 多國語系語系檔 (繁體中文 / 英文)
 ```
 
 ---
@@ -361,7 +738,7 @@ git status
 git add .
 
 # 建立提交紀錄
-git commit -m "feat: complete SEMOR CYBER NG-SIEM platform with full-stack engines, SOAR, Cases, FIM, and comprehensive documentation"
+git commit -m "feat: complete SEMOR CYBER NG-SIEM platform with installation guides and full-stack modules"
 ```
 
 ### 3. 設定主分支與遠端倉庫
@@ -369,7 +746,8 @@ git commit -m "feat: complete SEMOR CYBER NG-SIEM platform with full-stack engin
 # 將預設分支命名為 main
 git branch -M main
 
-# 新增您的遠端倉庫網址 (請將 <YOUR_REPO_URL> 替換為實際 URL，例如：https://github.com/your-org/semor-ng-siem.git)
+# 新增您的遠端倉庫網址 (請將 <YOUR_REPO_URL> 替換為實際 URL)
+# 例如：git remote add origin https://github.com/your-org/semor-ng-siem.git
 git remote add origin <YOUR_REPO_URL>
 ```
 
@@ -381,12 +759,30 @@ git push -u origin main
 
 ---
 
-## 🔒 安全性、權限架構與授權
+## 🔒 安全性、權限架構與故障排除 (Troubleshooting)
 
-- **角色型存取控制 (RBAC)**：支援多層級權限劃分（Administrator、SecOps Lead、Incident Responder、Auditor、Viewer），嚴格隔離敏感調查案件與系統配置。
-- **證據鏈合法性 (Chain of Custody)**：所有取證資料、PCAP 側錄檔與檔案雜湊均採用 SHA-256 數位指紋與時戳防護，符合法庭數位證據保全規範。
-- **通訊防護**：各核心間支援 TLS 加密與 Unix Domain Socket 隔離通訊，防止傳輸層監聽。
+### 常見問題排查指南
+
+1. **連接埠 3000 或 5140 衝突 (Address already in use)**：
+   - 檢查佔用行程：`sudo lsof -i :3000` 或 `sudo lsof -i :5140`
+   - 結束佔用行程或於 `.env` 中調整 `PORT`。
+
+2. **Syslog UDP 封包收不到或丟包**：
+   - 確認核心 UDP Socket 接收緩衝上限：
+     ```bash
+     sudo sysctl -w net.core.rmem_max=33554432
+     sudo sysctl -w net.core.rmem_default=33554432
+     ```
+   - 永久生效請寫入 `/etc/sysctl.conf` 並執行 `sudo sysctl -p`。
+
+3. **Docker 權限不足問題**：
+   - 執行 `sudo usermod -aG docker $USER` 並重新登入終端機。
+
+4. **安全與法規合規性**：
+   - **角色型存取控制 (RBAC)**：嚴格劃分 Supervisor、Admin、Auditor 與 Viewer。
+   - **數位證據保全鏈 (Chain of Custody)**：所有取證資料、PCAP 側錄與 FIM 還原均具備 SHA-256 數位簽章與不可篡改驗證。
 
 ---
 
 *SEMOR CYBER NG-SIEM Platform — 守護關鍵基礎設施與現代企業的次世代安全防線。*
+

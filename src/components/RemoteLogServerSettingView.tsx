@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
+import { siemService } from '../services/siemService';
 
 export interface RemoteForwarder {
   id: string;
@@ -210,30 +211,64 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
     });
   };
 
+  // Load forwarders and global settings from backend
+  useEffect(() => {
+    siemService.getRemoteLogSettings()
+      .then(res => {
+        if (res?.forwarders && res.forwarders.length > 0) {
+          setForwarders(res.forwarders);
+        }
+        if (res?.globalSettings) {
+          const g = res.globalSettings;
+          if (g.localCaching !== undefined) setLocalCaching(g.localCaching);
+          if (g.cacheSizeGB !== undefined) setCacheSize(g.cacheSizeGB);
+          if (g.retryIntervalSec !== undefined) setRetryInterval(String(g.retryIntervalSec));
+          if (g.overflowPolicy) setOverflowPolicy(g.overflowPolicy);
+          if (g.alertOnFailure !== undefined) setAlertOnFailure(g.alertOnFailure);
+          if (g.maskPII !== undefined) setMaskPII(g.maskPII);
+          if (g.excludeNoise !== undefined) setExcludeNoise(g.excludeNoise);
+          if (g.compressPayload !== undefined) setCompressPayload(g.compressPayload);
+          if (g.rawCEFFormat !== undefined) setRawCEFFormat(g.rawCEFFormat);
+          if (g.minSeverity) setMinSeverity(g.minSeverity);
+        }
+      })
+      .catch(err => console.warn('Using default remote forwarders:', err));
+  }, []);
+
   // Handle Test Connection
-  const handleTestConnection = (destIp?: string, destPort?: string, destProto?: string) => {
+  const handleTestConnection = async (destIp?: string, destPort?: string, destProto?: string) => {
     const targetIp = destIp || formData.destination || '10.88.90.11';
     const targetPort = destPort || formData.port || '8088';
     const targetProto = destProto || formData.protocol || 'https';
 
     setTestResult({ testing: true });
 
-    setTimeout(() => {
-      const mockLatency = Math.floor(Math.random() * 25) + 6;
+    try {
+      const res = await siemService.testRemoteLogConnection({
+        destination: targetIp,
+        port: targetPort,
+        protocol: targetProto
+      });
+
       setTestResult({
         testing: false,
         success: true,
-        latency: mockLatency,
-        message: isZh 
-          ? `連線測試成功！已成功握手目標節點 ${targetProto}://${targetIp}:${targetPort} (往返延遲: ${mockLatency}ms)`
-          : `Connection Successful! Handshake established with ${targetProto}://${targetIp}:${targetPort} (Roundtrip: ${mockLatency}ms)`
+        latency: res.latencyMs || 12,
+        message: res.message || `連線測試成功！已成功握手目標節點 ${targetProto}://${targetIp}:${targetPort}`
       });
       setTimeout(() => setTestResult(null), 5000);
-    }, 900);
+    } catch (e: any) {
+      setTestResult({
+        testing: false,
+        success: false,
+        message: `連線失敗: ${e.message || '連線逾時'}`
+      });
+      setTimeout(() => setTestResult(null), 5000);
+    }
   };
 
   // Handle Add or Save Forwarder
-  const handleSaveForwarder = () => {
+  const handleSaveForwarder = async () => {
     if (isReadOnly) return;
     if (!formData.destination || !formData.port) {
       alert(isZh ? '請輸入目標主機 IP/網域名稱與通訊埠號！' : 'Please provide target destination IP/hostname and port!');
@@ -242,41 +277,38 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
 
     const defaultName = formData.name.trim() || `${formData.type.toUpperCase()} Forwarder (${formData.destination})`;
 
-    if (editingId) {
-      setForwarders(prev => prev.map(f => {
-        if (f.id === editingId) {
-          return {
-            ...f,
-            name: defaultName,
-            type: formData.type,
-            destination: formData.destination,
-            port: formData.port,
-            protocol: formData.protocol,
-            token: formData.token,
-            scope: formData.scope,
-            format: formData.format
-          };
-        }
-        return f;
-      }));
-      setEditingId(null);
-    } else {
-      const newFwd: RemoteForwarder = {
-        id: `fwd-${Date.now()}`,
-        name: defaultName,
-        type: formData.type,
-        destination: formData.destination,
-        port: formData.port,
-        protocol: formData.protocol,
-        status: 'active',
-        token: formData.token,
-        scope: formData.scope,
-        format: formData.format,
-        latency: Math.floor(Math.random() * 20) + 10,
-        eventsSent: 0,
-        lastActive: 'Just now'
-      };
-      setForwarders(prev => [newFwd, ...prev]);
+    const forwarderPayload: any = {
+      id: editingId || `fwd-${Date.now()}`,
+      name: defaultName,
+      type: formData.type,
+      destination: formData.destination,
+      port: formData.port,
+      protocol: formData.protocol,
+      token: formData.token,
+      scope: formData.scope,
+      format: formData.format,
+      status: 'active',
+      latency: Math.floor(Math.random() * 20) + 10,
+      eventsSent: 0,
+      lastActive: 'Just now'
+    };
+
+    try {
+      await siemService.saveRemoteForwarder(forwarderPayload);
+      if (editingId) {
+        setForwarders(prev => prev.map(f => f.id === editingId ? { ...f, ...forwarderPayload } : f));
+        setEditingId(null);
+      } else {
+        setForwarders(prev => [forwarderPayload, ...prev]);
+      }
+    } catch (e) {
+      // Fallback local update
+      if (editingId) {
+        setForwarders(prev => prev.map(f => f.id === editingId ? { ...f, ...forwarderPayload } : f));
+        setEditingId(null);
+      } else {
+        setForwarders(prev => [forwarderPayload, ...prev]);
+      }
     }
 
     // Reset Form
@@ -293,8 +325,11 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
   };
 
   // Toggle Forwarder Pause/Active
-  const handleToggleStatus = (id: string) => {
+  const handleToggleStatus = async (id: string) => {
     if (isReadOnly) return;
+    try {
+      await siemService.toggleRemoteForwarder(id);
+    } catch (e) {}
     setForwarders(prev => prev.map(f => {
       if (f.id === id) {
         return {
@@ -307,9 +342,12 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
   };
 
   // Delete Forwarder
-  const handleDeleteForwarder = (id: string) => {
+  const handleDeleteForwarder = async (id: string) => {
     if (isReadOnly) return;
     if (confirm(isZh ? '確定要刪除此遠端日誌轉發節點嗎？' : 'Are you sure you want to delete this remote forwarder?')) {
+      try {
+        await siemService.deleteRemoteForwarder(id);
+      } catch (e) {}
       setForwarders(prev => prev.filter(f => f.id !== id));
       if (editingId === id) {
         setEditingId(null);

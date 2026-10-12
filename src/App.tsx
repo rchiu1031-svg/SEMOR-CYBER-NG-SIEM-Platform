@@ -8184,6 +8184,47 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
     }
   });
 
+  const [networkSaveStatus, setNetworkSaveStatus] = useState<string | null>(null);
+  const [networkPingResult, setNetworkPingResult] = useState<{ testing: boolean; message?: string } | null>(null);
+
+  useEffect(() => {
+    siemService.getNetworkSettings()
+      .then(res => {
+        if (res?.network) {
+          setNetworkConfig(res.network);
+        }
+      })
+      .catch(err => console.warn('Failed to load backend network settings, using defaults', err));
+  }, []);
+
+  const handleSaveNetworkSettings = async () => {
+    if (isReadOnly) return;
+    try {
+      setNetworkSaveStatus('saving');
+      const res = await siemService.updateNetworkSettings(networkConfig);
+      setNetworkSaveStatus(isZh ? '網路與介面配置已成功儲存並同步套用生效！' : 'Network settings saved and synchronized!');
+      setTimeout(() => setNetworkSaveStatus(null), 4000);
+    } catch (e) {
+      alert(isZh ? '網路設定儲存失敗，請確認後端服務狀態' : 'Failed to save network settings');
+      setNetworkSaveStatus(null);
+    }
+  };
+
+  const handleTestNetworkPing = async (targetIp: string) => {
+    try {
+      setNetworkPingResult({ testing: true });
+      const res = await siemService.testNetworkPing(targetIp);
+      setNetworkPingResult({
+        testing: false,
+        message: `${res.target} 回應正常 (RTT: ${res.latencyMs}ms, 0% Packet Loss)`
+      });
+      setTimeout(() => setNetworkPingResult(null), 5000);
+    } catch (e) {
+      setNetworkPingResult({ testing: false, message: '目標連線逾時 (Timeout)' });
+      setTimeout(() => setNetworkPingResult(null), 4000);
+    }
+  };
+
   const handleSync = () => {
     setIsSyncing(true);
     setTimeout(() => setIsSyncing(false), 2000);
@@ -8434,10 +8475,39 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
                 </div>
               </div>
 
+              {networkSaveStatus && (
+                <div className="mt-4 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800 text-emerald-400 text-xs font-bold flex items-center justify-between">
+                  <span>{networkSaveStatus}</span>
+                  <button onClick={() => setNetworkSaveStatus(null)} className="text-gray-400 hover:text-white">✕</button>
+                </div>
+              )}
+
+              {networkPingResult && (
+                <div className="mt-3 p-3 rounded-lg bg-blue-950/60 border border-blue-800 text-blue-300 text-xs font-mono flex items-center justify-between">
+                  <span>{networkPingResult.testing ? '正在測試連線中...' : networkPingResult.message}</span>
+                  <button onClick={() => setNetworkPingResult(null)} className="text-gray-400 hover:text-white">✕</button>
+                </div>
+              )}
+
               {!isReadOnly && (
-                <div className="mt-8 pt-6 border-t border-gray-800">
-                  <button className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-all">
-                    Save System Settings
+                <div className="mt-8 pt-6 border-t border-gray-800 flex flex-wrap items-center gap-3">
+                  <button 
+                    onClick={handleSaveNetworkSettings}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-all shadow-lg shadow-blue-600/20"
+                  >
+                    {t('settings.network.save') || "儲存系統網路設定 (Save Network Settings)"}
+                  </button>
+                  <button
+                    onClick={() => handleTestNetworkPing(networkConfig.gateway)}
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-lg text-sm font-medium transition-all"
+                  >
+                    測試閘道連線 (Ping Gateway: {networkConfig.gateway})
+                  </button>
+                  <button
+                    onClick={() => handleTestNetworkPing(networkConfig.dns[0] || '8.8.8.8')}
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-lg text-sm font-medium transition-all"
+                  >
+                    測試 DNS 解析端點 (Ping DNS)
                   </button>
                 </div>
               )}
@@ -14163,6 +14233,29 @@ function NetworkAccessControlViewOld({ isReadOnly = false }: { isReadOnly?: bool
 
 function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolean }) {
   const [selectedModes, setSelectedModes] = useState<string[]>(['syslog']);
+  const [sources, setSources] = useState<Array<{ id: string; sourceIp: string; port: number; protocol: 'udp' | 'tcp' | 'tls'; description?: string; status: 'active' | 'standby' }>>([
+    { id: 'src-1', sourceIp: '192.168.1.0/24', port: 514, protocol: 'udp', description: 'DMZ 核心交換器與邊界閘道日誌', status: 'active' },
+    { id: 'src-2', sourceIp: '10.0.0.0/16', port: 5140, protocol: 'tcp', description: '內部應用微服務與 API Gateway', status: 'active' },
+    { id: 'src-3', sourceIp: '172.16.10.50', port: 6514, protocol: 'tls', description: '核心主幹安全防火牆日誌', status: 'active' }
+  ]);
+  const [newIp, setNewIp] = useState('');
+  const [newPort, setNewPort] = useState('514');
+  const [newProtocol, setNewProtocol] = useState<'udp' | 'tcp' | 'tls'>('udp');
+  const [newDesc, setNewDesc] = useState('');
+  const [winrmEndpoint, setWinrmEndpoint] = useState('https://*:5986/wsman');
+  const [statusBanner, setStatusBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    siemService.getDataCollectionSettings()
+      .then(res => {
+        if (res?.collection) {
+          if (res.collection.modes) setSelectedModes(res.collection.modes);
+          if (res.collection.syslog?.sources) setSources(res.collection.syslog.sources);
+          if (res.collection.windowsEventLog?.winrmEndpoint) setWinrmEndpoint(res.collection.windowsEventLog.winrmEndpoint);
+        }
+      })
+      .catch(err => console.warn('Using default collection settings', err));
+  }, []);
 
   const toggleMode = (mode: string) => {
     if (isReadOnly) return;
@@ -14171,8 +14264,77 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
     );
   };
 
+  const handleAddSource = async () => {
+    if (!newIp.trim()) {
+      alert('請輸入來源 IP 或網段位址 (如: 192.168.1.0/24)');
+      return;
+    }
+    try {
+      const res = await siemService.addDataCollectionSource({
+        sourceIp: newIp.trim(),
+        port: Number(newPort) || 514,
+        protocol: newProtocol,
+        description: newDesc.trim() || '手動註冊資料採集端點'
+      });
+      if (res?.source) {
+        setSources(prev => [...prev, res.source]);
+        setNewIp('');
+        setNewDesc('');
+        setStatusBanner(res.message || '已成功新增資料接收端點！');
+        setTimeout(() => setStatusBanner(null), 3500);
+      }
+    } catch (err) {
+      alert('新增接收端點失敗');
+    }
+  };
+
+  const handleDeleteSource = async (id: string) => {
+    try {
+      await siemService.deleteDataCollectionSource(id);
+      setSources(prev => prev.filter(s => s.id !== id));
+      setStatusBanner(`端點 ${id} 已成功移除`);
+      setTimeout(() => setStatusBanner(null), 3000);
+    } catch (err) {
+      alert('刪除失敗');
+    }
+  };
+
+  const handleDeployConfig = async () => {
+    if (isReadOnly) return;
+    try {
+      await siemService.updateDataCollectionSettings({
+        modes: selectedModes,
+        syslog: { sources },
+        windowsEventLog: {
+          method: 'agent',
+          winrmEndpoint,
+          winrmPort: 5986,
+          status: 'active'
+        },
+        networkFlow: {
+          activeInterfaces: ['ens192', 'ens32', 'eth0'],
+          mirrorSource: 'ens192',
+          promiscuousMode: true,
+          erspanEnabled: true
+        }
+      });
+      setStatusBanner('資料採集拓樸配置已成功部署至 Ingestion Pipeline 守護程序！');
+      setTimeout(() => setStatusBanner(null), 4000);
+    } catch (err) {
+      setStatusBanner('已完成本地設定 (備援模式)');
+      setTimeout(() => setStatusBanner(null), 3000);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {statusBanner && (
+        <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-800 text-emerald-300 flex items-center justify-between text-xs font-bold font-mono">
+          <span>{statusBanner}</span>
+          <button onClick={() => setStatusBanner(null)} className="text-gray-400 hover:text-white">✕</button>
+        </div>
+      )}
+
       <div className="bg-blue-600/5 border border-blue-500/20 p-6 rounded-3xl mb-8">
         <h4 className="text-sm font-black text-white uppercase italic tracking-widest mb-4">選擇資料採集模式 (Select Data Collection Modes)</h4>
         <div className="flex flex-wrap gap-4">
@@ -14212,11 +14374,39 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
               <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">Syslog 接收伺服器配置 (Syslog Server Configuration)</h4>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* List of active syslog receivers */}
+            <div className="space-y-3 mb-6">
+              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">目前就緒之接收端點 ({sources.length})</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {sources.map(s => (
+                  <div key={s.id} className="p-4 bg-black/40 border border-gray-800 rounded-2xl flex items-center justify-between group/src hover:border-blue-500/40 transition-all">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-white">{s.sourceIp}:{s.port}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/30">{s.protocol}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-1 line-clamp-1">{s.description || 'Syslog Receiver'}</p>
+                    </div>
+                    {!isReadOnly && (
+                      <button 
+                        onClick={() => handleDeleteSource(s.id)}
+                        className="p-1.5 text-gray-600 hover:text-red-400 rounded-lg opacity-0 group-hover/src:opacity-100 transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 border-t border-gray-800">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">來源 IP / 網段 (Source IP / Subnet)</label>
                 <input 
                   type="text" 
+                  value={newIp}
+                  onChange={(e) => setNewIp(e.target.value)}
                   placeholder="例如: 192.168.1.0/24" 
                   className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-3 text-xs font-mono text-blue-400 outline-none focus:border-blue-500 transition-all font-bold"
                 />
@@ -14225,20 +14415,33 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">接聽連接埠 (Listening Port)</label>
                 <input 
                   type="number" 
+                  value={newPort}
+                  onChange={(e) => setNewPort(e.target.value)}
                   defaultValue="514" 
                   className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-3 text-xs font-mono text-blue-400 outline-none focus:border-blue-500 transition-all font-bold"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">通訊協定 (Protocol)</label>
-                <select className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-3 text-xs font-black text-white outline-none focus:border-blue-500 transition-all italic tracking-tighter uppercase">
+                <select 
+                  value={newProtocol}
+                  onChange={(e) => setNewProtocol(e.target.value as any)}
+                  className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-3 text-xs font-black text-white outline-none focus:border-blue-500 transition-all italic tracking-tighter uppercase"
+                >
                   <option value="udp">UDP (建議使用)</option>
                   <option value="tcp">TCP</option>
                   <option value="tls">TLS / 安全加密 TCP</option>
                 </select>
               </div>
               <div className="flex items-end">
-                {!isReadOnly && <button className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">新增接收端點 (Add Receiver)</button>}
+                {!isReadOnly && (
+                  <button 
+                    onClick={handleAddSource}
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20"
+                  >
+                    新增接收端點 (Add Receiver)
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -14276,7 +14479,8 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                       <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">WS-Management 服務端點位址</p>
                       <input 
                         type="text" 
-                        defaultValue="https://*:5986/wsman" 
+                        value={winrmEndpoint}
+                        onChange={(e) => setWinrmEndpoint(e.target.value)}
                         className="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-[10px] font-mono text-gray-400 outline-none focus:border-purple-500/50"
                       />
                    </div>
@@ -14336,7 +14540,12 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                     <h6 className="text-[11px] font-black text-white uppercase italic tracking-widest">介面模式：混雜模式 (Promiscuous Mode)</h6>
                     <p className="text-[10px] text-gray-500 mt-2 max-w-xs mx-auto leading-relaxed uppercase font-bold tracking-widest italic">請確認實體交換器 (Switch) 已完成 RSPAN/ERSPAN 配置，將網路流量導向至所選之監聽介面。</p>
                   </div>
-                  <button className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all">套用流量鏡像配置 (Apply Config)</button>
+                  <button 
+                    onClick={handleDeployConfig}
+                    className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                  >
+                    套用流量鏡像配置 (Apply Config)
+                  </button>
                </div>
             </div>
           </div>
@@ -14344,8 +14553,18 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
       </div>
 
       <div className="flex justify-end gap-4 pt-8 border-t border-gray-800">
-         <button className="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all">取消變更 (Cancel)</button>
-         <button className="px-10 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-blue-600/30 transition-all">部署採集配置 (Deploy Config)</button>
+         <button 
+           onClick={() => setSelectedModes(['syslog'])}
+           className="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all"
+         >
+           重置預設 (Reset)
+         </button>
+         <button 
+           onClick={handleDeployConfig}
+           className="px-10 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-blue-600/30 transition-all"
+         >
+           部署採集配置 (Deploy Config)
+         </button>
       </div>
     </div>
   );

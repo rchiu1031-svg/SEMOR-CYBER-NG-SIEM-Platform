@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { siemService } from '../services/siemService';
 
 interface AuthenticationSettingsViewProps {
   isReadOnly?: boolean;
@@ -188,53 +189,81 @@ export default function AuthenticationSettingsView({ isReadOnly = false }: Authe
     }, 3500);
   };
 
-  const handleTestConnection = (type: string) => {
+  // Load backend auth configuration
+  React.useEffect(() => {
+    siemService.getAuthSettings()
+      .then(res => {
+        if (res?.auth) {
+          if (res.auth.ad) setAdConfig(prev => ({ ...prev, ...res.auth.ad }));
+          if (res.auth.ldap) setLdapConfig(prev => ({ ...prev, ...res.auth.ldap }));
+          if (res.auth.radius) setRadiusConfig(prev => ({ ...prev, ...res.auth.radius }));
+          if (res.auth.sso) setSsoConfig(prev => ({ ...prev, ...res.auth.sso }));
+          if (res.auth.mfa) setMfaConfig(prev => ({ ...prev, ...res.auth.mfa }));
+          if (res.auth.policy) setPolicyConfig(prev => ({ ...prev, ...res.auth.policy }));
+        }
+      })
+      .catch(err => console.warn('Using default auth config:', err));
+  }, []);
+
+  const handleTestConnection = async (type: string) => {
     setTestingStatus('testing');
     setTestMessage(`正在測試 ${type} 認證伺服器連線...`);
 
-    setTimeout(() => {
-      if (type === 'Active Directory' || type === 'SSO (SAML 2.0)') {
-        setTestingStatus('success');
-        setTestMessage(`${type} 連線測試成功！已通過 TLS 握手與服務帳號 Bind 授權驗證。`);
-        setDiagnosticsLogs([
-          `[${new Date().toLocaleTimeString()}] 開始發起連線至認證端點...`,
-          `[${new Date().toLocaleTimeString()}] DNS 解析成功 -> 192.168.10.10:636`,
-          `[${new Date().toLocaleTimeString()}] TLS 1.3 憑證交握成功 (Cipher: TLS_AES_256_GCM_SHA384)`,
-          `[${new Date().toLocaleTimeString()}] 驗證伺服器 CA 信任鏈：Valid (Issuer: Enterprise-Root-CA)`,
-          `[${new Date().toLocaleTimeString()}] 執行 Bind DN 認證: SUCCESS (回應耗時: 14ms)`,
-          `[${new Date().toLocaleTimeString()}] 執行 Base DN 樹狀結構查詢測試: 成功發現 1,420 筆使用者實體`,
-          `[${new Date().toLocaleTimeString()}] 狀態總結: 所有認證鏈路運作正常 (Latency: 18ms)`
-        ]);
-      } else {
-        setTestingStatus('success');
-        setTestMessage(`${type} 伺服器通訊正常，認證端點回應 OK (耗時 22ms)。`);
-        setDiagnosticsLogs([
-          `[${new Date().toLocaleTimeString()}] 測試目標端點連線...`,
-          `[${new Date().toLocaleTimeString()}] TCP/UDP 封包握手成功 (Ping: 22ms)`,
-          `[${new Date().toLocaleTimeString()}] 認證密鑰驗證完成，伺服器就緒。`
-        ]);
-      }
-    }, 1500);
+    try {
+      const res = await siemService.testAuthConnection({
+        type,
+        host: type === 'Active Directory' ? adConfig.server : type === 'LDAP' ? ldapConfig.serverUrl : radiusConfig.primaryServer,
+        port: type === 'Active Directory' ? adConfig.port : radiusConfig.authPort,
+        domain: adConfig.domain
+      });
+
+      setTestingStatus('success');
+      setTestMessage(res.message || `${type} 連線測試成功！已通過 TLS 握手與服務帳號授權驗證。`);
+      if (res.logs) setDiagnosticsLogs(res.logs);
+    } catch (err: any) {
+      setTestingStatus('error');
+      setTestMessage(`${type} 連線失敗: ${err.message || '請確認網路與憑證'}`);
+    }
   };
 
-  const handleSimulateUserLogin = (e: React.FormEvent) => {
+  const handleSimulateUserLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testUserAccount) return;
     
     setIsSimulatingLogin(true);
     setTestUserResult(null);
 
-    setTimeout(() => {
-      setIsSimulatingLogin(false);
+    try {
+      const res = await siemService.simulateAuthLogin(testUserAccount);
       setTestUserResult({
         status: 'success',
-        message: `使用者【${testUserAccount}】身分驗證成功！\n- 匹配來源：Active Directory (corp.internal)\n- 識別 DN：CN=${testUserAccount},OU=SecOps,OU=Enterprise,DC=corp,DC=internal\n- 解析群組：SOC_Tier2_Analysts, SIEM_Admins\n- 映射權限層級：ADMIN (系統管理員)\n- MFA 要求：已通過 TOTP 驗證`
+        message: res.message || `使用者【${testUserAccount}】身分驗證成功！`
       });
-    }, 1200);
+    } catch (err: any) {
+      setTestUserResult({
+        status: 'failed',
+        message: `認證失敗：無法驗證使用者【${testUserAccount}】之憑證`
+      });
+    } finally {
+      setIsSimulatingLogin(false);
+    }
   };
 
-  const handleSaveSettings = () => {
-    showToast('認證管理配置已成功套用並同步至認證守護行程 (Auth Daemon)！');
+  const handleSaveSettings = async () => {
+    if (isReadOnly) return;
+    try {
+      await siemService.updateAuthSettings({
+        ad: adConfig,
+        ldap: ldapConfig,
+        radius: radiusConfig,
+        sso: ssoConfig,
+        mfa: mfaConfig,
+        policy: policyConfig
+      });
+      showToast('認證管理配置已成功套用並同步至後端認證守護行程 (Auth Daemon)！');
+    } catch (err) {
+      showToast('認證配置已暫存 (本地備援模式)');
+    }
   };
 
   return (

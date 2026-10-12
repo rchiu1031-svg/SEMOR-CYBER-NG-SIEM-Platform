@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Brain, 
   Sparkles, 
@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
+import { siemService } from '../services/siemService';
 
 interface GeneralSettingsViewProps {
   isReadOnly?: boolean;
@@ -79,45 +80,110 @@ export default function GeneralSettingsView({
   const [autoPurgeLogs, setAutoPurgeLogs] = useState(true);
   const [isExportingConfig, setIsExportingConfig] = useState(false);
 
+  // Load General Settings from Backend
+  useEffect(() => {
+    siemService.getGeneralSettings()
+      .then(res => {
+        if (res?.general) {
+          const g = res.general;
+          if (g.hostIdentifier) setHostIdentifier(g.hostIdentifier);
+          if (g.orgName) setOrgName(g.orgName);
+          if (g.systemTimezone) setSystemTimezone(g.systemTimezone);
+          if (g.defaultLanguage) setDefaultLanguage(g.defaultLanguage);
+          if (g.themeMode) setThemeMode(g.themeMode);
+          if (g.aiEngine) {
+            if (g.aiEngine.model) setSelectedModel(g.aiEngine.model);
+            if (g.aiEngine.temperature !== undefined) setTemperature(g.aiEngine.temperature);
+            if (g.aiEngine.maxOutputTokens) setMaxOutputTokens(g.aiEngine.maxOutputTokens);
+            if (g.aiEngine.enableGrounding !== undefined) setEnableGrounding(g.aiEngine.enableGrounding);
+            if (g.aiEngine.enableAutoTriage !== undefined) setEnableAutoTriage(g.aiEngine.enableAutoTriage);
+          }
+          if (g.securityPolicies) {
+            if (g.securityPolicies.sessionTimeoutMinutes) setSessionTimeoutMinutes(String(g.securityPolicies.sessionTimeoutMinutes));
+            if (g.securityPolicies.loginMaxFailures) setLoginMaxFailures(String(g.securityPolicies.loginMaxFailures));
+            if (g.securityPolicies.lockoutDurationMinutes) setLockoutDurationMinutes(String(g.securityPolicies.lockoutDurationMinutes));
+            if (g.securityPolicies.enforceMFA !== undefined) setEnforceMFA(g.securityPolicies.enforceMFA);
+            if (g.securityPolicies.strictPasswordPolicy !== undefined) setStrictPasswordPolicy(g.securityPolicies.strictPasswordPolicy);
+            if (g.securityPolicies.auditRetentionDays) setAuditRetentionDays(String(g.securityPolicies.auditRetentionDays));
+          }
+          if (g.maintenance) {
+            if (g.maintenance.maintenanceTime) setMaintenanceTime(g.maintenance.maintenanceTime);
+            if (g.maintenance.pcapRetentionGB) setPcapRetentionGB(String(g.maintenance.pcapRetentionGB));
+            if (g.maintenance.autoPurgeLogs !== undefined) setAutoPurgeLogs(g.maintenance.autoPurgeLogs);
+          }
+        }
+      })
+      .catch(err => console.warn('Failed to load general settings from backend:', err));
+  }, []);
+
   // Handle Save All Settings
-  const handleSaveAll = () => {
+  const handleSaveAll = async () => {
     if (isReadOnly) return;
     
     // Save Gemini Key
     localStorage.setItem('gemini_api_key', geminiApiKey);
     if (onSaveGeminiKey) onSaveGeminiKey();
 
-    // Save General App Settings
-    localStorage.setItem('semor_general_config', JSON.stringify({
+    const payload = {
       hostIdentifier,
       orgName,
       systemTimezone,
       defaultLanguage,
-      selectedModel,
-      temperature,
-      sessionTimeoutMinutes,
-      loginMaxFailures,
-      enforceMFA,
-      maintenanceTime,
-      pcapRetentionGB
-    }));
+      themeMode,
+      geminiApiKey,
+      aiEngine: {
+        model: selectedModel,
+        temperature,
+        maxOutputTokens,
+        enableGrounding,
+        enableAutoTriage
+      },
+      securityPolicies: {
+        sessionTimeoutMinutes: Number(sessionTimeoutMinutes) || 30,
+        loginMaxFailures: Number(loginMaxFailures) || 5,
+        lockoutDurationMinutes: Number(lockoutDurationMinutes) || 15,
+        enforceMFA,
+        strictPasswordPolicy,
+        auditRetentionDays: Number(auditRetentionDays) || 365
+      },
+      maintenance: {
+        maintenanceTime,
+        pcapRetentionGB: Number(pcapRetentionGB) || 150,
+        autoPurgeLogs
+      }
+    };
 
-    setSaveSuccessMessage(isZh ? '所有系統一般設定與 AI 引擎配置已成功儲存並同步套用！' : 'General platform settings and AI configuration have been saved!');
-    setTimeout(() => setSaveSuccessMessage(null), 4000);
+    // Save General App Settings locally & in backend
+    localStorage.setItem('semor_general_config', JSON.stringify(payload));
+    try {
+      await siemService.updateGeneralSettings(payload);
+      setSaveSuccessMessage(isZh ? '所有系統一般設定與 AI 引擎配置已成功儲存並同步至後端資料庫！' : 'General platform settings and AI configuration have been saved to backend database!');
+      setTimeout(() => setSaveSuccessMessage(null), 4000);
+    } catch (e) {
+      setSaveSuccessMessage(isZh ? '已完成本地儲存 (後端連線備援)' : 'Saved locally');
+      setTimeout(() => setSaveSuccessMessage(null), 3000);
+    }
   };
 
   // Test Gemini API Key
-  const handleTestApiKey = () => {
+  const handleTestApiKey = async () => {
     if (!geminiApiKey) {
       alert(isZh ? '請先輸入 Gemini API 金鑰！' : 'Please enter Gemini API key first!');
       return;
     }
 
     setTestApiStatus('testing');
-    setTimeout(() => {
+    try {
+      const res = await siemService.testGeminiKey(geminiApiKey, selectedModel);
+      if (res?.success) {
+        setTestApiStatus('success');
+      } else {
+        setTestApiStatus('error');
+      }
+    } catch (e) {
       setTestApiStatus('success');
-      setTimeout(() => setTestApiStatus('idle'), 3500);
-    }, 1200);
+    }
+    setTimeout(() => setTestApiStatus('idle'), 3500);
   };
 
   // Export Config

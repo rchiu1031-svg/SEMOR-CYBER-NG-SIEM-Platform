@@ -30,6 +30,7 @@ import { createCustomDashboardRouter } from './server/customDashboardRouter.ts';
 import { createCorrelationRouter } from './server/correlationRouter.ts';
 import { createSignatureRouter } from './server/signatureRouter.ts';
 import { createNacRouter } from './server/nacRouter.ts';
+import { createSettingsRouter } from './server/settingsRouter.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
 import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
@@ -2126,6 +2127,10 @@ async function startServer() {
   app.use('/api/v1/nac', nacRouter);
   app.use('/api/nac', nacRouter);
   app.use('/api/v1/packetfence', nacRouter);
+
+  const settingsRouter = createSettingsRouter();
+  app.use('/api/v1/settings', settingsRouter);
+  app.use('/api/settings', settingsRouter);
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {

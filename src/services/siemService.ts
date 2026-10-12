@@ -88,5 +88,138 @@ export const siemService = {
   async updateUser(id: string, updates: any) {
     const response = await axios.patch(`/api/users/${id}`, updates);
     return response.data;
+  },
+
+  /**
+   * Comprehensive Settings APIs
+   */
+  async getAllSettings() {
+    const response = await axios.get('/api/v1/settings/all');
+    return response.data;
+  },
+
+  async saveAllSettings(payload: any) {
+    const response = await axios.post('/api/v1/settings/all', payload);
+    return response.data;
+  },
+
+  async getNetworkSettings() {
+    const response = await axios.get('/api/v1/settings/network');
+    return response.data;
+  },
+
+  async updateNetworkSettings(payload: any) {
+    const response = await axios.put('/api/v1/settings/network', payload);
+    return response.data;
+  },
+
+  async testNetworkPing(target: string, type: string = 'icmp_ping') {
+    const response = await axios.post('/api/v1/settings/network/test', { target, type });
+    return response.data;
+  },
+
+  async getGeneralSettings() {
+    const response = await axios.get('/api/v1/settings/general');
+    return response.data;
+  },
+
+  async updateGeneralSettings(payload: any) {
+    const response = await axios.put('/api/v1/settings/general', payload);
+    return response.data;
+  },
+
+  async testGeminiKey(apiKey: string, model?: string) {
+    const response = await axios.post('/api/v1/settings/general/test-gemini', { apiKey, model });
+    return response.data;
+  },
+
+  async getAuthSettings() {
+    const response = await axios.get('/api/v1/settings/auth');
+    return response.data;
+  },
+
+  async updateAuthSettings(payload: any) {
+    const response = await axios.put('/api/v1/settings/auth', payload);
+    return response.data;
+  },
+
+  async testAuthConnection(params: { type: string; host?: string; port?: number; domain?: string }) {
+    const response = await axios.post('/api/v1/settings/auth/test-connection', params);
+    return response.data;
+  },
+
+  async simulateAuthLogin(username: string) {
+    const response = await axios.post('/api/v1/settings/auth/simulate-login', { username });
+    return response.data;
+  },
+
+  async getDataCollectionSettings() {
+    const response = await axios.get('/api/v1/settings/collection');
+    return response.data;
+  },
+
+  async updateDataCollectionSettings(payload: any) {
+    const response = await axios.put('/api/v1/settings/collection', payload);
+    return response.data;
+  },
+
+  async addDataCollectionSource(source: any) {
+    const response = await axios.post('/api/v1/settings/collection/add-source', source);
+    return response.data;
+  },
+
+  async deleteDataCollectionSource(id: string) {
+    const response = await axios.delete(`/api/v1/settings/collection/source/${id}`);
+    return response.data;
+  },
+
+  async getRemoteLogSettings() {
+    const response = await axios.get('/api/v1/settings/remotelog');
+    return response.data;
+  },
+
+  async saveRemoteForwarder(forwarder: any) {
+    const response = await axios.post('/api/v1/settings/remotelog/forwarders', forwarder);
+    return response.data;
+  },
+
+  async deleteRemoteForwarder(id: string) {
+    const response = await axios.delete(`/api/v1/settings/remotelog/forwarders/${id}`);
+    return response.data;
+  },
+
+  async toggleRemoteForwarder(id: string) {
+    const response = await axios.put(`/api/v1/settings/remotelog/forwarders/${id}/toggle`);
+    return response.data;
+  },
+
+  async testRemoteLogConnection(params: { destination: string; port: string; protocol: string }) {
+    const response = await axios.post('/api/v1/settings/remotelog/test-connection', params);
+    return response.data;
+  },
+
+  async updateRemoteLogGlobalSettings(settings: any) {
+    const response = await axios.put('/api/v1/settings/remotelog/global', settings);
+    return response.data;
+  },
+
+  async getThreatIntelFeeds() {
+    const response = await axios.get('/api/v1/settings/threat-intel/feeds');
+    return response.data;
+  },
+
+  async saveThreatIntelFeed(feed: any) {
+    const response = await axios.post('/api/v1/settings/threat-intel/feeds', feed);
+    return response.data;
+  },
+
+  async deleteThreatIntelFeed(id: string) {
+    const response = await axios.delete(`/api/v1/settings/threat-intel/feeds/${id}`);
+    return response.data;
+  },
+
+  async syncThreatIntelFeed(id: string) {
+    const response = await axios.post(`/api/v1/settings/threat-intel/feeds/${id}/sync`);
+    return response.data;
   }
 };
