@@ -61,20 +61,21 @@ export const CaseDetailWarRoom: React.FC<CaseDetailWarRoomProps> = ({
     setChatInput('');
   };
 
-  const handleGenerateAiInsight = () => {
+  const handleGenerateAiInsight = async () => {
     setAiAnalyzing(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch(`/api/v1/cases/${caseItem.id}/ai-insight`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.insight) {
+        setAiReport(data.insight);
+      } else {
+        setAiReport(`【SEMOR GenAI 調查評估報告】\n• 根本威脅特徵: 判定為 ${caseItem.category} 威脅事件。\n• 建議立即下發 EDR 端點微隔離與邊界防火牆黑名單阻斷。`);
+      }
+    } catch (err: any) {
+      setAiReport(`【AI 分析異常】無法連線至 AI 研判微服務: ${err.message}`);
+    } finally {
       setAiAnalyzing(false);
-      setAiReport(
-        `【SEMOR GenAI 調查評估報告】\n` +
-        `• 根本威脅特徵: 判定為 Locky.v4 勒索軟體自動化蠕蟲擴散，利用 SMBv1/v2 進行 Pass-the-Hash 橫向移動。\n` +
-        `• 衝擊評估: 核心會計端點已遭隔離，網域控制站 (10.240.12.5) 阻斷成功，備份系統啟用 WORM 唯讀保護，無直接勒索外洩跡象。\n` +
-        `• 優先處置建議:\n` +
-        `  1. 立即輪換全網域 Kerberos (krbtgt) 密碼，終止現存票證連線。\n` +
-        `  2. 對分公司全網段套用防火牆 445 埠微隔離規則。\n` +
-        `  3. 下發 EDR 掃描全域端點是否存在 invoice_q3.pdf.exe 同名特徵。`
-      );
-    }, 1200);
+    }
   };
 
   // SLA Percentage

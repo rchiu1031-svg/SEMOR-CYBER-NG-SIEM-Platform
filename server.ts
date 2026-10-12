@@ -2109,6 +2109,7 @@ async function startServer() {
   app.use('/api/v1/soar', createSoarRouter());
   app.use('/api/soar', createSoarRouter());
   app.use('/api/v1/cases', createCasesRouter());
+  app.use('/api/cases', createCasesRouter());
   app.use('/api/v1/apm', createApmRouter());
   app.use('/api/v1/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
   app.use('/api/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));
