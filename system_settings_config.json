@@ -195,7 +195,7 @@
         "scope": "all",
         "format": "json",
         "latency": 14,
-        "eventsSent": 1248921,
+        "eventsSent": 1248922,
         "lastActive": "Just now"
       },
       {
@@ -229,15 +229,15 @@
     ],
     "globalSettings": {
       "localCaching": true,
-      "cacheSizeGB": 30,
-      "retryIntervalSec": 5,
+      "cacheSizeGB": 45,
+      "retryIntervalSec": 8,
       "overflowPolicy": "fifo",
       "alertOnFailure": true,
       "maskPII": true,
       "excludeNoise": true,
       "compressPayload": true,
-      "rawCEFFormat": false,
-      "minSeverity": "all"
+      "rawCEFFormat": true,
+      "minSeverity": "warning"
     }
   },
   "threatIntelFeeds": [

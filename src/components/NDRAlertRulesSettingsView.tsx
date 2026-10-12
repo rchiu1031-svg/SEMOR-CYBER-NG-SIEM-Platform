@@ -41,10 +41,14 @@ import {
   Eye,
   Hash,
   Download,
-  Share2
+  Share2,
+  Upload,
+  FileDown,
+  FileCode
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { siemService } from '../services/siemService';
 
 export type NDRTrafficPatternType =
   | 'bandwidth_surge'
@@ -505,29 +509,25 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
     return () => clearInterval(interval);
   }, []);
 
-  // Save rules to API
+  // Save rules to API via siemService
   const saveRuleToBackend = async (rule: NDRAlertRule) => {
     try {
       setIsSaving(true);
       const isNew = !rules.some(r => r.id === rule.id);
-      const url = isNew ? '/api/v1/ndr/alert-rules' : `/api/v1/ndr/alert-rules/${rule.id}`;
-      const method = isNew ? 'POST' : 'PUT';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rule)
-      });
-
-      if (res.ok) {
-        const updatedRules = isNew ? [rule, ...rules] : rules.map(r => (r.id === rule.id ? rule : r));
-        setRules(updatedRules);
-        localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(updatedRules));
-        showToast(`NDR 流量特徵告警規則 '${rule.name}' 已成功儲存並同步至 NDR 偵測引擎！`);
-        setIsEditModalOpen(false);
+      
+      let resData;
+      if (isNew) {
+        resData = await siemService.createNdrAlertRule(rule);
       } else {
-        throw new Error('Save failed');
+        resData = await siemService.updateNdrAlertRule(rule.id, rule);
       }
+
+      const savedRule = resData.rule || rule;
+      const updatedRules = isNew ? [savedRule, ...rules] : rules.map(r => (r.id === rule.id ? savedRule : r));
+      setRules(updatedRules);
+      localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(updatedRules));
+      showToast(`NDR 流量特徵告警規則 '${rule.name}' 已成功儲存並同步至 NDR 偵測引擎！`);
+      setIsEditModalOpen(false);
     } catch (e) {
       // Local fallback
       const isNew = !rules.some(r => r.id === rule.id);
@@ -546,7 +546,7 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
     if (!confirm(`確定要刪除 NDR 流量特徵告警規則「${ruleName}」嗎？`)) return;
 
     try {
-      await fetch(`/api/v1/ndr/alert-rules/${ruleId}`, { method: 'DELETE' });
+      await siemService.deleteNdrAlertRule(ruleId);
     } catch {
       // Ignored
     }
@@ -565,11 +565,7 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
     localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(nextRules));
 
     try {
-      await fetch(`/api/v1/ndr/alert-rules/${rule.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated)
-      });
+      await siemService.updateNdrAlertRule(rule.id, updated);
     } catch {
       // Ignored
     }
@@ -600,18 +596,13 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
     setIsTesting(true);
 
     try {
-      const res = await fetch('/api/v1/ndr/alert-rules/test-trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ruleId: rule.id,
-          customValue: rule.criticalThreshold * 1.25,
-          severityOverride: rule.severity
-        })
+      const data = await siemService.triggerNdrTestAlert({
+        ruleId: rule.id,
+        customValue: rule.criticalThreshold * 1.25,
+        severityOverride: rule.severity
       });
 
-      if (res.ok) {
-        const data = await res.json();
+      if (data.success && data.alert) {
         setTestResult(data.alert);
         if (rule.notificationChannels.sound) {
           playAlertSound();
@@ -672,6 +663,88 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
     } finally {
       setIsTesting(false);
     }
+  };
+
+  // Reset to default templates
+  const handleResetDefaults = async () => {
+    if (!confirm('確定要將所有 NDR 流量告警規則重置為系統標準原廠預設值嗎？自訂規則將會被還原。')) return;
+
+    try {
+      setIsLoading(true);
+      const res = await siemService.resetNdrAlertRulesToDefaults();
+      if (res.success && Array.isArray(res.rules)) {
+        setRules(res.rules);
+        localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(res.rules));
+        showToast('已成功還原為標準預設 NDR 流量告警規則！', 'success');
+      }
+    } catch (e) {
+      setRules(DEFAULT_ALERT_RULES);
+      localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(DEFAULT_ALERT_RULES));
+      showToast('已重設為標準預設規則', 'info');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Export Rules JSON / Suricata
+  const handleExportRules = async (format: 'json' | 'suricata' = 'json') => {
+    try {
+      if (format === 'suricata') {
+        const res = await fetch('/api/v1/ndr/alert-rules/export?format=suricata');
+        const text = await res.text();
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'semor-ndr-rules.rules';
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('已下載 Suricata 7.0 IPS 聯防規則檔 (semor-ndr-rules.rules)');
+      } else {
+        const data = await siemService.exportNdrAlertRules('json');
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `semor-ndr-alert-rules-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('已匯出 NDR 流量告警規則 JSON 設定檔');
+      }
+    } catch (e) {
+      showToast('匯出規則失敗，請稍後再試', 'error');
+    }
+  };
+
+  // Import Rules JSON
+  const handleImportRules = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+        const importedList = Array.isArray(parsed) ? parsed : parsed.rules;
+
+        if (!Array.isArray(importedList) || importedList.length === 0) {
+          showToast('匯入檔案無效，未找到有效的規則陣列', 'error');
+          return;
+        }
+
+        const res = await siemService.importNdrAlertRules(importedList, false);
+        if (res.success && Array.isArray(res.rules)) {
+          setRules(res.rules);
+          localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(res.rules));
+          showToast(`成功匯入 ${importedList.length} 項 NDR 流量告警規則！`, 'success');
+        }
+      } catch (err) {
+        showToast('解析 JSON 檔案失敗，請檢查格式是否正確', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   // Open Create Modal
@@ -887,7 +960,7 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
         </div>
 
         {/* Buttons */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <button
             onClick={fetchRules}
             disabled={isLoading}
@@ -899,13 +972,58 @@ export function NDRAlertRulesSettingsView({ isReadOnly = false }: NDRAlertRulesS
           </button>
 
           {!isReadOnly && (
-            <button
-              onClick={handleOpenCreateModal}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-900/30 transition active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>自訂 NDR 告警規則</span>
-            </button>
+            <>
+              {/* Reset to defaults button */}
+              <button
+                onClick={handleResetDefaults}
+                disabled={isLoading}
+                className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-amber-950/40 text-amber-300 hover:text-amber-200 border border-gray-800 hover:border-amber-500/40 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95"
+                title="還原原廠預設 NDR 流量規則"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>還原預設</span>
+              </button>
+
+              {/* Export JSON / Suricata Dropdown or Buttons */}
+              <div className="flex items-center gap-1 bg-gray-900 p-0.5 rounded-xl border border-gray-800">
+                <button
+                  onClick={() => handleExportRules('json')}
+                  className="px-2.5 py-1.5 rounded-lg hover:bg-gray-800 text-gray-300 hover:text-white text-xs font-medium flex items-center gap-1 transition"
+                  title="匯出 NDR 告警規則 JSON 配置"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <span>JSON</span>
+                </button>
+                <button
+                  onClick={() => handleExportRules('suricata')}
+                  className="px-2.5 py-1.5 rounded-lg hover:bg-gray-800 text-gray-300 hover:text-white text-xs font-medium flex items-center gap-1 transition"
+                  title="匯出 Suricata 7.0 IPS 聯防規則檔 (.rules)"
+                >
+                  <FileCode className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Suricata</span>
+                </button>
+              </div>
+
+              {/* Import JSON File Input */}
+              <label className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition active:scale-95">
+                <Upload className="w-3.5 h-3.5 text-indigo-400" />
+                <span>匯入規則</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleImportRules}
+                  className="hidden"
+                />
+              </label>
+
+              <button
+                onClick={handleOpenCreateModal}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-900/30 transition active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                <span>自訂 NDR 告警規則</span>
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -212,8 +212,8 @@ export default function AuthenticationSettingsView({ isReadOnly = false }: Authe
     try {
       const res = await siemService.testAuthConnection({
         type,
-        host: type === 'Active Directory' ? adConfig.server : type === 'LDAP' ? ldapConfig.serverUrl : radiusConfig.primaryServer,
-        port: type === 'Active Directory' ? adConfig.port : radiusConfig.authPort,
+        host: type === 'Active Directory' ? adConfig.serverUrl : type === 'LDAP' ? ldapConfig.serverUrl : radiusConfig.primaryServer,
+        port: type === 'Active Directory' ? 636 : radiusConfig.authPort,
         domain: adConfig.domain
       });
 

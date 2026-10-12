@@ -193,7 +193,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
 
   // Live Stream Logs
   const [liveStreamPaused, setLiveStreamPaused] = useState(false);
-  const [liveLogs, setLiveLogs] = useState<{
+  const [liveLogs, setLiveLogs] = useState<Array<{
     id: string;
     time: string;
     dest: string;
@@ -201,7 +201,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
     status: string;
     summary: string;
     rawPayload?: string;
-  }>([
+  }>>([
     { id: '1', time: '12:05:41.102', dest: 'Splunk HEC (10.88.90.11:8088)', type: 'SECURITY_ALERT', status: '200 OK', summary: 'Outbound brute-force detection telemetry forwarded' },
     { id: '2', time: '12:05:40.891', dest: 'Kafka Topic (10.200.40.15:9092)', type: 'NETFLOW_IPFIX', status: 'Delivered', summary: '1.2MB session flow packets ingested' },
     { id: '3', time: '12:05:39.452', dest: 'Syslog TLS (192.168.100.50:514)', type: 'AUDIT_AUTH', status: 'ACK (TLS)', summary: 'Supervisor user login audit event emitted' },

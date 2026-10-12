@@ -304,5 +304,60 @@ export const siemService = {
   async syncThreatIntelFeed(id: string) {
     const response = await axios.post(`/api/v1/settings/threat-intel/feeds/${id}/sync`);
     return response.data;
+  },
+
+  // NDR Traffic Alert Rules & Engine APIs
+  async getNdrAlertRules() {
+    const response = await axios.get('/api/v1/ndr/alert-rules');
+    return response.data;
+  },
+
+  async createNdrAlertRule(rule: any) {
+    const response = await axios.post('/api/v1/ndr/alert-rules', rule);
+    return response.data;
+  },
+
+  async updateNdrAlertRule(id: string, rule: any) {
+    const response = await axios.put(`/api/v1/ndr/alert-rules/${id}`, rule);
+    return response.data;
+  },
+
+  async deleteNdrAlertRule(id: string) {
+    const response = await axios.delete(`/api/v1/ndr/alert-rules/${id}`);
+    return response.data;
+  },
+
+  async batchUpdateNdrThresholds(updates: any[]) {
+    const response = await axios.put('/api/v1/ndr/alert-rules/batch-thresholds', { updates });
+    return response.data;
+  },
+
+  async triggerNdrTestAlert(params: {
+    ruleId: string;
+    customValue?: number;
+    severityOverride?: string;
+  }) {
+    const response = await axios.post('/api/v1/ndr/alert-rules/test-trigger', params);
+    return response.data;
+  },
+
+  async resetNdrAlertRulesToDefaults() {
+    const response = await axios.post('/api/v1/ndr/alert-rules/reset-defaults');
+    return response.data;
+  },
+
+  async exportNdrAlertRules(format: 'json' | 'suricata' = 'json') {
+    const response = await axios.get('/api/v1/ndr/alert-rules/export', {
+      params: { format }
+    });
+    return response.data;
+  },
+
+  async importNdrAlertRules(rules: any[], overwrite: boolean = false) {
+    const response = await axios.post('/api/v1/ndr/alert-rules/import', {
+      rules,
+      overwrite
+    });
+    return response.data;
   }
 };

@@ -1389,8 +1389,10 @@ export function createNdrRouter() {
     res.json({ success: true, message: `策略 ${removed.name} 已刪除` });
   });
 
-  // 16. NDR Traffic Pattern Custom Alert Rules & Notification Integration
-  let ndrAlertRules = [
+  // Persistent file path for NDR alert rules
+  const NDR_RULES_FILE = path.join(process.cwd(), 'ndr_alert_rules.json');
+
+  const DEFAULT_NDR_RULES_TEMPLATE = [
     {
       id: 'ndr-rule-bandwidth-burst',
       name: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
@@ -1582,6 +1584,64 @@ export function createNdrRouter() {
     }
   ];
 
+  // Helper to load NDR rules from disk
+  const loadNdrAlertRules = (): any[] => {
+    try {
+      if (fs.existsSync(NDR_RULES_FILE)) {
+        const raw = fs.readFileSync(NDR_RULES_FILE, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read ndr_alert_rules.json:', e);
+    }
+    // Write defaults if not present
+    saveNdrAlertRules(DEFAULT_NDR_RULES_TEMPLATE);
+    return JSON.parse(JSON.stringify(DEFAULT_NDR_RULES_TEMPLATE));
+  };
+
+  // Helper to save NDR rules to disk
+  const saveNdrAlertRules = (rules: any[]) => {
+    try {
+      fs.writeFileSync(NDR_RULES_FILE, JSON.stringify(rules, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('Failed to write ndr_alert_rules.json:', e);
+    }
+  };
+
+  let ndrAlertRules: any[] = loadNdrAlertRules();
+
+  // GET /api/v1/ndr/alert-rules/export - Export rules as JSON file or Suricata ruleset (Must come first)
+  router.get('/alert-rules/export', (req: Request, res: Response) => {
+    const format = (req.query.format as string) || 'json';
+
+    if (format === 'suricata') {
+      let suricataRules = '# =========================================================================\n# SEMOR CYBER NDR - GENERATED SURICATA 7.0 IPS THREAT DETECTION RULES\n# =========================================================================\n\n';
+      ndrAlertRules.forEach((r, idx) => {
+        const sid = 3000000 + idx;
+        const action = r.severity === 'Critical' ? 'drop' : 'alert';
+        let msg = `SEMOR NDR: ${r.name}`;
+        suricataRules += `# Rule: ${r.name} (${r.patternType})\n${action} ip any any -> any any (msg:"${msg}"; threshold:type limit, track by_src, count 1, seconds ${r.cooldownMinutes * 60}; classtype:bad-unknown; sid:${sid}; rev:1;)\n\n`;
+      });
+
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="semor-ndr-rules.rules"');
+      return res.send(suricataRules);
+    }
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="semor-ndr-alert-rules.json"');
+    res.json({
+      exportTime: new Date().toISOString(),
+      platform: 'SEMOR CYBER NG-SIEM',
+      engine: 'suricata-ndr-flow',
+      totalRules: ndrAlertRules.length,
+      rules: ndrAlertRules
+    });
+  });
+
   // GET /api/v1/ndr/alert-rules
   router.get('/alert-rules', (req: Request, res: Response) => {
     // Dynamically calculate live measurements for telemetry display
@@ -1698,6 +1758,8 @@ export function createNdrRouter() {
     };
 
     ndrAlertRules.unshift(newRule);
+    saveNdrAlertRules(ndrAlertRules);
+
     res.json({
       success: true,
       message: `NDR 流量特徵自訂告警規則 '${newRule.name}' 已成功建立並啟用監控`,
@@ -1731,6 +1793,8 @@ export function createNdrRouter() {
       }
     });
 
+    saveNdrAlertRules(ndrAlertRules);
+
     res.json({
       success: true,
       message: `成功批次更新 ${updatedRules.length} 項 NDR 流量特徵門檻配置`,
@@ -1754,6 +1818,8 @@ export function createNdrRouter() {
     };
 
     ndrAlertRules[ruleIndex] = updated;
+    saveNdrAlertRules(ndrAlertRules);
+
     res.json({
       success: true,
       message: `NDR 告警規則 '${updated.name}' 已成功更新`,
@@ -1770,6 +1836,8 @@ export function createNdrRouter() {
     }
 
     const removed = ndrAlertRules.splice(ruleIndex, 1)[0];
+    saveNdrAlertRules(ndrAlertRules);
+
     res.json({
       success: true,
       message: `NDR 告警規則 '${removed.name}' 已成功移除`
@@ -1822,6 +1890,7 @@ export function createNdrRouter() {
     // Update rule trigger counter & timestamp
     rule.lastTriggeredAt = timestamp;
     rule.triggerCount = (rule.triggerCount || 0) + 1;
+    saveNdrAlertRules(ndrAlertRules);
 
     const alertEvent = {
       id: `NDR-ALR-${Date.now().toString().slice(-6)}`,
@@ -1883,12 +1952,48 @@ export function createNdrRouter() {
     });
   });
 
-  // POST /api/v1/ndr/alert-rules/reset-defaults
+  // POST /api/v1/ndr/alert-rules/reset-defaults - Restore template rules
   router.post('/alert-rules/reset-defaults', (req: Request, res: Response) => {
-    // Reset to defaults
+    ndrAlertRules = JSON.parse(JSON.stringify(DEFAULT_NDR_RULES_TEMPLATE));
+    saveNdrAlertRules(ndrAlertRules);
     res.json({
       success: true,
-      message: 'NDR 流量特徵告警規則已成功重置為標準預設值'
+      message: 'NDR 流量特徵告警規則已成功重置為標準預設值並寫入磁碟',
+      rules: ndrAlertRules
+    });
+  });
+
+  // POST /api/v1/ndr/alert-rules/import - Import rules JSON
+  router.post('/alert-rules/import', (req: Request, res: Response) => {
+    const { rules: importedRules, overwrite } = req.body;
+    if (!Array.isArray(importedRules) || importedRules.length === 0) {
+      return res.status(400).json({ error: 'imported rules must be a non-empty array' });
+    }
+
+    if (overwrite) {
+      ndrAlertRules = importedRules.map(r => ({
+        ...r,
+        updatedAt: new Date().toISOString()
+      }));
+    } else {
+      // Merge by ID or append
+      importedRules.forEach(imp => {
+        const existingIdx = ndrAlertRules.findIndex(r => r.id === imp.id);
+        if (existingIdx !== -1) {
+          ndrAlertRules[existingIdx] = { ...ndrAlertRules[existingIdx], ...imp, updatedAt: new Date().toISOString() };
+        } else {
+          ndrAlertRules.push({ ...imp, updatedAt: new Date().toISOString() });
+        }
+      });
+    }
+
+    saveNdrAlertRules(ndrAlertRules);
+
+    res.json({
+      success: true,
+      message: `已成功匯入 ${importedRules.length} 條 NDR 流量告警規則！`,
+      totalRules: ndrAlertRules.length,
+      rules: ndrAlertRules
     });
   });
 
