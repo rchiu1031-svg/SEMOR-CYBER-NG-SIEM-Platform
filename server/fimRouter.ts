@@ -1,83 +1,214 @@
 import express, { type Request, type Response } from 'express';
+import { globalFimEngine } from './fimEngine.ts';
+
 const Router = express.Router;
 
 export function createFimRouter() {
   const router = Router();
 
-  let monitoredPaths = [
-    {
-      id: "fim-path-01",
-      path: "/etc/passwd",
-      os: "Linux",
-      host: "edge-gateway-01",
-      expectedSha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-      currentSha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-      status: "intact",
-      lastChecked: new Date().toISOString()
-    },
-    {
-      id: "fim-path-02",
-      path: "/etc/shadow",
-      os: "Linux",
-      host: "edge-gateway-01",
-      expectedSha256: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-      currentSha256: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-      status: "intact",
-      lastChecked: new Date().toISOString()
-    },
-    {
-      id: "fim-path-03",
-      path: "C:\\Windows\\System32\\vssadmin.exe",
-      os: "Windows",
-      host: "HR-DESKTOP-09",
-      expectedSha256: "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-      currentSha256: "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-      status: "tamper_attempt_prevented",
-      lastChecked: new Date().toISOString()
-    },
-    {
-      id: "fim-path-04",
-      path: "/var/log/suricata/eve.json",
-      os: "Linux",
-      host: "edge-gateway-01",
-      expectedSha256: "DYNAMIC",
-      currentSha256: "DYNAMIC",
-      status: "active_stream",
-      lastChecked: new Date().toISOString()
+  // --- 1. TELEMETRY & STATS ---
+  router.get('/telemetry', (req: Request, res: Response) => {
+    try {
+      const data = globalFimEngine.getTelemetry();
+      res.json({ success: true, data });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
-  ];
+  });
 
-  let fimEvents = [
-    {
-      id: "fim-evt-101",
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      host: "HR-DESKTOP-09",
-      filePath: "C:\\Windows\\System32\\vssadmin.exe",
-      eventType: "EXECUTION_WITH_TAMPER_PARAM",
-      severity: "Critical",
-      processUser: "hr_admin",
-      commandLine: "vssadmin.exe delete shadows /all /quiet",
-      sha256: "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-      baselineDiff: "Process invoked with shadow deletion argument (Ransomware Preparation)",
-      actionTaken: "Execution Blocked & Mother Process Terminated"
-    },
-    {
-      id: "fim-evt-102",
-      timestamp: new Date(Date.now() - 7200000 * 2).toISOString(),
-      host: "edge-gateway-01",
-      filePath: "/etc/ssh/sshd_config",
-      eventType: "FILE_MODIFIED",
-      severity: "High",
-      processUser: "root",
-      commandLine: "sed -i 's/PermitRootLogin no/PermitRootLogin yes/g' /etc/ssh/sshd_config",
-      sha256: "8b12f45ea20909c0aa39029199a03982",
-      baselineDiff: "PermitRootLogin toggled from NO to YES",
-      actionTaken: "Security Alert Logged & SOC Verification Required"
+  // --- 2. EVENTS ---
+  router.get('/events', (req: Request, res: Response) => {
+    try {
+      const { severity, status, search, limit } = req.query;
+      const events = globalFimEngine.getEvents({
+        severity: typeof severity === 'string' ? severity : undefined,
+        status: typeof status === 'string' ? status : undefined,
+        search: typeof search === 'string' ? search : undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined
+      });
+      res.json({ success: true, count: events.length, events });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
-  ];
+  });
 
+  router.get('/events/:id', (req: Request, res: Response) => {
+    try {
+      const event = globalFimEngine.getEventById(req.params.id);
+      if (!event) {
+        return res.status(404).json({ success: false, error: 'Event not found' });
+      }
+      res.json({ success: true, event });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Execute snapshot rollback
+  router.post('/events/:id/rollback', (req: Request, res: Response) => {
+    try {
+      const { operator } = req.body || {};
+      const result = globalFimEngine.executeRollback(req.params.id, operator);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Isolate host / kill offending process
+  router.post('/events/:id/isolate', (req: Request, res: Response) => {
+    try {
+      const { operator } = req.body || {};
+      const result = globalFimEngine.isolateHost(req.params.id, operator);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Update event status / analyst notes
+  router.patch('/events/:id', (req: Request, res: Response) => {
+    try {
+      const updated = globalFimEngine.updateEvent(req.params.id, req.body);
+      res.json({ success: true, event: updated });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 3. PLAYBOOKS ---
+  router.get('/playbooks', (req: Request, res: Response) => {
+    try {
+      const playbooks = globalFimEngine.getPlaybooks();
+      res.json({ success: true, count: playbooks.length, playbooks });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/playbooks/:id/toggle', (req: Request, res: Response) => {
+    try {
+      const updated = globalFimEngine.togglePlaybook(req.params.id);
+      res.json({ success: true, playbook: updated });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/playbooks/:id/mode', (req: Request, res: Response) => {
+    try {
+      const { mode } = req.body;
+      const updated = globalFimEngine.changePlaybookMode(req.params.id, mode);
+      res.json({ success: true, playbook: updated });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/playbooks/:id/simulate', (req: Request, res: Response) => {
+    try {
+      const { targetHost } = req.body || {};
+      const result = globalFimEngine.simulatePlaybook(req.params.id, targetHost);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 4. POLICIES ---
+  router.get('/policies', (req: Request, res: Response) => {
+    try {
+      const policies = globalFimEngine.getPolicies();
+      res.json({ success: true, count: policies.length, policies });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/policies', (req: Request, res: Response) => {
+    try {
+      const newPolicy = globalFimEngine.createPolicy(req.body);
+      res.json({ success: true, policy: newPolicy });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.patch('/policies/:id/toggle', (req: Request, res: Response) => {
+    try {
+      const updated = globalFimEngine.togglePolicy(req.params.id);
+      res.json({ success: true, policy: updated });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.delete('/policies/:id', (req: Request, res: Response) => {
+    try {
+      const removed = globalFimEngine.deletePolicy(req.params.id);
+      res.json({ success: true, removed });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 5. BASELINES ---
+  router.get('/baselines', (req: Request, res: Response) => {
+    try {
+      const baselines = globalFimEngine.getBaselines();
+      res.json({ success: true, count: baselines.length, baselines });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/baselines/:id/recalculate', (req: Request, res: Response) => {
+    try {
+      const { approvedBy } = req.body || {};
+      const updated = globalFimEngine.recalculateBaseline(req.params.id, approvedBy);
+      res.json({ success: true, baseline: updated });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/baselines', (req: Request, res: Response) => {
+    try {
+      const newBaseline = globalFimEngine.createBaseline(req.body);
+      res.json({ success: true, baseline: newBaseline });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 6. ON-DEMAND INTEGRITY SCAN ---
+  router.post('/scan', (req: Request, res: Response) => {
+    try {
+      const { path, host } = req.body || {};
+      if (!path) {
+        return res.status(400).json({ success: false, error: 'Target path is required for scanning' });
+      }
+      const scanResult = globalFimEngine.runScan(path, host);
+      res.json({ success: true, scan: scanResult });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 7. AUDIT LOGS ---
+  router.get('/audit', (req: Request, res: Response) => {
+    try {
+      const logs = globalFimEngine.getAuditLogs();
+      res.json({ success: true, count: logs.length, logs });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 8. LEGACY MONITORED PATHS COMPATIBILITY ---
   router.get('/monitored-paths', (req: Request, res: Response) => {
-    res.json({ success: true, count: monitoredPaths.length, paths: monitoredPaths });
+    const paths = globalFimEngine.getMonitoredPaths();
+    res.json({ success: true, count: paths.length, paths });
   });
 
   router.post('/monitored-paths', (req: Request, res: Response) => {
@@ -85,35 +216,13 @@ export function createFimRouter() {
     if (!path) {
       return res.status(400).json({ error: 'path is required' });
     }
-
-    const newPath = {
-      id: `fim-path-${Date.now().toString().slice(-4)}`,
-      path,
-      os: os || "Linux",
-      host: host || "all-managed-hosts",
-      expectedSha256: `sha256:${Buffer.from(path).toString('hex').padEnd(64, 'a').slice(0, 64)}`,
-      currentSha256: `sha256:${Buffer.from(path).toString('hex').padEnd(64, 'a').slice(0, 64)}`,
-      status: "intact",
-      lastChecked: new Date().toISOString()
-    };
-
-    monitoredPaths.unshift(newPath);
+    const newPath = globalFimEngine.addMonitoredPath(path, host, os);
     res.json({ success: true, message: `路徑 ${path} 已納入 FIM 完整性基準監控`, path: newPath });
-  });
-
-  router.get('/events', (req: Request, res: Response) => {
-    res.json({ success: true, count: fimEvents.length, events: fimEvents });
   });
 
   router.post('/accept-baseline', (req: Request, res: Response) => {
     const { pathId, newSha256 } = req.body;
-    const item = monitoredPaths.find(p => p.id === pathId);
-    if (item) {
-      item.expectedSha256 = newSha256 || item.currentSha256;
-      item.status = "intact";
-      item.lastChecked = new Date().toISOString();
-    }
-
+    const item = globalFimEngine.acceptBaseline(pathId, newSha256);
     res.json({ success: true, message: '已承認檔案變更並將當前特徵更新為正式合規基準', path: item });
   });
 

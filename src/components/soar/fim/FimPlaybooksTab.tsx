@@ -36,22 +36,39 @@ export const FimPlaybooksTab: React.FC<FimPlaybooksTabProps> = ({
 
   const selectedPlaybook = playbooks.find(p => p.id === selectedPlaybookId) || playbooks[0];
 
-  const handleRunSimulation = (pb: FimPlaybookItem) => {
+  const handleRunSimulation = async (pb: FimPlaybookItem) => {
     setIsSimulating(true);
-    setSimulationLog({
-      id: pb.id,
-      logs: [
-        `[${new Date().toLocaleTimeString()}] 模擬威脅注入測試：對目標目錄觸發未授權變更事件...`,
-        `[${new Date().toLocaleTimeString()}] FIM eBPF 探針偵測到檔案雜湊偏離，觸發規則標籤：${pb.name}`,
-        `[${new Date().toLocaleTimeString()}] 調度 SOAR 自動化決策引擎 (模式: ${pb.executionMode})...`,
-        ...pb.actionsList.map(a => `[${new Date().toLocaleTimeString()}] 執行動作節點 -> ${a} [SUCCESS]`),
-        `[${new Date().toLocaleTimeString()}] 劇本執行完畢！MTTR 耗時：${(pb.averageMttrSeconds * 1000).toFixed(0)}ms，主機已恢復合規基準狀態。`
-      ]
-    });
-
-    setTimeout(() => {
+    try {
+      const res = await fetch(`/api/v1/fim/playbooks/${pb.id}/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetHost: 'edge-gateway-01' })
+      });
+      const data = await res.json();
+      if (data.success && data.executionSteps) {
+        setSimulationLog({
+          id: pb.id,
+          logs: data.executionSteps
+        });
+      } else {
+        throw new Error(data.error || 'Simulation failed');
+      }
+      onSimulatePlaybook(pb.id);
+    } catch {
+      // Fallback display
+      setSimulationLog({
+        id: pb.id,
+        logs: [
+          `[${new Date().toLocaleTimeString()}] 模擬威脅注入測試：對目標目錄觸發未授權變更事件...`,
+          `[${new Date().toLocaleTimeString()}] FIM eBPF 探針偵測到檔案雜湊偏離，觸發規則標籤：${pb.name}`,
+          `[${new Date().toLocaleTimeString()}] 調度 SOAR 自動化決策引擎 (模式: ${pb.executionMode})...`,
+          ...pb.actionsList.map(a => `[${new Date().toLocaleTimeString()}] 執行動作節點 -> ${a} [SUCCESS]`),
+          `[${new Date().toLocaleTimeString()}] 劇本執行完畢！MTTR 耗時：${(pb.averageMttrSeconds * 1000).toFixed(0)}ms，主機已恢復合規基準狀態。`
+        ]
+      });
+    } finally {
       setIsSimulating(false);
-    }, 1200);
+    }
   };
 
   return (

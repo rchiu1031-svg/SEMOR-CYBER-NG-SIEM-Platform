@@ -2099,6 +2099,7 @@ async function startServer() {
   app.use('/api/v1/malware', malwareRouter);
   app.use('/api/malware', malwareRouter);
   app.use('/api/v1/fim', createFimRouter());
+  app.use('/api/fim', createFimRouter());
   app.use('/api/v1/vuln', createVulnRouter());
   app.use('/api/v1/ai-analyst', createAiAnalystRouter());
   app.use('/api/v1/forensics', createForensicsRouter());
