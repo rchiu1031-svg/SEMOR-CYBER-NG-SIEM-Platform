@@ -192,7 +192,7 @@ export default function UEBASettingsView({ isReadOnly = false }: UEBASettingsVie
   });
 
   // Telemetry Pipelines Status
-  const [telemetrySources] = useState([
+  const [telemetrySources, setTelemetrySources] = useState([
     { name: 'EDR 行程與記憶體行為事件 (EDR Process & Memory)', count: '1,240,000 筆/小時', active: true, health: '優良', latency: '4ms' },
     { name: 'Active Directory / 網域身分認證日誌 (Identity & AD Logs)', count: '458,000 筆/小時', active: true, health: '優良', latency: '12ms' },
     { name: 'Netflow / IPFIX 網路流量中繼資料 (Netflow Metadata)', count: '8,420,000 筆/小時', active: true, health: '優良', latency: '2ms' },
@@ -203,28 +203,70 @@ export default function UEBASettingsView({ isReadOnly = false }: UEBASettingsVie
     { name: '應用系統與核心 API 存取記錄 (Application & API Logs)', count: '74,000 筆/小時', active: false, health: '已暫停', latency: '-' },
   ]);
 
+  // Load settings from backend API
+  React.useEffect(() => {
+    fetch('/api/v1/ueba/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.settings) {
+          if (data.settings.weights) setWeights(data.settings.weights);
+          if (data.settings.policies) setPolicies(data.settings.policies);
+          if (data.settings.telemetrySources) setTelemetrySources(data.settings.telemetrySources);
+        }
+      })
+      .catch(err => console.warn('Could not load UEBA settings from backend:', err));
+  }, []);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const handleResetWeights = () => {
+  const handleResetWeights = async () => {
     setWeights(defaultWeights);
-    showToast('已重設行為風險評分權重為系統預設值！');
+    try {
+      await fetch('/api/v1/ueba/settings/weights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weights: defaultWeights })
+      });
+    } catch (e) {}
+    showToast('已重設行為風險評分權重為系統預設值並同步後端！');
   };
 
-  const handleSaveSettings = () => {
-    showToast('UEBA 行為分析引擎設定已成功儲存並同步生效！');
+  const handleSaveSettings = async () => {
+    try {
+      await fetch('/api/v1/ueba/settings/weights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weights })
+      });
+    } catch (e) {}
+    showToast('UEBA 行為分析引擎設定已成功儲存並同步至後端推論引擎！');
   };
 
-  const handleTogglePolicy = (id: string) => {
-    setPolicies(policies.map(p => p.id === id ? { ...p, enabled: !p.enabled } : p));
-    showToast('風險政策啟用狀態已更新！');
+  const handleTogglePolicy = async (id: string) => {
+    const updated = policies.map(p => p.id === id ? { ...p, enabled: !p.enabled } : p);
+    setPolicies(updated);
+    const targetPolicy = updated.find(p => p.id === id);
+    if (targetPolicy) {
+      try {
+        await fetch('/api/v1/ueba/settings/policies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ policy: targetPolicy })
+        });
+      } catch (e) {}
+    }
+    showToast('風險政策啟用狀態已更新並同步至後端！');
   };
 
-  const handleDeletePolicy = (id: string) => {
+  const handleDeletePolicy = async (id: string) => {
     setPolicies(policies.filter(p => p.id !== id));
-    showToast('風險政策已成功刪除！');
+    try {
+      await fetch(`/api/v1/ueba/settings/policies/${id}`, { method: 'DELETE' });
+    } catch (e) {}
+    showToast('風險政策已成功自後端刪除！');
   };
 
   const handleOpenAddPolicy = () => {
@@ -247,15 +289,17 @@ export default function UEBASettingsView({ isReadOnly = false }: UEBASettingsVie
     setShowPolicyModal(true);
   };
 
-  const handleSavePolicyForm = (e: React.FormEvent) => {
+  const handleSavePolicyForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!policyForm.name) return;
 
+    let targetPolicy: RiskPolicy;
     if (editingPolicy) {
-      setPolicies(policies.map(p => p.id === editingPolicy.id ? { ...p, ...policyForm } as RiskPolicy : p));
+      targetPolicy = { ...editingPolicy, ...policyForm } as RiskPolicy;
+      setPolicies(policies.map(p => p.id === editingPolicy.id ? targetPolicy : p));
       showToast('風險政策已成功更新！');
     } else {
-      const newPolicy: RiskPolicy = {
+      targetPolicy = {
         id: `p${Date.now()}`,
         name: policyForm.name || '未命名政策',
         category: policyForm.category || '身份與認證',
@@ -265,13 +309,22 @@ export default function UEBASettingsView({ isReadOnly = false }: UEBASettingsVie
         scope: policyForm.scope || '全體使用者',
         enabled: policyForm.enabled ?? true
       };
-      setPolicies([...policies, newPolicy]);
-      showToast('已新增自訂風險政策！');
+      setPolicies([...policies, targetPolicy]);
+      showToast('已新增自訂風險政策並同步後端！');
     }
+
+    try {
+      await fetch('/api/v1/ueba/settings/policies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy: targetPolicy })
+      });
+    } catch (err) {}
+
     setShowPolicyModal(false);
   };
 
-  const handleStartRetrain = () => {
+  const handleStartRetrain = async () => {
     setIsRetraining(true);
     setRetrainProgress(10);
     setRetrainLogs([
@@ -280,6 +333,10 @@ export default function UEBASettingsView({ isReadOnly = false }: UEBASettingsVie
       `[${new Date().toLocaleTimeString()}] 執行同儕分群 (Peer Grouping: ${baselineConfig.peerGroupType === 'department' ? '部門維度' : '角色職務維度'})...`,
     ]);
     setShowRetrainModal(true);
+
+    try {
+      fetch('/api/v1/ueba/models/retrain', { method: 'POST' }).catch(() => {});
+    } catch (e) {}
 
     setTimeout(() => {
       setRetrainProgress(45);

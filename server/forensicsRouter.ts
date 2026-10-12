@@ -1,83 +1,179 @@
 import express, { type Request, type Response } from 'express';
+import { forensicsEngine } from './forensicsEngine.ts';
+
 const Router = express.Router;
 
 export function createForensicsRouter() {
   const router = Router();
 
-  let artifacts = [
-    {
-      id: "art-001",
-      name: "dc01_smb_attack_capture.pcapng",
-      type: "Network PCAP Packet Dump",
-      fileSizeMB: 48.2,
-      sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      acquiredFrom: "sw-core-01 (SPAN Port 445)",
-      acquiredBy: "Sarah Lin (Forensics Lead)",
-      acquiredAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-      verifiedIntegrity: true,
-      notes: "包含來源 10.88.14.92 對 DC01 完整 SMB 握手與 CVE-2017-0144 畸形封包原始二進位流。"
-    },
-    {
-      id: "art-002",
-      name: "finance_pc03_memory_dump.raw",
-      type: "RAM Physical Memory Dump",
-      fileSizeMB: 16384,
-      sha256: "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
-      acquiredFrom: "FINANCE-PC03 (10.0.4.15)",
-      acquiredBy: "Alex Chen (Tier 3 Lead)",
-      acquiredAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-      verifiedIntegrity: true,
-      notes: "利用 WinPmem 抓取之物理記憶體鏡像，Volatility 已成功提取 Mimikatz 注入 LSASS 殘留線程。"
-    }
-  ];
+  // 1. Cases APIs
+  router.get('/cases', (_req: Request, res: Response) => {
+    const cases = forensicsEngine.getCases();
+    res.json({ success: true, count: cases.length, cases });
+  });
 
-  router.get('/artifacts', (req: Request, res: Response) => {
-    res.json({ success: true, count: artifacts.length, artifacts });
+  router.get('/cases/:id', (req: Request, res: Response) => {
+    const forensicCase = forensicsEngine.getCaseById(req.params.id);
+    if (!forensicCase) {
+      return res.status(404).json({ success: false, error: `案件未找到: ${req.params.id}` });
+    }
+    const evidence = forensicsEngine.getEvidence(forensicCase.id);
+    res.json({ success: true, case: forensicCase, evidence });
+  });
+
+  router.post('/cases', (req: Request, res: Response) => {
+    const newCase = forensicsEngine.createCase(req.body);
+    res.json({ success: true, message: `案件 ${newCase.name} 已成功立案`, case: newCase });
+  });
+
+  router.post('/cases/:id/export-report', (req: Request, res: Response) => {
+    const dossier = forensicsEngine.exportDossier(req.params.id);
+    res.json({ success: true, dossier });
+  });
+
+  // 2. Evidence APIs
+  router.get('/evidence', (req: Request, res: Response) => {
+    const caseId = req.query.caseId as string | undefined;
+    const evidence = forensicsEngine.getEvidence(caseId);
+    res.json({ success: true, count: evidence.length, evidence });
+  });
+
+  router.get('/evidence/:id', (req: Request, res: Response) => {
+    const evi = forensicsEngine.getEvidenceById(req.params.id);
+    if (!evi) {
+      return res.status(404).json({ success: false, error: `事證未找到: ${req.params.id}` });
+    }
+    res.json({ success: true, evidence: evi });
+  });
+
+  router.post('/evidence', (req: Request, res: Response) => {
+    const newEvi = forensicsEngine.addEvidence(req.body);
+    res.json({ success: true, message: `鑑識事證 '${newEvi.name}' 已成功封裝並計入監管鏈`, evidence: newEvi });
+  });
+
+  router.post('/evidence/:id/verify-hash', (req: Request, res: Response) => {
+    const result = forensicsEngine.verifyEvidenceHash(req.params.id);
+    res.json(result);
+  });
+
+  router.post('/evidence/:id/transfer-custody', (req: Request, res: Response) => {
+    const { recipient, reason, examiner } = req.body;
+    const record = forensicsEngine.transferCustody({
+      evidenceId: req.params.id,
+      recipient,
+      reason,
+      examiner
+    });
+    res.json({ success: true, message: '監管鏈移轉審計紀錄已成功簽署寫入', record });
+  });
+
+  // 3. Hex Sector Dump
+  router.get('/evidence/:id/hex', (req: Request, res: Response) => {
+    const offset = (req.query.offset as string) || '0x000F83C0';
+    const hexBlocks = forensicsEngine.getHexDump(req.params.id, offset);
+    res.json({ success: true, evidenceId: req.params.id, offset, hexBlocks });
+  });
+
+  // 4. File Carving Recovery
+  router.post('/evidence/:id/carve', (req: Request, res: Response) => {
+    const result = forensicsEngine.carveArtifacts(req.params.id);
+    res.json(result);
+  });
+
+  // 5. Super-Timeline API
+  router.get('/timeline', (req: Request, res: Response) => {
+    const evidenceId = req.query.evidenceId as string | undefined;
+    const timeline = forensicsEngine.getSuperTimeline(evidenceId);
+    res.json({ success: true, count: timeline.length, timeline });
+  });
+
+  // 6. Chain of Custody Ledger API
+  router.get('/chain-of-custody', (req: Request, res: Response) => {
+    const evidenceId = req.query.evidenceId as string | undefined;
+    const ledger = forensicsEngine.getCustodyLedger(evidenceId);
+    res.json({ success: true, count: ledger.length, custodyLedger: ledger });
+  });
+
+  // 7. YARA Deployment API
+  router.post('/yara/deploy', (req: Request, res: Response) => {
+    const { ruleName, ruleBody } = req.body;
+    if (!ruleName) {
+      return res.status(400).json({ success: false, error: 'ruleName is required' });
+    }
+    const result = forensicsEngine.deployYaraRule({ ruleName, ruleBody });
+    res.json(result);
+  });
+
+  // 8. GenAI Forensics Copilot Query
+  router.post('/copilot/query', (req: Request, res: Response) => {
+    const { prompt, contextEvidenceId } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ success: false, error: 'prompt is required' });
+    }
+    const result = forensicsEngine.queryForensicsCopilot(prompt, contextEvidenceId);
+    res.json({ success: true, response: result });
+  });
+
+  // 8b. Volatility 3 Memory Extraction API
+  router.get('/memory-analysis', (req: Request, res: Response) => {
+    const evidenceId = (req.query.evidenceId as string) || 'EVI-002';
+    const result = forensicsEngine.getMemoryAnalysis(evidenceId);
+    res.json(result);
+  });
+
+  // 8c. Network PCAP Reconstruction API
+  router.get('/network-sessions', (req: Request, res: Response) => {
+    const evidenceId = req.query.evidenceId as string | undefined;
+    const result = forensicsEngine.getNetworkSessions(evidenceId);
+    res.json(result);
+  });
+
+  // 8d. Registry Carving & OS Footprint API
+  router.get('/registry-carving', (req: Request, res: Response) => {
+    const evidenceId = (req.query.evidenceId as string) || 'EVI-001';
+    const result = forensicsEngine.getRegistryCarving(evidenceId);
+    res.json(result);
+  });
+
+
+  // 9. Backward Compatibility: Artifacts API
+  router.get('/artifacts', (_req: Request, res: Response) => {
+    const evidence = forensicsEngine.getEvidence();
+    res.json({
+      success: true,
+      count: evidence.length,
+      artifacts: evidence.map(e => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        fileSizeMB: e.fileSizeMB,
+        sha256: e.sha256,
+        acquiredFrom: e.acquiredFrom,
+        acquiredBy: e.acquiredBy,
+        acquiredAt: e.acquiredAt,
+        verifiedIntegrity: e.verifiedIntegrity,
+        notes: e.notes
+      }))
+    });
   });
 
   router.post('/artifacts', (req: Request, res: Response) => {
-    const { name, type, fileSizeMB, acquiredFrom, notes } = req.body;
-    const newArt = {
-      id: `art-${Date.now().toString().slice(-4)}`,
-      name: name || "forensic_evidence.raw",
-      type: type || "Disk Image / Evidence",
-      fileSizeMB: Number(fileSizeMB) || 120,
-      sha256: `sha256:${Buffer.from(String(Date.now())).toString('hex').padEnd(64, 'e').slice(0, 64)}`,
-      acquiredFrom: acquiredFrom || "Host Endpoint",
-      acquiredBy: "SOC Digital Forensics Officer",
-      acquiredAt: new Date().toISOString(),
-      verifiedIntegrity: true,
-      notes: notes || "已完成不可篡改數位簽章計算並歸檔至證據保險箱。"
-    };
-
-    artifacts.unshift(newArt);
-    res.json({ success: true, message: `鑑識證據 '${newArt.name}' 已成功封裝並計入監管鏈`, artifact: newArt });
-  });
-
-  router.get('/timeline', (req: Request, res: Response) => {
-    const now = Date.now();
-    const timelineEvents = [
-      { timestamp: new Date(now - 3600000 * 3).toISOString(), event: "初始連線建立: 10.88.14.92 發起 TCP SYN 至 192.168.1.100:445", source: "NDR Flow Engine" },
-      { timestamp: new Date(now - 3600000 * 2.9).toISOString(), event: "SMB 協商完成: 請求 SMBv1 擴充屬性 (FEA List)", source: "Syslog NGFW" },
-      { timestamp: new Date(now - 3600000 * 2.8).toISOString(), event: "IDS 規則命中: Suricata 觸發 ET EXPLOIT MS17-010 告警", source: "Suricata IDS" },
-      { timestamp: new Date(now - 3600000 * 2.7).toISOString(), event: "自動化封鎖執行: 防火牆下發 DROP 阻絕策略並隔離跳板端點", source: "SOAR Automation" }
-    ];
-
-    res.json({ success: true, timeline: timelineEvents });
-  });
-
-  router.get('/chain-of-custody', (req: Request, res: Response) => {
+    const newEvi = forensicsEngine.addEvidence(req.body);
     res.json({
       success: true,
-      custodyLedger: artifacts.map(a => ({
-        artifactId: a.id,
-        artifactName: a.name,
-        sha256: a.sha256,
-        custodian: a.acquiredBy,
-        location: "SOC Encrypted Offline Storage Vault S3-SECURE",
-        status: "SEALED_VERIFIED",
-        auditLedgerHash: `sha256:${Buffer.from(`${a.id}-${a.sha256}`).toString('hex').padEnd(64, 'f').slice(0, 64)}`
-      }))
+      message: `鑑識證據 '${newEvi.name}' 已成功封裝並計入監管鏈`,
+      artifact: {
+        id: newEvi.id,
+        name: newEvi.name,
+        type: newEvi.type,
+        fileSizeMB: newEvi.fileSizeMB,
+        sha256: newEvi.sha256,
+        acquiredFrom: newEvi.acquiredFrom,
+        acquiredBy: newEvi.acquiredBy,
+        acquiredAt: newEvi.acquiredAt,
+        verifiedIntegrity: newEvi.verifiedIntegrity,
+        notes: newEvi.notes
+      }
     });
   });
 

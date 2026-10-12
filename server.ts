@@ -2105,7 +2105,9 @@ async function startServer() {
   app.use('/api/v1/honeypot', createHoneypotRouter());
   app.use('/api/v1/wargaming', createHoneypotRouter());
   app.use('/api/v1/ueba', createUebaRouter());
+  app.use('/api/ueba', createUebaRouter());
   app.use('/api/v1/soar', createSoarRouter());
+  app.use('/api/soar', createSoarRouter());
   app.use('/api/v1/cases', createCasesRouter());
   app.use('/api/v1/apm', createApmRouter());
   app.use('/api/v1/overview', createOverviewRouter(() => runtimeLogCorpus, () => vlogsRetryState, broadcastOverviewUpdate));

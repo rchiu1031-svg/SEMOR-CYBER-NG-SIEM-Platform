@@ -212,6 +212,7 @@ import { OverviewDashboardView } from './components/overview/OverviewDashboardVi
 import { CustomDashboardView } from './components/custom-dashboard/CustomDashboardView';
 import { CaseManagementView } from './components/case-management';
 import { EngineArchitectureView } from './components/EngineArchitectureView';
+import DigitalForensicsViewComponent from './components/DigitalForensicsView';
 
 // Mock Data
 const ALERT_DATA = [
@@ -1732,7 +1733,7 @@ export default function App() {
       case 'soar':
         return <SOARViewComponent />;
       case 'digital-forensics':
-        return <DigitalForensicsView />;
+        return <DigitalForensicsViewComponent />;
       case 'case-management':
         return <CaseManagementView />;
       case 'ai-analyst':
@@ -10522,7 +10523,7 @@ const FORENSICS_TEMPLATES: Record<string, Record<string, string>> = {
   }
 };
 
-function DigitalForensicsView() {
+function LegacyDigitalForensicsView() {
   const { i18n } = useTranslation();
   const currentLang = (i18n && i18n.language) ? (i18n.language.slice(0, 2)) : 'zh';
   const msg = FORENSICS_LOCALES[currentLang] || FORENSICS_LOCALES.zh;

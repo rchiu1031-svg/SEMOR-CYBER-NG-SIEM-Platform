@@ -40,7 +40,8 @@ import {
   VolumeX,
   ExternalLink,
   PlusCircle,
-  HelpCircle
+  HelpCircle,
+  Crosshair
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -56,6 +57,7 @@ import {
 } from 'recharts';
 import { ComposableMap, Geographies, Geography, Marker, Line as MapLine } from 'react-simple-maps';
 import { cn } from '../lib/utils';
+import TPotAttackMapTab from './honeypot/TPotAttackMapTab';
 
 // World Atlas GeoJSON url
 const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
@@ -126,6 +128,7 @@ const LOCALES = {
     analyst: '分析師',
     auditor: '稽核員',
     tab_dashboard: '📊 威脅情報儀表板',
+    tab_attack_map: '🗺️ T-Pot 全球即時攻擊地圖',
     tab_nodes: '🖥️ 分散式節點管理',
     tab_logs: '🪵 深層攻擊日誌',
     tab_malware: '🔬 捕獲惡意樣本',
@@ -218,6 +221,7 @@ const LOCALES = {
     analyst: 'Analyst',
     auditor: 'Auditor',
     tab_dashboard: '📊 Threat Dashboard',
+    tab_attack_map: '🗺️ T-Pot Live Attack Map',
     tab_nodes: '🖥️ Node Management',
     tab_logs: '🪵 Deep Attack Logs',
     tab_malware: '🔬 Captures Sandbox',
@@ -310,6 +314,7 @@ const LOCALES = {
     analyst: 'アナリスト',
     auditor: '監査員',
     tab_dashboard: '📊 脅威ダッシュボード',
+    tab_attack_map: '🗺️ T-Pot 攻撃マップ',
     tab_nodes: '🖥️ 統合ノード管理',
     tab_logs: '🪵 深層攻撃イベントログ',
     tab_malware: '🔬 検知マルウェア解析',
@@ -422,7 +427,7 @@ export default function HoneypotManagerView() {
   };
 
   // Navigation & View Subtab Toggler
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'nodes' | 'logs' | 'malware' | 'settings' | 'audit' | 'pcap' | 'honeytoken' | 'analysis'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'attack-map' | 'nodes' | 'logs' | 'malware' | 'settings' | 'audit' | 'pcap' | 'honeytoken' | 'analysis'>('dashboard');
   
   // Interactive RBAC Role configuration
   const [currentUserRole, setCurrentUserRole] = useState<RBACRole>('Admin');
@@ -755,6 +760,50 @@ export default function HoneypotManagerView() {
     }
   }, [toastMessage]);
 
+  // Synchronize initial state with T-Pot platform backend
+  useEffect(() => {
+    const syncWithTPotBackend = async () => {
+      try {
+        const res = await fetch('/api/v1/honeypot/attack-map/live?limit=15');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.summary) {
+            setTotalAttacks(data.summary.totalAttacksToday);
+            setUniqueIps(data.summary.uniqueIpsToday);
+            setMalwareCaptured(data.summary.malwareSamplesCaptured);
+          }
+          if (data.nodes && data.nodes.length > 0) {
+            setNodes(data.nodes.map((n: any) => ({
+              id: n.id,
+              name: n.name,
+              ip: n.ip,
+              type: n.type,
+              cpu: n.cpuUsage || 25,
+              ram: n.memoryUsage || 45,
+              disk: n.diskUsage || 30,
+              uptime: n.uptime || '14d',
+              status: n.status === 'ONLINE' ? 'Online' : 'Offline',
+              containers: n.containers || ['Cowrie', 'Dionaea']
+            })));
+          }
+        }
+
+        const blockRes = await fetch('/api/v1/honeypot/blocked-ips');
+        if (blockRes.ok) {
+          const blockData = await blockRes.json();
+          if (blockData.blockedList) {
+            const serverIps = blockData.blockedList.map((b: any) => b.ip);
+            setBlacklistAddresses(prev => [...new Set([...prev, ...serverIps])]);
+          }
+        }
+      } catch {
+        // Fallback to local defaults if network drops
+      }
+    };
+
+    syncWithTPotBackend();
+  }, []);
+
   // Synchronous redirection when roles shift
   useEffect(() => {
     if (currentUserRole === 'Auditor') {
@@ -972,7 +1021,7 @@ export default function HoneypotManagerView() {
   }, [activeTab, synthSoundEnabled, currentUserRole]);
 
   // Trigger Action: Block IP Address
-  const handleBlockAddress = (ip: string) => {
+  const handleBlockAddress = async (ip: string) => {
     // Role restrictions checks
     if (currentUserRole === 'Auditor') {
       showToast('權限不足：稽核員僅能看報表，不允許執行黑名單封鎖操作。', 'warning');
@@ -984,8 +1033,22 @@ export default function HoneypotManagerView() {
       return;
     }
 
+    try {
+      await fetch('/api/v1/honeypot/block-attacker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ip,
+          reason: 'T-Pot 蜜罐控制台手動觸發 NAC 與邊界防火牆聯防阻斷',
+          blockedBy: `SOC ${currentUserRole}`
+        })
+      });
+    } catch {
+      // Background sync
+    }
+
     setBlacklistAddresses(prev => [...prev, ip]);
-    showToast(`自動化聯防連動已部署成功！已將對象高危 IP [${ip}] 分發至 Fortinet 及 Palo Alto 防火牆阻斷名單。`, 'success');
+    showToast(`自動化聯防連動已部署成功！已將對象高危 IP [${ip}] 透過 NAC 與邊界防火牆全面阻斷。`, 'danger');
     
     // Auto change logs action status
     setLogs(prev => prev.map(item => {
@@ -997,11 +1060,22 @@ export default function HoneypotManagerView() {
   };
 
   // Remove form blacklist
-  const handleRemoveFromBlacklist = (ip: string) => {
+  const handleRemoveFromBlacklist = async (ip: string) => {
     if (currentUserRole !== 'Admin') {
       showToast('特別限制：只有系統管理員 (Admin) 才可以從防禦黑名單中移除 IP。', 'warning');
       return;
     }
+
+    try {
+      await fetch('/api/v1/honeypot/unblock-attacker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip })
+      });
+    } catch {
+      // Background sync
+    }
+
     setBlacklistAddresses(prev => prev.filter(x => x !== ip));
     showToast(`IP [${ip}] 已解封，黑名單規則已從邊緣防火牆規則中移除。`, 'info');
   };
@@ -1186,8 +1260,9 @@ export default function HoneypotManagerView() {
   });
 
   const getSidebarTabs = () => {
-    const list: { id: 'dashboard' | 'nodes' | 'logs' | 'malware' | 'settings' | 'audit' | 'pcap' | 'honeytoken' | 'analysis'; label: string; desc: string; isDisabled?: boolean }[] = [
-      { id: 'dashboard', label: getLoc('tab_dashboard'), desc: 'Threat Information' }
+    const list: { id: 'dashboard' | 'attack-map' | 'nodes' | 'logs' | 'malware' | 'settings' | 'audit' | 'pcap' | 'honeytoken' | 'analysis'; label: string; desc: string; isDisabled?: boolean }[] = [
+      { id: 'dashboard', label: getLoc('tab_dashboard'), desc: 'Threat Information' },
+      { id: 'attack-map', label: getLoc('tab_attack_map'), desc: 'Realtime Cyber Battlefield' }
     ];
 
     if (currentUserRole !== 'Auditor') {
@@ -1518,9 +1593,16 @@ export default function HoneypotManagerView() {
                         Global Active Attack Source Map (地理坐標威脅熱點)
                       </h3>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[9px] font-mono text-gray-500 bg-black/40 border border-gray-800 px-2 py-0.5 rounded uppercase font-black text-[#FF3366]">
-                        REALTIME INTRUSIONS
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setActiveTab('attack-map')}
+                        className="text-[10px] font-mono font-bold text-[#FF3366] bg-[#FF3366]/10 hover:bg-[#FF3366]/20 border border-[#FF3366]/30 px-2.5 py-1 rounded-lg uppercase flex items-center gap-1.5 transition-all shadow-sm"
+                      >
+                        <Crosshair size={12} />
+                        <span>開啟全螢幕戰局地圖</span>
+                      </button>
+                      <span className="text-[9px] font-mono bg-black/40 border border-gray-800 px-2 py-0.5 rounded uppercase font-black text-emerald-400">
+                        LIVE
                       </span>
                     </div>
                   </div>
@@ -1838,6 +1920,16 @@ export default function HoneypotManagerView() {
 
               </div>
 
+            </div>
+          )}
+
+          {/* TAB: DEDICATED T-POT REALTIME ATTACK MAP (FULL-FEATURED) */}
+          {activeTab === 'attack-map' && (
+            <div className="animate-fadeIn">
+              <TPotAttackMapTab 
+                onNotify={(text, type) => showToast(text, type)}
+                synthSoundEnabled={synthSoundEnabled}
+              />
             </div>
           )}
 

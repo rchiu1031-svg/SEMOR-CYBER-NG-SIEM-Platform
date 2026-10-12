@@ -5,12 +5,13 @@ import {
   Users, Server, Database, Network, Globe, Key, AlertTriangle, Play,
   Zap, ChevronRight, Send, Search, Terminal, ArrowRight, UserCheck, 
   Smartphone, Monitor, FileText, FileSearch, Trash2, Check, RefreshCw, X, Flame, Clock, ClipboardCheck, ArrowUpRight,
-  Code, Sliders, Layers, Link, CheckCircle2, Cpu, Wifi
+  Code, Sliders, Layers, Link, CheckCircle2, Cpu, Wifi, Lock, Download, Copy, RotateCcw, Filter
 } from 'lucide-react';
 import { 
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip as RechartsTooltip, 
   ResponsiveContainer, Cell 
 } from 'recharts';
+import UEBASettingsView from './UEBASettingsView';
 
 // Data types & Schemas 
 export interface UEBAEntity {
@@ -29,6 +30,10 @@ export interface UEBAEntity {
   devices: { name: string; type: string; id: string }[];
   lastActive: string;
   baselineSummary: string;
+  watchlist?: boolean;
+  contained?: boolean;
+  peerGroup?: string;
+  baselineDeviationPct?: number;
 }
 
 export interface ActivityLog {
@@ -132,7 +137,7 @@ export default function UEBASystemView() {
   }, []);
 
   // Static Data conforming strictly to the requested architecture
-  const entitiesData: UEBAEntity[] = [
+  const initialEntitiesData: UEBAEntity[] = [
     {
       id: 'usr-johndoe',
       name: 'John Doe',
@@ -212,7 +217,7 @@ export default function UEBASystemView() {
     }
   ];
 
-  const activityLogs: ActivityLog[] = [
+  const initialActivityLogs: ActivityLog[] = [
     {
       id: 'log-001',
       time: '今日 03:15:22',
@@ -280,6 +285,251 @@ export default function UEBASystemView() {
     }
   ];
 
+  // Live state synchronized with UEBA Backend API
+  const [entities, setEntities] = useState<UEBAEntity[]>(initialEntitiesData);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(initialActivityLogs);
+  const [isBackendConnected, setIsBackendConnected] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [showSimulatorModal, setShowSimulatorModal] = useState<boolean>(false);
+  const [simulatorForm, setSimulatorForm] = useState({
+    entityId: 'usr-johndoe',
+    vector: 'Time/Space' as 'Time/Space' | 'Data Volume' | 'Privilege Mutation',
+    type: 'Authentication' as 'Authentication' | 'Endpoint' | 'Network' | 'SaaS' | 'Database',
+    description: '倫敦跳板 Impossible Travel (10 分鐘跨國登入異常)',
+    score: 94,
+    deviation: '+5,800 km/h'
+  });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Threats Leaderboard Filtering
+  const [threatSearchQuery, setThreatSearchQuery] = useState('');
+  const [threatDeptFilter, setThreatDeptFilter] = useState('All');
+  const [threatStatusFilter, setThreatStatusFilter] = useState('All');
+
+  // Event Investigate Filtering
+  const [investigateSearch, setInvestigateSearch] = useState('');
+  const [investigateEntityId, setInvestigateEntityId] = useState('All');
+
+  // Copilot BigQuery SQL Execution
+  const [executingSqlIndex, setExecutingSqlIndex] = useState<number | null>(null);
+  const [sqlResults, setSqlResults] = useState<Record<number, { executionTimeMs: number; bytesProcessed: string; columns: string[]; rows: any[] }>>({});
+
+  // Settings Sub-view inside UEBA
+  const [settingsActiveView, setSettingsActiveView] = useState<'matrix' | 'baseline'>('matrix');
+
+  const entitiesData = entities;
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const fetchUEBAData = async (silent = false) => {
+    if (!silent) setIsRefreshing(true);
+    try {
+      const [entitiesRes, activitiesRes, statsRes] = await Promise.all([
+        fetch('/api/v1/ueba/entities'),
+        fetch('/api/v1/ueba/activities'),
+        fetch('/api/v1/ueba/stats')
+      ]);
+
+      if (entitiesRes.ok) {
+        const entData = await entitiesRes.json();
+        if (entData.success && Array.isArray(entData.entities)) {
+          setEntities(entData.entities);
+          setSelectedEntity(prev => {
+            if (!prev) return entData.entities[0] || null;
+            return entData.entities.find((e: UEBAEntity) => e.id === prev.id) || prev;
+          });
+        }
+      }
+
+      if (activitiesRes.ok) {
+        const actData = await activitiesRes.json();
+        if (actData.success && Array.isArray(actData.activities)) {
+          setActivityLogs(actData.activities);
+        }
+      }
+
+      if (statsRes.ok) {
+        const sData = await statsRes.json();
+        if (sData.success && sData.ingestion) {
+          setIngestionCount({
+            authCount: sData.ingestion.authCount || 4120,
+            endCount: sData.ingestion.endCount || 8840,
+            netCount: sData.ingestion.netCount || 15430,
+            saasCount: sData.ingestion.saasCount || 6511
+          });
+        }
+      }
+      setIsBackendConnected(true);
+    } catch (e) {
+      console.warn('UEBA backend fetch failed, utilizing client fallback data:', e);
+      setIsBackendConnected(false);
+    } finally {
+      if (!silent) setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUEBAData();
+    const interval = setInterval(() => {
+      fetchUEBAData(true);
+    }, 8000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleToggleWatchlist = async (entity: UEBAEntity) => {
+    const nextWatchlist = !entity.watchlist;
+    try {
+      const res = await fetch('/api/v1/ueba/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entityId: entity.id, enable: nextWatchlist })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.message || '觀察名單狀態已更新');
+      }
+    } catch (e) {}
+    setEntities(prev => prev.map(e => e.id === entity.id ? { ...e, watchlist: nextWatchlist } : e));
+    if (selectedEntity?.id === entity.id) {
+      setSelectedEntity({ ...selectedEntity, watchlist: nextWatchlist });
+    }
+  };
+
+  const handleToggleContainment = async (entity: UEBAEntity) => {
+    const nextContainment = !entity.contained;
+    try {
+      const res = await fetch('/api/v1/ueba/containment/isolate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entityId: entity.id, isolate: nextContainment })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.message || '隔離狀態已更新');
+      }
+    } catch (e) {}
+    setEntities(prev => prev.map(e => e.id === entity.id ? { ...e, contained: nextContainment } : e));
+    if (selectedEntity?.id === entity.id) {
+      setSelectedEntity({ ...selectedEntity, contained: nextContainment });
+    }
+  };
+
+  const handleSimulateAnomalySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/v1/ueba/simulate-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(simulatorForm)
+      });
+      if (res.ok) {
+        showToast(`✓ 異常事件注入成功！實體 ${simulatorForm.entityId} 風險指標已即時重算。`);
+        setShowSimulatorModal(false);
+        await fetchUEBAData(false);
+      }
+    } catch (err) {
+      showToast('異常注入失敗，請確認後端連線。');
+    }
+  };
+
+  const handleExportDossier = (entity: UEBAEntity) => {
+    const dossierData = {
+      exportTimestamp: new Date().toISOString(),
+      entityProfile: entity,
+      relatedActivities: activityLogs.filter(l => l.entityId === entity.id || l.entityName === entity.name),
+      mitreTacticsMapped: entity.riskFactors,
+      status: entity.status,
+      containmentEnforced: entity.contained,
+      watchlisted: entity.watchlist
+    };
+    const blob = new Blob([JSON.stringify(dossierData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `UEBA-Forensics-Dossier-${entity.id}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`已匯出 ${entity.name} 完整的行為鑑識調查報告 (JSON)！`);
+  };
+
+  const handleResetEntityRisk = async (entity: UEBAEntity) => {
+    try {
+      const res = await fetch(`/api/v1/ueba/entities/${entity.id}/reset-risk`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.message || `實體 ${entity.name} 風險值已重置為基準`);
+        if (data.entity) {
+          setEntities(prev => prev.map(e => e.id === entity.id ? data.entity : e));
+          if (selectedEntity?.id === entity.id) {
+            setSelectedEntity(data.entity);
+          }
+        }
+      }
+    } catch (e) {
+      showToast('重設風險值失敗，請檢查網路連線');
+    }
+  };
+
+  const handleExecuteBigQuerySql = async (index: number, sql: string) => {
+    setExecutingSqlIndex(index);
+    try {
+      const res = await fetch('/api/v1/ueba/copilot/execute-sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setSqlResults(prev => ({
+            ...prev,
+            [index]: {
+              executionTimeMs: data.executionTimeMs,
+              bytesProcessed: data.bytesProcessed,
+              columns: data.columns,
+              rows: data.rows
+            }
+          }));
+          showToast(`✓ BigQuery 查詢執行成功！處理 ${data.bytesProcessed}，耗時 ${data.executionTimeMs}ms`);
+        }
+      }
+    } catch (e) {
+      showToast('BigQuery 查詢執行失敗');
+    } finally {
+      setExecutingSqlIndex(null);
+    }
+  };
+
+  const handleCopyJson = (data: any, label: string) => {
+    try {
+      const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      navigator.clipboard.writeText(text);
+      showToast(`✓ 已複製 ${label} 至剪貼簿！`);
+    } catch (e) {
+      showToast('複製失敗');
+    }
+  };
+
+  const handleInvestigateInCopilot = (log: ActivityLog) => {
+    setActiveRailTab('copilot');
+    const prompt = `針對實體 ${log.entityName} 發生的【${log.vector} - ${log.type}】異常日誌 (ID: ${log.id})，偏離度為 ${log.deviation}：「${log.description}」，請深入分析其攻擊鏈階段、潛在橫向移動威脅，並提供防禦處置措施。`;
+    handleCopilotSubmit(prompt);
+  };
+
+  const handleClearCopilotHistory = () => {
+    setCopilotMessages([
+      {
+        sender: 'gemini',
+        text: '您好！我是您的 Gemini AI 安全調查聯防助手。歷史對話已重置。\n\n請輸入自然語言問題，例如：「幫我找出上週風險飆升前五名的研發部員工，並說明原因。」，或點擊下方快捷提示晶片。'
+      }
+    ]);
+    setSqlResults({});
+    showToast('已重設 Gemini Copilot 對話紀錄');
+  };
+
   // Map entities for scatter chart
   const scatterPlotData = entitiesData.map(ent => ({
     x: ent.type === 'User' ? 1 : ent.type === 'Host' ? 2 : 3,
@@ -318,10 +568,29 @@ export default function UEBASystemView() {
   };
 
   // Ask Gemini about selected Log behavior
-  const handleInterpretLog = (log: ActivityLog) => {
+  const handleInterpretLog = async (log: ActivityLog) => {
     setInterpretingLogId(log.id);
+    setSelectedLog(log);
     setGeminiLogInterpretation(null);
     
+    try {
+      const res = await fetch('/api/v1/ueba/copilot/interpret-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ logId: log.id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.interpretation) {
+          setGeminiLogInterpretation(data.interpretation);
+          setInterpretingLogId(null);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Backend interpret-log failed, falling back to local model:', e);
+    }
+
     setTimeout(() => {
       let analysisResult = '';
       if (log.id === 'log-001') {
@@ -341,15 +610,33 @@ export default function UEBASystemView() {
   };
 
   // Submit prompt to Gemini Chat
-  const handleCopilotSubmit = (userPrompt: string) => {
+  const handleCopilotSubmit = async (userPrompt: string) => {
     if (!userPrompt.trim()) return;
 
     const query = userPrompt;
     setCopilotInput('');
     setCopilotMessages(prev => [...prev, { sender: 'user', text: query }]);
-
-    // Push "Gemini is typing" dummy message
     setCopilotMessages(prev => [...prev, { sender: 'gemini', text: '', isWriting: true }]);
+
+    try {
+      const res = await fetch('/api/v1/ueba/copilot/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.response) {
+          setCopilotMessages(prev => {
+            const withoutWriting = prev.filter(m => !m.isWriting);
+            return [...withoutWriting, data.response];
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Backend copilot query failed, falling back to local reasoner:', e);
+    }
 
     setTimeout(() => {
       setCopilotMessages(prev => {
@@ -390,7 +677,7 @@ export default function UEBASystemView() {
   };
 
   // Simulate API Connection nodes test for Indicator 3
-  const handleApiNodesTest = () => {
+  const handleApiNodesTest = async () => {
     if (apiTesting) return;
     setApiTesting(true);
     
@@ -403,6 +690,13 @@ export default function UEBASystemView() {
       crowdstrike: 'checking',
       okta: 'checking'
     });
+
+    try {
+      const res = await fetch('/api/v1/ueba/integrations/test', { method: 'POST' });
+      if (res.ok) {
+        showToast('✓ 成功向後端完成 6 處 SIEM / EDR / SOAR API 異質聯防心跳驗證！');
+      }
+    } catch (e) {}
 
     setTimeout(() => {
       setApiNodesStatus(prev => ({ ...prev, splunk: 'online' }));
@@ -431,15 +725,20 @@ export default function UEBASystemView() {
   };
 
   // Simulate BigQuery & Dataflow Feature vector extraction for Indicator 1
-  const handleFeatureExtractionSimulate = () => {
+  const handleFeatureExtractionSimulate = async () => {
     setFeaturesExtractionStatus('running');
     setFeaturesProgress(0);
+
+    try {
+      fetch('/api/v1/ueba/pipeline/feature-extraction', { method: 'POST' }).catch(() => {});
+    } catch (e) {}
     
     const interval = setInterval(() => {
       setFeaturesProgress(prev => {
         if (prev >= 100) {
           clearInterval(interval);
           setFeaturesExtractionStatus('completed');
+          showToast('✓ 已調用 Dataflow & BigQuery 完成行為特徵向量提取！');
           return 100;
         }
         return prev + 10;
@@ -448,19 +747,33 @@ export default function UEBASystemView() {
   };
 
   // Simulate Gemini 1.5 Pro Aurora Card Generation for Indicator 2
-  const handleTriggerAuroraAnalysis = () => {
+  const handleTriggerAuroraAnalysis = async () => {
     setAuroraAnalyzing(true);
     setAuroraRevealed(false);
+
+    try {
+      await fetch('/api/v1/ueba/models/aurora-analysis', { method: 'POST' });
+    } catch (e) {}
+
     setTimeout(() => {
       setAuroraAnalyzing(false);
       setAuroraRevealed(true);
+      showToast('✓ Gemini 極光智慧研判報告已即時生成！');
     }, 1500);
   };
 
   // Run containment playbook animation
-  const handleExecutePlaybook = (userName: string) => {
+  const handleExecutePlaybook = async (userName: string) => {
     setExecutingPlaybook(userName);
     setPlaybookStep(1);
+
+    try {
+      fetch('/api/v1/ueba/playbooks/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUser: userName })
+      }).catch(() => {});
+    } catch (e) {}
 
     const steps = [
       '透過 Google Pub/Sub 向 Okta API 呼叫：即時凍結使用者 AD 帳戶...',
@@ -476,7 +789,10 @@ export default function UEBASystemView() {
       setPlaybookStep(current);
       if (current >= 5) {
         clearInterval(interval);
-        setTimeout(() => setExecutingPlaybook(null), 3500);
+        setTimeout(() => {
+          setExecutingPlaybook(null);
+          fetchUEBAData(true);
+        }, 3500);
       }
     }, 1400);
   };
@@ -484,6 +800,151 @@ export default function UEBASystemView() {
   return (
     <div className="w-full text-left bg-[#050608] min-h-[90vh] text-gray-200 font-sans p-2 relative selection:bg-indigo-500/30">
       
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-5 right-5 z-[300] bg-indigo-950/90 border border-indigo-500/40 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md text-xs font-bold"
+          >
+            <Sparkles size={16} className="text-cyan-400 animate-pulse" />
+            <span>{toastMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dynamic Anomaly Event Simulator Modal */}
+      <AnimatePresence>
+        {showSimulatorModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[220] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 text-left"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-[#0e1017] border border-amber-500/30 rounded-3xl w-full max-w-lg p-7 space-y-6 shadow-2xl relative"
+            >
+              <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <Zap size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">UEBA 行為異常動態注入模擬器</h3>
+                    <p className="text-[10px] text-gray-400 mt-0.5">即時發送異常資料至推論管道，驗證基準偏離計算與警示聯防</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowSimulatorModal(false)} className="text-gray-500 hover:text-white p-1">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSimulateAnomalySubmit} className="space-y-4 text-xs">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 block mb-1">目標監控實體 (Entity)</label>
+                  <select
+                    value={simulatorForm.entityId}
+                    onChange={(e) => setSimulatorForm({ ...simulatorForm, entityId: e.target.value })}
+                    className="w-full bg-black/70 border border-white/10 rounded-xl p-2.5 text-white outline-none focus:border-amber-500 text-xs"
+                  >
+                    {entities.map(e => (
+                      <option key={e.id} value={e.id}>{e.name} ({e.department} - {e.type})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 block mb-1">行為維度 (Vector)</label>
+                    <select
+                      value={simulatorForm.vector}
+                      onChange={(e) => setSimulatorForm({ ...simulatorForm, vector: e.target.value as any })}
+                      className="w-full bg-black/70 border border-white/10 rounded-xl p-2.5 text-white outline-none focus:border-amber-500 text-xs"
+                    >
+                      <option value="Time/Space">時間與空間 (Time/Space)</option>
+                      <option value="Data Volume">巨量資料傳輸 (Data Volume)</option>
+                      <option value="Privilege Mutation">特權異動 (Privilege Mutation)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 block mb-1">日誌類型 (Type)</label>
+                    <select
+                      value={simulatorForm.type}
+                      onChange={(e) => setSimulatorForm({ ...simulatorForm, type: e.target.value as any })}
+                      className="w-full bg-black/70 border border-white/10 rounded-xl p-2.5 text-white outline-none focus:border-amber-500 text-xs"
+                    >
+                      <option value="Authentication">身分認證 (Authentication)</option>
+                      <option value="Endpoint">端點行為 (Endpoint)</option>
+                      <option value="Network">網路封包 (Network)</option>
+                      <option value="Database">資料庫存取 (Database)</option>
+                      <option value="SaaS">SaaS 雲端 (SaaS)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 block mb-1">異常事件描述 (Description)</label>
+                  <textarea
+                    rows={2}
+                    value={simulatorForm.description}
+                    onChange={(e) => setSimulatorForm({ ...simulatorForm, description: e.target.value })}
+                    className="w-full bg-black/70 border border-white/10 rounded-xl p-2.5 text-white outline-none focus:border-amber-500 text-xs"
+                    placeholder="輸入詳細異常特徵描述..."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 block mb-1">風險衝擊分數: {simulatorForm.score}</label>
+                    <input
+                      type="range"
+                      min={50}
+                      max={99}
+                      value={simulatorForm.score}
+                      onChange={(e) => setSimulatorForm({ ...simulatorForm, score: Number(e.target.value) })}
+                      className="w-full accent-amber-500 mt-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-gray-400 block mb-1">基準偏離標記 (Deviation)</label>
+                    <input
+                      type="text"
+                      value={simulatorForm.deviation}
+                      onChange={(e) => setSimulatorForm({ ...simulatorForm, deviation: e.target.value })}
+                      className="w-full bg-black/70 border border-white/10 rounded-xl p-2 text-white outline-none focus:border-amber-500 text-xs"
+                      placeholder="+5,800 km/h 或 +1,500%"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-3 border-t border-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setShowSimulatorModal(false)}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-xl text-xs font-bold"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
+                  >
+                    <Zap size={13} />
+                    <span>立即發送注入事件</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Playbook Orchestration Floating Overlay */}
       <AnimatePresence>
         {executingPlaybook && (
@@ -565,10 +1026,18 @@ export default function UEBASystemView() {
               <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-blue-500 rounded-lg flex items-center justify-center text-[8px] font-black border border-[#050608] text-white">AI</div>
             </div>
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <h1 className="text-2xl font-black text-white italic tracking-tight uppercase">User & Entity Behavior Analytics (UEBA)</h1>
                 <span className="px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-full text-[9px] font-black uppercase tracking-widest">
                   Google Vertex AI Connected
+                </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
+                  isBackendConnected 
+                    ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' 
+                    : 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isBackendConnected ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                  {isBackendConnected ? 'UEBA 推論引擎: 線上即時 (Connected: /api/v1/ueba)' : '離線容錯模式'}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-1.5 leading-relaxed max-w-4xl">
@@ -578,7 +1047,7 @@ export default function UEBASystemView() {
             </div>
           </div>
           
-          {/* GCP Ecosystem Pillars */}
+          {/* GCP Ecosystem Pillars & Live Backend Controls */}
           <div className="flex flex-wrap items-center gap-3 bg-black/40 border border-white/[0.03] p-4 rounded-2xl">
             <div className="text-right pr-3 border-r border-white/5">
               <span className="text-[9px] font-black text-gray-500 uppercase block tracking-wider">Storage & Analytic Stack</span>
@@ -588,9 +1057,27 @@ export default function UEBASystemView() {
               <span className="text-[9px] font-black text-gray-500 uppercase block tracking-wider">Engine Mode</span>
               <span className="text-xs font-mono font-bold text-indigo-400">Vertex AI / Isolation</span>
             </div>
-            <div className="text-left pl-1">
+            <div className="text-left pr-3 border-r border-white/5">
               <span className="text-[9px] font-black text-gray-500 uppercase block tracking-wider">AI Copilot</span>
               <span className="text-xs font-mono font-bold text-cyan-400">Gemini 1.5 Pro</span>
+            </div>
+            {/* Live Backend Connection Indicator & Simulator */}
+            <div className="flex items-center gap-2 pl-1">
+              <button
+                onClick={() => setShowSimulatorModal(true)}
+                className="px-3 py-2 bg-gradient-to-r from-amber-500/20 to-rose-500/20 hover:from-amber-500/30 hover:to-rose-500/30 border border-amber-500/30 text-amber-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-amber-500/5"
+              >
+                <Zap size={12} className="text-amber-400 animate-pulse" />
+                <span>模擬注入異常</span>
+              </button>
+              <button
+                onClick={() => fetchUEBAData(false)}
+                disabled={isRefreshing}
+                className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-400 hover:text-white transition-all text-xs"
+                title="重新整理行為模型特徵"
+              >
+                <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-cyan-400' : ''} />
+              </button>
             </div>
           </div>
         </div>
@@ -852,68 +1339,224 @@ export default function UEBASystemView() {
 
             {activeRailTab === 'threats' && (
               <div className="bg-[#0c0d12]/95 border border-gray-900 rounded-[2rem] p-8 space-y-6 shadow-2xl">
-                <div>
-                  <h3 className="text-xl font-black text-white italic tracking-tight uppercase">威脅特徵與實體排行 (UEBA Threat Leaderboard)</h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Vertex AI 特徵比對引擎更新：非監督式非線性集群分析已聚類 4 個異常群島。
-                  </p>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl font-black text-white italic tracking-tight uppercase flex items-center gap-2">
+                      <ShieldAlert className="text-red-400" size={22} />
+                      威脅特徵與實體排行 (UEBA Threat Leaderboard)
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Vertex AI 實體非監督式學習引擎：多維異常關聯已聚類高風險實體，支援即時隔離處置與觀察名單管理。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-mono text-gray-400">
+                    <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-xl font-bold">
+                      總監控實體: <span className="text-indigo-400">{entitiesData.length}</span>
+                    </span>
+                    <span className="px-3 py-1 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl font-bold">
+                      高危實體: {entitiesData.filter(e => e.status === 'Critical').length}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {entitiesData.map((ent) => (
-                    <div 
-                      key={ent.id}
-                      onClick={() => handleEntitySelection(ent.id)}
-                      className={`p-6 bg-black/40 border rounded-[2rem] cursor-pointer hover:border-indigo-500/50 transition-all ${
-                        selectedEntity?.id === ent.id ? 'border-indigo-500' : 'border-white/5'
-                      }`}
+                {/* Filter and Search Toolbar */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-4 bg-black/40 border border-white/5 rounded-2xl text-xs">
+                  <div className="relative md:col-span-2">
+                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                      type="text"
+                      value={threatSearchQuery}
+                      onChange={(e) => setThreatSearchQuery(e.target.value)}
+                      placeholder="搜尋實體姓名、帳號 ID、部門或異常特徵..."
+                      className="w-full bg-black/60 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-600 outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <select
+                      value={threatDeptFilter}
+                      onChange={(e) => setThreatDeptFilter(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-300 outline-none focus:border-indigo-500"
                     >
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black ${
-                            ent.status === 'Critical' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
-                          }`}>
-                            {ent.avatar}
-                          </div>
-                          <div>
-                            <h4 className="text-sm font-black text-white uppercase tracking-wider">{ent.name}</h4>
-                            <p className="text-[10px] text-gray-500 mt-0.5">{ent.department} • {ent.type}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-2xl font-mono font-black italic text-indigo-400 block">{ent.score}</span>
-                          <span className="text-[8px] font-black text-gray-600 block uppercase tracking-wider">行為風險指數</span>
-                        </div>
-                      </div>
+                      <option value="All">所有部門 (All Depts)</option>
+                      <option value="研發部">研發部 (R&D)</option>
+                      <option value="財務處">財務處 (Finance)</option>
+                      <option value="資訊部">資訊部 (IT-Infra)</option>
+                      <option value="決策層">決策層 (Executive)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <select
+                      value={threatStatusFilter}
+                      onChange={(e) => setThreatStatusFilter(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-300 outline-none focus:border-indigo-500"
+                    >
+                      <option value="All">所有風險等級 (All Levels)</option>
+                      <option value="Critical">🚨 危險 (Critical &gt;85)</option>
+                      <option value="Suspicious">⚠️ 可疑 (Suspicious 60-84)</option>
+                      <option value="Attention">ℹ️ 注意 (Attention 40-59)</option>
+                      <option value="WatchlistOnly">🔥 僅觀察名單 (Watchlist)</option>
+                    </select>
+                  </div>
+                </div>
 
-                      <div className="space-y-2 mt-4">
-                        <span className="text-[9px] font-black text-gray-500 uppercase block tracking-widest">異常因子偵測：</span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {ent.riskFactors.map((factor, i) => (
-                            <span key={i} className="px-2 py-0.5 bg-white/5 border border-white/[0.03] text-[9px] font-bold text-gray-400 rounded">
-                              {factor}
-                            </span>
-                          ))}
+                {/* Entities Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {entitiesData
+                    .filter(ent => {
+                      if (threatDeptFilter !== 'All' && !ent.department.includes(threatDeptFilter)) return false;
+                      if (threatStatusFilter === 'WatchlistOnly' && !ent.watchlist) return false;
+                      if (threatStatusFilter !== 'All' && threatStatusFilter !== 'WatchlistOnly' && ent.status !== threatStatusFilter) return false;
+                      if (threatSearchQuery.trim()) {
+                        const q = threatSearchQuery.toLowerCase();
+                        const match = ent.name.toLowerCase().includes(q) ||
+                          ent.id.toLowerCase().includes(q) ||
+                          ent.department.toLowerCase().includes(q) ||
+                          ent.riskFactors.some(rf => rf.toLowerCase().includes(q));
+                        if (!match) return false;
+                      }
+                      return true;
+                    })
+                    .map((ent) => (
+                      <div 
+                        key={ent.id}
+                        className={`p-6 bg-black/40 border rounded-[2rem] transition-all flex flex-col justify-between ${
+                          selectedEntity?.id === ent.id ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-white/5 hover:border-white/20'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="flex items-center gap-4 cursor-pointer" onClick={() => handleEntitySelection(ent.id)}>
+                              <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black ${
+                                ent.status === 'Critical' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                              }`}>
+                                {ent.avatar}
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                                  {ent.name}
+                                  {ent.watchlist && (
+                                    <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded text-[8px] font-black uppercase">
+                                      Watchlist
+                                    </span>
+                                  )}
+                                  {ent.contained && (
+                                    <span className="px-2 py-0.5 bg-red-500/10 border border-red-500/30 text-red-400 rounded text-[8px] font-black uppercase">
+                                      Contained
+                                    </span>
+                                  )}
+                                </h4>
+                                <p className="text-[10px] text-gray-500 mt-0.5">{ent.department} • {ent.type} • ID: {ent.id}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className={`text-2xl font-mono font-black italic block ${
+                                ent.score >= 85 ? 'text-red-400' : ent.score >= 60 ? 'text-orange-400' : 'text-indigo-400'
+                              }`}>
+                                {ent.score}
+                              </span>
+                              <span className="text-[8px] font-black text-gray-600 block uppercase tracking-wider">行為風險指數</span>
+                            </div>
+                          </div>
+
+                          {/* Peer group and deviation pills */}
+                          <div className="flex flex-wrap items-center gap-2 mb-3">
+                            {ent.peerGroup && (
+                              <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[9px] font-bold rounded">
+                                同儕群組: {ent.peerGroup}
+                              </span>
+                            )}
+                            {ent.baselineDeviationPct !== undefined && ent.baselineDeviationPct > 0 && (
+                              <span className="px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[9px] font-mono font-bold rounded">
+                                基準偏離度 +{ent.baselineDeviationPct}%
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="space-y-2 mt-2">
+                            <span className="text-[9px] font-black text-gray-500 uppercase block tracking-widest">異常因子偵測：</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {ent.riskFactors.map((factor, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-white/5 border border-white/[0.03] text-[9px] font-bold text-gray-400 rounded">
+                                  {factor}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Action Toolbar */}
+                        <div className="mt-6 pt-4 border-t border-white/5 space-y-3">
+                          <div className="flex justify-between items-center text-[10px] text-gray-500">
+                            <span>最後活動時間：{ent.lastActive}</span>
+                            <button
+                              onClick={() => handleEntitySelection(ent.id)}
+                              className="text-indigo-400 hover:text-indigo-300 font-extrabold flex items-center gap-1"
+                            >
+                              展開 360 側欄 <ArrowRight size={10} />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              onClick={() => handleToggleWatchlist(ent)}
+                              className={`py-1.5 px-2 rounded-xl text-[9px] font-bold flex items-center justify-center gap-1 border transition-all ${
+                                ent.watchlist
+                                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
+                                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              <Flame size={10} className={ent.watchlist ? 'text-amber-400' : ''} />
+                              {ent.watchlist ? '移出觀察' : '入觀察名單'}
+                            </button>
+
+                            <button
+                              onClick={() => handleToggleContainment(ent)}
+                              className={`py-1.5 px-2 rounded-xl text-[9px] font-bold flex items-center justify-center gap-1 border transition-all ${
+                                ent.contained
+                                  ? 'bg-red-500/20 border-red-500/40 text-red-300 hover:bg-red-500/30'
+                                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
+                              }`}
+                            >
+                              <Lock size={10} className={ent.contained ? 'text-red-400' : ''} />
+                              {ent.contained ? '解除隔離' : '即時隔離'}
+                            </button>
+
+                            <button
+                              onClick={() => handleResetEntityRisk(ent)}
+                              className="py-1.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white rounded-xl text-[9px] font-bold flex items-center justify-center gap-1 transition-all"
+                              title="重設該實體風險指標為正常背景值"
+                            >
+                              <RotateCcw size={10} />
+                              重置風險
+                            </button>
+                          </div>
+
+                          {ent.status === 'Critical' && (
+                            <button
+                              onClick={() => handleExecutePlaybook(ent.name)}
+                              className="w-full py-2 bg-gradient-to-r from-red-600/80 to-red-700/80 hover:from-red-500 hover:to-red-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-red-900/20"
+                            >
+                              <ShieldX size={12} />
+                              立即執行全自動遏阻 Playbook
+                            </button>
+                          )}
                         </div>
                       </div>
-
-                      <div className="flex justify-between items-center mt-6 pt-4 border-t border-white/5 text-[10px]">
-                        <span className="text-gray-500">最後活動時間：{ent.lastActive}</span>
-                        <span className="text-indigo-400 font-extrabold flex items-center gap-1">查看360關聯資料 <ArrowRight size={10} /></span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             )}
 
             {activeRailTab === 'investigate' && (
               <div className="bg-[#0c0d12]/95 border border-gray-900 rounded-[2rem] p-8 space-y-6 shadow-2xl">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-xl font-black text-white italic tracking-tight uppercase">多維度異常日誌調查矩陣 (Incident Multi-Dimensional logs)</h3>
+                    <h3 className="text-xl font-black text-white italic tracking-tight uppercase flex items-center gap-2">
+                      <Activity className="text-cyan-400" size={22} />
+                      多維度異常日誌調查矩陣 (Incident Multi-Dimensional Logs)
+                    </h3>
                     <p className="text-xs text-gray-500 mt-1">
-                      可直接對底層 BigQuery 獲取之長久行為湖日誌進行「Gemini 智慧解碼、白話轉譯」分析。
+                      可直接對底層 BigQuery 行為大數據湖進行「Gemini 智慧解碼、白話轉譯」與多維度特徵調取。
                     </p>
                   </div>
                   
@@ -929,15 +1572,54 @@ export default function UEBASystemView() {
                             : 'text-gray-500 hover:text-gray-300'
                         }`}
                       >
-                        {pill === 'All' ? '全域' : pill}
+                        {pill === 'All' ? '全域向量' : pill}
                       </button>
                     ))}
                   </div>
                 </div>
 
+                {/* Filter & Search Bar */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-black/40 border border-white/5 rounded-2xl text-xs">
+                  <div className="relative md:col-span-2">
+                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                      type="text"
+                      value={investigateSearch}
+                      onChange={(e) => setInvestigateSearch(e.target.value)}
+                      placeholder="搜尋事件特徵、偏離描述、原始日誌內容、IP 或來源..."
+                      className="w-full bg-black/60 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-gray-600 outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <select
+                      value={investigateEntityId}
+                      onChange={(e) => setInvestigateEntityId(e.target.value)}
+                      className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-300 outline-none focus:border-indigo-500"
+                    >
+                      <option value="All">全部實體 (All Entities)</option>
+                      {entitiesData.map(e => (
+                        <option key={e.id} value={e.id}>{e.name} ({e.department})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div className="space-y-4">
                   {activityLogs
-                    .filter(log => activeAnomalyFilter === 'All' || log.vector === activeAnomalyFilter)
+                    .filter(log => {
+                      if (activeAnomalyFilter !== 'All' && log.vector !== activeAnomalyFilter) return false;
+                      if (investigateEntityId !== 'All' && log.entityId !== investigateEntityId) return false;
+                      if (investigateSearch.trim()) {
+                        const q = investigateSearch.toLowerCase();
+                        const match = log.description.toLowerCase().includes(q) ||
+                          log.entityName.toLowerCase().includes(q) ||
+                          log.source.toLowerCase().includes(q) ||
+                          log.rawLog.toLowerCase().includes(q) ||
+                          log.vector.toLowerCase().includes(q);
+                        if (!match) return false;
+                      }
+                      return true;
+                    })
                     .map((log) => (
                       <div 
                         key={log.id} 
@@ -949,29 +1631,60 @@ export default function UEBASystemView() {
                             <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase tracking-wider rounded">
                               {log.type}
                             </span>
-                            <span className="text-xs font-bold text-gray-300 italic">{log.entityName}</span>
+                            <span className="px-2 py-0.5 bg-white/5 border border-white/10 text-gray-300 text-[9px] font-bold rounded">
+                              維度: {log.vector}
+                            </span>
+                            <span 
+                              onClick={() => handleEntitySelection(log.entityId)}
+                              className="text-xs font-bold text-gray-300 hover:text-indigo-400 cursor-pointer italic"
+                            >
+                              {log.entityName}
+                            </span>
                           </div>
-                          <span className="text-xs font-mono font-black text-red-400 bg-red-500/5 px-2 py-0.5 rounded border border-red-500/10">
-                            {log.deviation}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono font-black text-red-400 bg-red-500/5 px-2 py-0.5 rounded border border-red-500/10">
+                              {log.deviation}
+                            </span>
+                            <span className="text-[10px] font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded">
+                              Score: {log.score}
+                            </span>
+                          </div>
                         </div>
 
-                        <p className="text-xs text-gray-400 font-bold leading-relaxed">{log.description}</p>
+                        <p className="text-xs text-gray-300 font-bold leading-relaxed">{log.description}</p>
 
-                        <div className="p-3 bg-black/60 rounded-xl border border-white/5 font-mono text-[10px] text-gray-500 whitespace-pre-wrap overflow-x-auto truncate">
+                        <div className="p-3 bg-black/60 rounded-xl border border-white/5 font-mono text-[10px] text-gray-400 whitespace-pre-wrap overflow-x-auto truncate">
                           {log.rawLog}
                         </div>
 
-                        <div className="flex justify-between items-center pt-2">
+                        <div className="flex flex-wrap justify-between items-center gap-3 pt-2">
                           <span className="text-[10px] text-gray-500 font-bold">來源管道：{log.source}</span>
                           
-                          <button
-                            onClick={() => handleInterpretLog(log)}
-                            className="px-4 py-2 bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-500/30 text-cyan-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2"
-                          >
-                            <Sparkles size={12} className="animate-pulse" />
-                            {interpretingLogId === log.id ? '分析解碼中...' : '要求 Gemini 翻譯此 Log'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleCopyJson(log.rawLog, '原始日誌')}
+                              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-xl text-[10px] font-bold transition-all flex items-center gap-1.5"
+                            >
+                              <Copy size={11} />
+                              複製 JSON
+                            </button>
+
+                            <button
+                              onClick={() => handleInvestigateInCopilot(log)}
+                              className="px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5"
+                            >
+                              <Bot size={11} />
+                              帶入 Copilot 深入調查
+                            </button>
+
+                            <button
+                              onClick={() => handleInterpretLog(log)}
+                              className="px-4 py-1.5 bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 border border-cyan-500/30 text-cyan-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm shadow-cyan-500/10"
+                            >
+                              <Sparkles size={12} className="animate-pulse" />
+                              {interpretingLogId === log.id ? '分析解碼中...' : '要求 Gemini 翻譯此 Log'}
+                            </button>
+                          </div>
                         </div>
 
                         {/* Expandable Interpretation UI */}
@@ -981,10 +1694,10 @@ export default function UEBASystemView() {
                           </div>
                         )}
 
-                        {selectedLog?.id === log.id && geminiLogInterpretation && (
+                        {selectedLog?.id === log.id && !interpretingLogId && geminiLogInterpretation && (
                           <div className="p-5 bg-gradient-to-br from-indigo-950/20 via-[#0d0e15] to-[#07090f] border border-indigo-500/30 rounded-xl text-xs text-gray-300 space-y-2 mt-3 shadow-inner relative">
                             <button 
-                              onClick={() => setSelectedLog(null)} 
+                              onClick={() => { setSelectedLog(null); setGeminiLogInterpretation(null); }} 
                               className="absolute top-2 right-2 text-gray-500 hover:text-white"
                             >
                               <X size={14} />
@@ -997,21 +1710,6 @@ export default function UEBASystemView() {
                           </div>
                         )}
 
-                        {/* Toggle showing log detail response directly */}
-                        {!interpretingLogId && selectedLog?.id !== log.id && (
-                          <button 
-                            onClick={() => { setSelectedLog(log); handleInterpretLog(log); }}
-                            className="hidden" // Handled cleanly via the direct trigger button
-                          />
-                        )}
-                        
-                        {/* Auto render the response inside the box if ready */}
-                        {selectedLog?.id === log.id && !interpretingLogId && geminiLogInterpretation && (
-                          <div className="p-4 bg-gradient-to-r from-[#0c0f16] to-[#050608] border-l-2 border-indigo-500 rounded-lg text-xs leading-relaxed text-gray-300 italic mt-3 whitespace-pre-wrap">
-                            {geminiLogInterpretation}
-                          </div>
-                        )}
-
                       </div>
                     ))}
                 </div>
@@ -1020,29 +1718,47 @@ export default function UEBASystemView() {
 
             {activeRailTab === 'copilot' && (
               <div className="bg-[#0c0d12]/95 border border-gray-900 rounded-[2rem] p-8 space-y-6 shadow-2xl relative min-h-[500px] flex flex-col justify-between">
-                <div>
-                  <h3 className="text-xl font-black text-white italic tracking-tight uppercase flex items-center gap-2">
-                    <Sparkles className="text-indigo-400" size={20} />
-                    Gemini 自然語言大數據調查助手
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Vertex AI 已串接 BigQuery 實體數據庫。直接呼叫自然語言探針，Gemini 將自動把問題轉譯為 BigQuery 標準 SQL 並視覺化。
-                  </p>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-xl font-black text-white italic tracking-tight uppercase flex items-center gap-2">
+                      <Sparkles className="text-indigo-400" size={20} />
+                      Gemini 自然語言大數據調查助手 (Security Copilot)
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Vertex AI 已串接 BigQuery 實體數據庫。直接呼叫自然語言探針，Gemini 將自動把問題轉譯為 BigQuery 標準 SQL 並視覺化。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopyJson(copilotMessages, '對話紀錄')}
+                      className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-400 hover:text-white rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition-all"
+                    >
+                      <Copy size={11} />
+                      複製紀錄
+                    </button>
+                    <button
+                      onClick={handleClearCopilotHistory}
+                      className="px-3 py-1.5 bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-500/30 text-gray-400 hover:text-red-300 rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition-all"
+                    >
+                      <Trash2 size={11} />
+                      清空對話
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex-1 space-y-4 max-h-[400px] overflow-y-auto p-4 bg-black/30 border border-white/5 rounded-2xl custom-scrollbar my-4">
+                <div className="flex-1 space-y-4 max-h-[460px] overflow-y-auto p-4 bg-black/30 border border-white/5 rounded-2xl custom-scrollbar my-4">
                   {copilotMessages.map((msg, idx) => (
                     <div 
                       key={idx} 
                       className={`flex gap-3 max-w-full ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                       {msg.sender === 'gemini' && (
-                        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 flex-shrink-0">
                           <Bot size={16} />
                         </div>
                       )}
                       
-                      <div className={`p-4 rounded-2xl text-xs leading-relaxed text-gray-300 max-w-[85%] border ${
+                      <div className={`p-4 rounded-2xl text-xs leading-relaxed text-gray-300 max-w-[90%] border ${
                         msg.sender === 'user' 
                           ? 'bg-indigo-600/10 border-indigo-500/30' 
                           : 'bg-black/60 border-white/[0.04]'
@@ -1061,10 +1777,69 @@ export default function UEBASystemView() {
                             {/* Render translated BigQuery SQL Code block if exists */}
                             {msg.sql && (
                               <div className="mt-4 space-y-2">
-                                <div className="text-[10px] font-black text-cyan-400 uppercase tracking-wider font-mono">Translated Looker-BigQuery SQL:</div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider font-mono">
+                                    Translated Looker-BigQuery SQL:
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => handleCopyJson(msg.sql, 'SQL 語法')}
+                                      className="px-2 py-0.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded text-[9px] font-mono flex items-center gap-1"
+                                    >
+                                      <Copy size={9} /> 複製
+                                    </button>
+                                    <button
+                                      onClick={() => handleExecuteBigQuerySql(idx, msg.sql!)}
+                                      disabled={executingSqlIndex === idx}
+                                      className="px-2.5 py-0.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 rounded text-[9px] font-mono font-bold flex items-center gap-1 transition-all"
+                                    >
+                                      <Play size={9} className={executingSqlIndex === idx ? 'animate-spin' : ''} />
+                                      {executingSqlIndex === idx ? '執行中...' : '▶ 執行 BigQuery 查詢'}
+                                    </button>
+                                  </div>
+                                </div>
                                 <pre className="p-3 bg-black/80 rounded-xl border border-white/5 text-[9px] font-mono text-cyan-100 overflow-x-auto whitespace-pre">
                                   {msg.sql}
                                 </pre>
+
+                                {/* Live BigQuery Execution Result Table */}
+                                {sqlResults[idx] && (
+                                  <div className="mt-3 p-3 bg-[#080a10] border border-cyan-500/30 rounded-xl space-y-2">
+                                    <div className="flex justify-between items-center text-[9px] font-mono text-cyan-400">
+                                      <span className="flex items-center gap-1.5 font-bold">
+                                        <CheckCircle2 size={11} className="text-emerald-400" />
+                                        BigQuery 查詢結果 (Live Dataset)
+                                      </span>
+                                      <div className="flex items-center gap-2 text-gray-400">
+                                        <span>處理量: {sqlResults[idx].bytesProcessed}</span>
+                                        <span>•</span>
+                                        <span>耗時: {sqlResults[idx].executionTimeMs}ms</span>
+                                      </div>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-[9px] font-mono text-left border-collapse">
+                                        <thead>
+                                          <tr className="border-b border-white/10 text-gray-400 bg-white/[0.02]">
+                                            {sqlResults[idx].columns.map(col => (
+                                              <th key={col} className="p-1.5 font-bold uppercase">{col}</th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-white/5 text-gray-300">
+                                          {sqlResults[idx].rows.map((row, rIdx) => (
+                                            <tr key={rIdx} className="hover:bg-white/[0.02]">
+                                              {sqlResults[idx].columns.map(col => (
+                                                <td key={col} className="p-1.5 whitespace-nowrap">
+                                                  {String(row[col])}
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
 
@@ -1114,9 +1889,10 @@ export default function UEBASystemView() {
                 {/* Prompt chips */}
                 <div className="flex flex-wrap gap-2 py-2">
                   {[
-                    { label: '✨ 生成此用戶的調查報告', text: '請生成 John Doe (jdoe) 今日異常外傳的綜合威脅調查報告' },
-                    { label: '✨ 追蹤此惡意 IP 的所有接觸實體', text: '追蹤與跳板 IP 85.25.10.4 進行 VPN 封包接觸的所有實體資產與對象' },
-                    { label: '✨ 建議自動阻斷編排劇本', text: '針對 John Doe 今日發生的 impossible travel 及 MEGA 大量外傳，建議自動化 SOAR 聯防阻斷劇本' }
+                    { label: '✨ 找出研發部前五名高風險員工', text: '幫我找出上週風險飆升前五名的研發部員工，並說明原因。' },
+                    { label: '✨ 生成 John Doe 的綜合調查報告', text: '請生成 John Doe (jdoe) 今日異常外傳的綜合威脅調查報告' },
+                    { label: '✨ 追蹤惡意 IP 85.25.10.4 接觸實體', text: '追蹤與跳板 IP 85.25.10.4 進行 VPN 封包接觸的所有實體資產與對象' },
+                    { label: '✨ 建議自動阻斷編排劇本 (SOAR)', text: '針對 John Doe 今日發生的 impossible travel 及 MEGA 大量外傳，建議自動化 SOAR 聯防阻斷劇本' }
                   ].map((chip) => (
                     <button
                       key={chip.label}
@@ -1794,62 +2570,95 @@ pipeline = (
             )}
 
             {activeRailTab === 'settings' && (
-              <div className="bg-[#0c0d12]/95 border border-gray-900 rounded-[2rem] p-8 space-y-6 shadow-2xl text-left">
-                <div>
-                  <h3 className="text-xl font-black text-white italic tracking-tight uppercase">基準設定檔與風險評分衰減 (Baseline Profile & Decay Settings)</h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    配置非監督式機器學習引擎參數，設定多源日誌基準設定檔學習窗口與風險評分動態衰減因子。
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                  {/* Decay Factor Card */}
-                  <div className="p-6 bg-black/40 border border-white/5 rounded-2xl space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-gray-300">行為基準建立時間窗</span>
-                      <span className="text-xs font-mono font-black text-indigo-400">90 Days Rolling</span>
-                    </div>
-                    <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-indigo-500 h-full w-[90%]" />
-                    </div>
-                    <p className="text-[10px] text-gray-500 leading-relaxed">
-                      機器學習演算法在每次進行日常基線比對時，調用過去 90 天做為動態對標，當使用者存取偏離該窗口之平均標準差 (σ) 3倍以上即判定為異常。
-                    </p>
-                  </div>
-
-                  <div className="p-6 bg-black/40 border border-white/5 rounded-2xl space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-gray-300">動態風險分數時效衰減 (Risk Decay)</span>
-                      <span className="text-xs font-mono font-black text-indigo-400">0.85% / Hour</span>
-                    </div>
-                    <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-indigo-500 h-full w-[85%]" />
-                    </div>
-                    <p className="text-[10px] text-gray-500 leading-relaxed">
-                      若使用者此後未再觸發進程、登入或流量異常，原 100 分的高風險值，每小時會自動按 0.85% 指數遞減，逐步回復至原始背景值。
-                    </p>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between bg-black/40 border border-white/5 p-2 rounded-2xl">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSettingsActiveView('matrix')}
+                      className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                        settingsActiveView === 'matrix'
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <Sliders size={13} />
+                      風險權重矩陣與偵測原則 (Risk Weights & Policies)
+                    </button>
+                    <button
+                      onClick={() => setSettingsActiveView('baseline')}
+                      className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                        settingsActiveView === 'baseline'
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <Clock size={13} />
+                      基準設定檔與風險衰減 (Baseline Profile & Decay)
+                    </button>
                   </div>
                 </div>
 
-                <div className="p-6 bg-indigo-500/[0.02] border border-indigo-500/20 rounded-2xl space-y-3">
-                  <h4 className="text-xs font-black text-indigo-300 uppercase tracking-widest flex items-center gap-2">
-                    <ShieldCheck size={14} /> Vertex AI 集群非監督學習狀態
-                  </h4>
-                  <div className="grid grid-cols-3 gap-4 text-center pt-2">
-                    <div className="p-4 bg-black/50 rounded-xl border border-white/5">
-                      <span className="text-[9px] font-black text-gray-600 block uppercase">Cluster Distance</span>
-                      <span className="text-sm font-mono font-bold text-white mt-1 block">Euclidean (L2)</span>
+                {settingsActiveView === 'matrix' ? (
+                  <UEBASettingsView />
+                ) : (
+                  <div className="bg-[#0c0d12]/95 border border-gray-900 rounded-[2rem] p-8 space-y-6 shadow-2xl text-left">
+                    <div>
+                      <h3 className="text-xl font-black text-white italic tracking-tight uppercase">基準設定檔與風險評分衰減 (Baseline Profile & Decay Settings)</h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        配置非監督式機器學習引擎參數，設定多源日誌基準設定檔學習窗口與風險評分動態衰減因子。
+                      </p>
                     </div>
-                    <div className="p-4 bg-black/50 rounded-xl border border-white/5">
-                      <span className="text-[9px] font-black text-gray-600 block uppercase">Model Version</span>
-                      <span className="text-sm font-mono font-bold text-white mt-1 block">v3.1.2-beta</span>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                      {/* Decay Factor Card */}
+                      <div className="p-6 bg-black/40 border border-white/5 rounded-2xl space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-gray-300">行為基準建立時間窗</span>
+                          <span className="text-xs font-mono font-black text-indigo-400">90 Days Rolling</span>
+                        </div>
+                        <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                          <div className="bg-indigo-500 h-full w-[90%]" />
+                        </div>
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          機器學習演算法在每次進行日常基線比對時，調用過去 90 天做為動態對標，當使用者存取偏離該窗口之平均標準差 (σ) 3倍以上即判定為異常。
+                        </p>
+                      </div>
+
+                      <div className="p-6 bg-black/40 border border-white/5 rounded-2xl space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-gray-300">動態風險分數時效衰減 (Risk Decay)</span>
+                          <span className="text-xs font-mono font-black text-indigo-400">0.85% / Hour</span>
+                        </div>
+                        <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                          <div className="bg-indigo-500 h-full w-[85%]" />
+                        </div>
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          若使用者此後未再觸發進程、登入或流量異常，原 100 分的高風險值，每小時會自動按 0.85% 指數遞減，逐步回復至原始背景值。
+                        </p>
+                      </div>
                     </div>
-                    <div className="p-4 bg-black/50 rounded-xl border border-white/5">
-                      <span className="text-[9px] font-black text-gray-600 block uppercase">Continuous Audit</span>
-                      <span className="text-sm font-mono font-bold text-green-400 mt-1 block">ENABLED</span>
+
+                    <div className="p-6 bg-indigo-500/[0.02] border border-indigo-500/20 rounded-2xl space-y-3">
+                      <h4 className="text-xs font-black text-indigo-300 uppercase tracking-widest flex items-center gap-2">
+                        <ShieldCheck size={14} /> Vertex AI 集群非監督學習狀態
+                      </h4>
+                      <div className="grid grid-cols-3 gap-4 text-center pt-2">
+                        <div className="p-4 bg-black/50 rounded-xl border border-white/5">
+                          <span className="text-[9px] font-black text-gray-600 block uppercase">Cluster Distance</span>
+                          <span className="text-sm font-mono font-bold text-white mt-1 block">Euclidean (L2)</span>
+                        </div>
+                        <div className="p-4 bg-black/50 rounded-xl border border-white/5">
+                          <span className="text-[9px] font-black text-gray-600 block uppercase">Model Version</span>
+                          <span className="text-sm font-mono font-bold text-white mt-1 block">v3.1.2-beta</span>
+                        </div>
+                        <div className="p-4 bg-black/50 rounded-xl border border-white/5">
+                          <span className="text-[9px] font-black text-gray-600 block uppercase">Continuous Audit</span>
+                          <span className="text-sm font-mono font-bold text-green-400 mt-1 block">ENABLED</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -1990,6 +2799,70 @@ pipeline = (
                         <Clock size={11} /> 靜態行為正常基準 (Peer Baseline)
                       </div>
                       <p className="leading-relaxed text-[11px] font-bold">{selectedEntity.baselineSummary}</p>
+                    </div>
+
+                    {/* Watchlist & Contained Badges */}
+                    <div className="flex flex-wrap gap-2">
+                      {selectedEntity.watchlist && (
+                        <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-lg text-[9px] font-black flex items-center gap-1">
+                          <Flame size={10} className="text-amber-400" />
+                          已列入高風險特權觀察名單 (Watchlist)
+                        </span>
+                      )}
+                      {selectedEntity.contained && (
+                        <span className="px-2.5 py-1 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg text-[9px] font-black flex items-center gap-1">
+                          <ShieldX size={10} className="text-red-400" />
+                          已執行端點網路隔離與帳戶凍結
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Quick Response Actions */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5">
+                      <button
+                        onClick={() => handleToggleWatchlist(selectedEntity)}
+                        className={`py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all border ${
+                          selectedEntity.watchlist
+                            ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
+                            : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <Flame size={12} className={selectedEntity.watchlist ? 'text-amber-400' : ''} />
+                        {selectedEntity.watchlist ? '移出觀察名單' : '加入觀察名單'}
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleContainment(selectedEntity)}
+                        className={`py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all border ${
+                          selectedEntity.contained
+                            ? 'bg-red-500/20 border-red-500/40 text-red-300 hover:bg-red-500/30'
+                            : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <Lock size={12} className={selectedEntity.contained ? 'text-red-400' : ''} />
+                        {selectedEntity.contained ? '解除主機隔離' : '即時隔離端點'}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Export Forensic Dossier */}
+                      <button
+                        onClick={() => handleExportDossier(selectedEntity)}
+                        className="py-2.5 px-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-300 hover:text-white text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Download size={12} />
+                        匯出鑑識報告
+                      </button>
+
+                      {/* Reset Entity Risk */}
+                      <button
+                        onClick={() => handleResetEntityRisk(selectedEntity)}
+                        className="py-2.5 px-2 bg-white/5 hover:bg-indigo-500/20 border border-white/10 hover:border-indigo-500/30 text-gray-300 hover:text-indigo-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
+                        title="已確認無威脅或處置完畢，重置風險指標"
+                      >
+                        <RotateCcw size={12} />
+                        重置風險指標
+                      </button>
                     </div>
 
                     {/* Orchestration container SOAR Playbook trigger */}

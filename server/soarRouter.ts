@@ -1,161 +1,274 @@
 import express, { type Request, type Response } from 'express';
+import { globalSoarEngine } from './soarEngine.ts';
+
 const Router = express.Router;
 
 export function createSoarRouter() {
   const router = Router();
 
-  let playbooks = [
-    {
-      id: "pb-ransomware-containment",
-      name: "勒索軟體端點與網路緊急自動阻斷處置",
-      triggerType: "ALERT_SEVERITY_CRITICAL",
-      status: "active",
-      stepsCount: 5,
-      lastExecutedAt: new Date(Date.now() - 3600000).toISOString(),
-      executionCount: 18,
-      steps: [
-        { order: 1, name: "下發 EDR 端點微隔離", integration: "CrowdStrike Falcon", action: "isolate_network" },
-        { order: 2, name: "終止惡意父行程樹", integration: "Endpoint OS Agent", action: "kill_process_tree" },
-        { order: 3, name: "802.1X NAC 切換隔離 VLAN", integration: "Cisco Catalyst 9300", action: "vlan_quarantine" },
-        { order: 4, name: "封鎖外部 C2 逆向連線", integration: "Palo Alto NGFW", action: "add_firewall_drop_rule" },
-        { order: 5, name: "自動立案與通報 SOC 應變小組", integration: "Case Management & Slack", action: "create_case_and_notify" }
-      ]
-    },
-    {
-      id: "pb-brute-force-mitigation",
-      name: "高頻 SSH/RDP 暴力撞庫自動動態黑名單",
-      triggerType: "LOG_PATTERN_MATCH",
-      status: "active",
-      stepsCount: 3,
-      lastExecutedAt: new Date(Date.now() - 1800000).toISOString(),
-      executionCount: 1420,
-      steps: [
-        { order: 1, name: "提取攻擊來源 IP 與關聯網段", integration: "Regex Ingest Pipeline", action: "extract_ioc" },
-        { order: 2, name: "同步至全網邊界防火牆黑名單", integration: "Fortinet FortiGate", action: "add_blacklist_address" },
-        { order: 3, name: "冷卻 24 小時後自動驗證釋放", integration: "SOAR Scheduler", action: "cooldown_timer" }
-      ]
-    },
-    {
-      id: "pb-phishing-triage",
-      name: "可疑釣魚郵件自動拆解與沙箱引爆",
-      triggerType: "USER_REPORT_OR_INLINE_WAF",
-      status: "active",
-      stepsCount: 4,
-      lastExecutedAt: new Date(Date.now() - 7200000).toISOString(),
-      executionCount: 84,
-      steps: [
-        { order: 1, name: "提取郵件超連結與附件 Hash", integration: "Mail Gateway Parser", action: "extract_artifacts" },
-        { order: 2, name: "發起 URLhaus / VirusTotal 交叉情資檢驗", integration: "CTI TAXII Engine", action: "check_ioc_reputation" },
-        { order: 3, name: "隔離全網收到相同郵件之收件匣", integration: "Microsoft 365 Exchange", action: "purge_phishing_message" },
-        { order: 4, name: "回饋使用者安全分析報告", integration: "SOC Notification Mailer", action: "send_user_receipt" }
-      ]
+  // --- 1. TELEMETRY & STATS ---
+  router.get('/telemetry', (_req: Request, res: Response) => {
+    try {
+      const telemetry = globalSoarEngine.getTelemetryStats();
+      res.json({ success: true, telemetry });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
-  ];
+  });
 
-  let executionLogs = [
-    {
-      executionId: "exec-901",
-      playbookId: "pb-ransomware-containment",
-      playbookName: "勒索軟體端點與網路緊急自動阻斷處置",
-      triggeredBy: "INC-2026-0902 (Mimikatz Credential Dumping)",
-      targetAsset: "10.0.4.15 (FINANCE-PC03)",
-      status: "SUCCESS",
-      startedAt: new Date(Date.now() - 3600000).toISOString(),
-      durationMs: 820,
-      stepsCompleted: 5,
-      stepsTotal: 5,
-      auditLog: "所有 5 個聯防步驟均成功執行完畢。端點已切入保護隔離狀態。"
-    },
-    {
-      executionId: "exec-902",
-      playbookId: "pb-brute-force-mitigation",
-      playbookName: "高頻 SSH/RDP 暴力撞庫自動動態黑名單",
-      triggeredBy: "Suricata IDS (45.142.214.88)",
-      targetAsset: "45.142.214.88",
-      status: "SUCCESS",
-      startedAt: new Date(Date.now() - 1800000).toISOString(),
-      durationMs: 310,
-      stepsCompleted: 3,
-      stepsTotal: 3,
-      auditLog: "來源 IP 45.142.214.88 已成功推播至邊界防火牆黑名單封鎖。"
+  // --- 2. PLAYBOOKS CRUD & CONTROLS ---
+  router.get('/playbooks', (_req: Request, res: Response) => {
+    try {
+      const playbooks = globalSoarEngine.getPlaybooks();
+      res.json({ success: true, count: playbooks.length, playbooks });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
-  ];
+  });
 
-  router.get('/playbooks', (req: Request, res: Response) => {
-    res.json({ success: true, count: playbooks.length, playbooks });
+  router.get('/playbooks/:id', (req: Request, res: Response) => {
+    try {
+      const pb = globalSoarEngine.getPlaybookById(req.params.id);
+      if (!pb) {
+        return res.status(404).json({ success: false, error: 'Playbook not found' });
+      }
+      res.json({ success: true, playbook: pb });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   router.post('/playbooks', (req: Request, res: Response) => {
-    const { name, triggerType, steps } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'name is required' });
+    try {
+      const created = globalSoarEngine.createPlaybook(req.body);
+      res.json({
+        success: true,
+        message: `SOAR 劇本 '${created.name}' 建立成功`,
+        playbook: created
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
     }
-
-    const newPb = {
-      id: `pb-${Date.now().toString().slice(-4)}`,
-      name,
-      triggerType: triggerType || "MANUAL_TRIGGER",
-      status: "active",
-      stepsCount: Array.isArray(steps) ? steps.length : 1,
-      lastExecutedAt: "Never",
-      executionCount: 0,
-      steps: steps || [{ order: 1, name: "執行安全審計處置", integration: "System Log", action: "audit_log" }]
-    };
-
-    playbooks.unshift(newPb);
-    res.json({ success: true, message: `SOAR 劇本 '${newPb.name}' 建立成功`, playbook: newPb });
   });
 
-  router.post('/playbooks/:id/run', (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { targetAsset, dryRun } = req.body;
-    const pb = playbooks.find(p => p.id === id);
-    if (!pb) {
-      return res.status(404).json({ error: 'Playbook not found' });
+  router.put('/playbooks/:id', (req: Request, res: Response) => {
+    try {
+      const updated = globalSoarEngine.updatePlaybook(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ success: false, error: 'Playbook not found' });
+      }
+      res.json({
+        success: true,
+        message: `SOAR 劇本 '${updated.name}' 配置更新完成`,
+        playbook: updated
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
     }
-
-    pb.executionCount++;
-    pb.lastExecutedAt = new Date().toISOString();
-
-    const execLog = {
-      executionId: `exec-${Date.now().toString().slice(-4)}`,
-      playbookId: pb.id,
-      playbookName: pb.name,
-      triggeredBy: "Manual SOC Analyst Trigger",
-      targetAsset: targetAsset || "All Affected Infrastructure",
-      status: dryRun ? "DRY_RUN_SUCCESS" : "SUCCESS",
-      startedAt: new Date().toISOString(),
-      durationMs: Math.floor(Math.random() * 400 + 200),
-      stepsCompleted: pb.stepsCount,
-      stepsTotal: pb.stepsCount,
-      auditLog: dryRun 
-        ? `【演練模式】劇本所有 ${pb.stepsCount} 個步驟模擬校驗通過，未實際修改生產配置。` 
-        : `【正式執行】劇本所有 ${pb.stepsCount} 個自動化處置步驟均已即時交付各資安防禦設備執行！`
-    };
-
-    executionLogs.unshift(execLog);
-    res.json({
-      success: true,
-      message: execLog.auditLog,
-      execution: execLog
-    });
   });
 
+  router.delete('/playbooks/:id', (req: Request, res: Response) => {
+    try {
+      const ok = globalSoarEngine.deletePlaybook(req.params.id);
+      if (!ok) {
+        return res.status(404).json({ success: false, error: 'Playbook not found' });
+      }
+      res.json({ success: true, message: `劇本 ${req.params.id} 已刪除` });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/playbooks/:id/toggle', (req: Request, res: Response) => {
+    try {
+      const pb = globalSoarEngine.togglePlaybookStatus(req.params.id);
+      if (!pb) {
+        return res.status(404).json({ success: false, error: 'Playbook not found' });
+      }
+      res.json({
+        success: true,
+        message: `劇本狀態已切換為: ${pb.status}`,
+        playbook: pb
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 3. EXECUTE PLAYBOOK (DRY-RUN & LIVE) ---
+  router.post('/playbooks/:id/run', async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { targetAsset, incidentId, dryRun, executedBy, parameters } = req.body;
+
+      const execution = await globalSoarEngine.executePlaybook(id, {
+        targetAsset,
+        incidentId,
+        dryRun: dryRun === true || dryRun === 'true',
+        executedBy,
+        parameters
+      });
+
+      res.json({
+        success: true,
+        message: execution.resultSummary,
+        execution
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 4. EXECUTIONS AUDIT LOGS & ACTIONS ---
   router.get('/executions', (req: Request, res: Response) => {
-    res.json({ success: true, count: executionLogs.length, executions: executionLogs });
+    try {
+      const filter = req.query.filter as string;
+      const logs = globalSoarEngine.getExecutionLogs(filter);
+      res.json({ success: true, count: logs.length, executions: logs });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
-  router.get('/actions', (req: Request, res: Response) => {
-    res.json({
-      success: true,
-      connectors: [
-        { name: "Fortinet FortiGate", actions: ["block_ip", "quarantine_mac", "update_utm_policy"] },
-        { name: "Palo Alto NGFW", actions: ["add_edl_ip", "terminate_session", "dns_sinkhole"] },
-        { name: "CrowdStrike Falcon EDR", actions: ["isolate_host", "kill_process", "get_file_sample"] },
-        { name: "Microsoft 365 Exchange", actions: ["purge_email", "revoke_user_sessions", "block_sender"] },
-        { name: "Cisco Catalyst 9300", actions: ["shutdown_port", "vlan_change", "8021x_reauth"] }
-      ]
-    });
+  router.get('/executions/:id', (req: Request, res: Response) => {
+    try {
+      const log = globalSoarEngine.getExecutionById(req.params.id);
+      if (!log) {
+        return res.status(404).json({ success: false, error: 'Execution log not found' });
+      }
+      res.json({ success: true, execution: log });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/executions/:id/approve', (req: Request, res: Response) => {
+    try {
+      const { approver, remarks } = req.body;
+      const updated = globalSoarEngine.approveExecution(req.params.id, approver, remarks);
+      if (!updated) {
+        return res.status(404).json({ success: false, error: 'Execution not found or not in pending state' });
+      }
+      res.json({
+        success: true,
+        message: `已核准處置執行 [${updated.id}]！指令已即刻下發基礎設施。`,
+        execution: updated
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/executions/:id/reject', (req: Request, res: Response) => {
+    try {
+      const { rejector, reason } = req.body;
+      const updated = globalSoarEngine.rejectExecution(req.params.id, rejector, reason);
+      if (!updated) {
+        return res.status(404).json({ success: false, error: 'Execution not found' });
+      }
+      res.json({
+        success: true,
+        message: `已否決處置執行 [${updated.id}]，後續阻斷動作已取消。`,
+        execution: updated
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/executions/:id/rollback', (req: Request, res: Response) => {
+    try {
+      const { initiator } = req.body;
+      const rolledBack = globalSoarEngine.rollbackExecution(req.params.id, initiator);
+      if (!rolledBack) {
+        return res.status(400).json({ success: false, error: 'Execution cannot be rolled back or already restored' });
+      }
+      res.json({
+        success: true,
+        message: `已成功對 [${rolledBack.id}] 發起安全補償性回滾！已解除隔離並恢復通訊。`,
+        execution: rolledBack
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 5. CONNECTORS & HEALTH ---
+  router.get('/connectors', (_req: Request, res: Response) => {
+    try {
+      const connectors = globalSoarEngine.getConnectors();
+      res.json({ success: true, count: connectors.length, connectors });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/connectors/:id/test', (req: Request, res: Response) => {
+    try {
+      const result = globalSoarEngine.testConnector(req.params.id);
+      res.json(result);
+    } catch (err: any) {
+      res.status(404).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 6. CUSTOM ACTION BUILDER TEST ---
+  router.post('/builder/test', (req: Request, res: Response) => {
+    try {
+      const { protocol, endpoint, payload, headers } = req.body;
+      const result = globalSoarEngine.testCustomAction({
+        protocol: protocol || 'REST',
+        endpoint: endpoint || 'https://api.paloaltonetworks.com/v1/address_groups/dynamic',
+        payloadData: typeof payload === 'string' ? payload : JSON.stringify(payload || {}),
+        headers
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 7. DISTRIBUTED VELOCIRAPTOR FORENSICS ---
+  router.get('/forensics/sensors', (_req: Request, res: Response) => {
+    try {
+      const sensors = globalSoarEngine.getBranchSensors();
+      res.json({ success: true, count: sensors.length, sensors });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.get('/forensics/artifacts', (_req: Request, res: Response) => {
+    try {
+      const artifacts = globalSoarEngine.getForensicArtifacts();
+      res.json({ success: true, count: artifacts.length, artifacts });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  router.post('/forensics/hunt', (req: Request, res: Response) => {
+    try {
+      const { targetAsset, vqlType } = req.body;
+      if (!targetAsset) {
+        return res.status(400).json({ success: false, error: 'targetAsset is required' });
+      }
+      const huntResult = globalSoarEngine.dispatchVelociraptorHunt(targetAsset, vqlType);
+      res.json(huntResult);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- 8. AI AUTOMATED RESPONSE COPILOT ---
+  router.post('/ai/recommend', (req: Request, res: Response) => {
+    try {
+      const { incidentType, targetIoc } = req.body;
+      const rec = globalSoarEngine.getAiPlaybookRecommendation(incidentType || '', targetIoc || '');
+      res.json({ success: true, recommendation: rec });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   return router;
