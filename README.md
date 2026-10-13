@@ -21,8 +21,8 @@
    - [11. 工業控制與智慧基礎設施安全 (OT/SCADA & Traffic Control)](#11-工業控制與智慧基礎設施安全-otscada--traffic-control)
    - [12. 軍方網絡兵棋推演 (Cyber Wargaming & CALDERA Simulation)](#12-軍方網絡兵棋推演-cyber-wargaming--caldera-simulation)
    - [13. AI 智慧資安分析師 (AI SecOps Analyst)](#13-ai-智慧資安分析師-ai-secops-analyst)
-6. [完整安裝與部署指南 (Comprehensive Installation Guide)](#-完整安裝與部署指南-comprehensive-installation-guide)
-   - [系統前置環境與硬體建議](#系統前置需求與硬體規格建議)
+4. [完整安裝與部署指南 (Comprehensive Installation Guide)](#-完整安裝與部署指南-comprehensive-installation-guide)
+   - [系統前置需求與硬體規格建議 (依據台灣法規 6 個月以上法定留存)](#系統前置需求與硬體規格建議)
    - [環境相依工具安裝 (Ubuntu / Debian / RHEL / macOS)](#步驟零系統依賴環境安裝)
    - [步驟一：原始碼取得與環境變數設定](#步驟一原始碼取得與環境變數設定)
    - [步驟二：方法 A - Node.js 全端伺服器本地快速安裝 (建議開發與評估)](#方法-a-nodejs-全端伺服器本地快速安裝-建議開發與評估)
@@ -32,10 +32,10 @@
    - [步驟六：Nginx 反向代理、HTTPS SSL 與防火牆設定](#步驟六nginx-反向代理https-ssl-與防火牆設定)
    - [步驟七：平台初始化、預設管理者帳號與登入驗證](#步驟七平台初始化預設管理者帳號與登入驗證)
    - [步驟八：日誌收集驗證 (Syslog / WinRM / Flow 測試命令)](#步驟八日誌收集驗證-syslog--winrm--flow-測試命令)
-7. [後端 RESTful API 規格概覽](#-後端-restful-api-規格概覽)
-8. [專案目錄結構](#-專案目錄結構)
-9. [Git 版本控制與上傳指南](#-git-版本控制與上傳指南)
-10. [系統安全性、權限架構與故障排除 (Troubleshooting)](#-安全性權限架構與故障排除-troubleshooting)
+5. [後端 RESTful API 規格概覽](#-後端-restful-api-規格概覽)
+6. [專案目錄結構](#-專案目錄結構)
+7. [Git 版本控制與上傳指南](#-git-版本控制與上傳指南)
+8. [系統安全性、權限架構與故障排除 (Troubleshooting)](#-安全性權限架構與故障排除-troubleshooting)
 
 ---
 
@@ -172,94 +172,6 @@
 - **攻擊樹動態生成**：從多源日誌中自動梳理攻擊路徑並繪製攻擊樹。
 - **防禦處置建議**：針對即時告警提供具體防堵策略、阻擋規則 (Snort/YARA/Firewall) 與應急修復指令。
 
----
-
-## 📡 後端 RESTful API 規格概覽
-
-系統主要 RESTful API 路由掛載於 Express 伺服器 (`server.ts`)：
-
-| 模組領域 | 端點路徑 | 支援方法 | 功能描述 |
-| :--- | :--- | :--- | :--- |
-| **案件管理 (Cases)** | `/api/v1/cases` | `GET`, `POST` | 查詢案件清單 (支援狀態/嚴重度過濾) / 建立新案件 |
-| | `/api/v1/cases/:id` | `GET`, `PATCH`, `DELETE` | 查詢單一案件詳情 / 更新階段與進度 / 刪除案件 |
-| | `/api/v1/cases/:id/timeline` | `POST` | 新增案件調查時序事件 (活動歷程) |
-| | `/api/v1/cases/:id/evidence` | `POST` | 上傳保全數位證據項與 SHA-256 雜湊校驗 |
-| | `/api/v1/cases/:id/iocs` | `POST` | 加入關聯 IoC 威脅指標 |
-| | `/api/v1/cases/:id/report` | `GET`, `POST` | 取得或自動產生案件結案 War Room 鑑識報告 |
-| | `/api/v1/cases/metrics` | `GET` | 取得案件總體統計指標 (MTTR, 階段分佈, 嚴重度統計) |
-| **檔案完整性 (FIM)** | `/api/v1/fim/telemetry` | `GET` | 取得 FIM 即時遙測數據 (受監控檔案數, 漂移率, 隔離主機) |
-| | `/api/v1/fim/events` | `GET`, `POST` | 查詢未授權檔案異動事件 / 模擬注入新異動事件 |
-| | `/api/v1/fim/events/:id/rollback` | `POST` | 執行檔案一鍵加密復原並比對還原雜湊 |
-| | `/api/v1/fim/events/:id/isolate` | `POST` | 觸發主機網路微隔離防火牆規則 |
-| | `/api/v1/fim/playbooks` | `GET` | 取得 FIM 聯防劇本清單與啟用狀態 |
-| | `/api/v1/fim/playbooks/:id/simulate` | `POST` | 觸發指定防篡改自動處置劇本測試演練 |
-| | `/api/v1/fim/baselines` | `GET`, `POST` | 查詢叢集基線快照庫 / 建立新系統黃金基線快照 |
-| | `/api/v1/fim/baselines/:id/recalculate`| `POST` | 重新計算並校準叢集 SHA-256 雜湊樹 |
-| | `/api/v1/fim/scan` | `POST` | 發動即時路徑雜湊深度掃描 |
-| **自動化響應 (SOAR)** | `/api/v1/soar/playbooks` | `GET`, `POST` | 查詢及註冊 SOAR 防禦劇本 |
-| | `/api/v1/soar/playbooks/:id/run` | `POST` | 觸發劇本執行流程 |
-| | `/api/v1/soar/telemetry` | `GET` | 取得 SOAR 平台運作指標與平均響應時間 |
-| **網路流量 (NDR)** | `/api/v1/ndr/traffic` | `GET` | 取得即時網路流量統計與 24 小時時序數據 |
-| | `/api/v1/ndr/rules` | `GET`, `POST` | 取得與設定 NDR 流量告警門檻規則 |
-| **威脅情資 (CTI)** | `/api/v1/intel/feeds` | `GET`, `POST` | 查詢威脅情報來源與更新狀態 |
-| | `/api/v1/intel/lookup` | `POST` | 查詢指定 IP / Domain / Hash 的威脅信譽評分 |
-| **收集器 (Collector)**| `/api/v1/collector/metrics` | `GET` | 取得 Go 收集器連線池、記憶體與即時吞吐量 |
-| | `/api/v1/collector/config` | `GET`, `PUT` | 動態調整接收器批次大小與超時門檻 |
-| **日誌儲存 (Storage)** | `/api/v1/storage/health` | `GET` | 檢查 Rust 儲存引擎連線狀態、UDS 通道與磁碟容量 |
-| **AI 分析 (AI Analyst)**| `/api/v1/ai-analyst/chat` | `POST` | 向 AI SecOps 助手提問日誌分析與處置指引 |
-
----
-
-## 📂 專案目錄結構
-
-```text
-├── server.ts                       # Node.js + Express 主伺服器入口 (掛載所有 API 路由)
-├── server/                         # 平台後端核心業務引擎與 REST 路由器
-│   ├── casesEngine.ts              # 案件管理狀態機 (SIRP, Evidence, Timeline, Report)
-│   ├── casesRouter.ts              # 案件管理 RESTful API
-│   ├── fimEngine.ts                # 檔案完整性監控狀態機 (Rollback, Containment, Scan)
-│   ├── fimRouter.ts                # 檔案完整性 RESTful API
-│   ├── soarEngine.ts               # SOAR 安全編排與自動化劇本引擎
-│   ├── soarRouter.ts               # SOAR RESTful API
-│   ├── collectorRouter.ts          # Go 接收器連接池與記憶體管理路由
-│   ├── ndrRouter.ts                # 網路流量檢測與 Arkime PCAP 路由
-│   ├── ctiRouter.ts                # 威脅情資來源與 IoC 查詢路由
-│   ├── malwareEngine.ts            # 惡意程式分析引擎與沙盒
-│   ├── uebaEngine.ts               # 使用者與實體行為分析引擎
-│   ├── apmRouter.ts                # Apache SkyWalking APM 觀測性路由
-│   ├── honeypotRouter.ts           # T-Pot 蜜罐誘捕節點狀態路由
-│   └── aiAnalystRouter.ts          # AI 智慧分析師對話端點
-├── engine/                         # 底層高效能日誌引擎
-│   ├── collector-go/               # Go 高併發 Syslog & HTTP 接收器 (VictoriaLogs 相容)
-│   │   ├── main.go                 # Go 收集器服務入口
-│   │   ├── receiver/               # UDP/TCP 監聽與 32MB Socket 緩衝擴展
-│   │   ├── pipeline/               # 16 分區環形緩衝與自適應協程池
-│   │   └── Dockerfile              # Go 收集器容器構建設定
-│   └── storage-rust/               # Rust VictoriaLogs-Style 列式不可變存儲核心
-│       ├── Cargo.toml              # Rust 依賴套件定義
-│       ├── src/block.rs            # VictoriaBlock、Delta-of-Delta、ZSTD 壓縮
-│       ├── src/bloom.rs            # 雙重散列 Bloom Filter 快速過濾
-│       ├── src/storage.rs          # 三層剪枝磁碟分區管理器
-│       └── Dockerfile              # Rust 儲存引擎容器構建設定
-├── src/                            # 前端 React 19 + TypeScript SPA 原始碼
-│   ├── App.tsx                     # 平台頂層佈局、多分頁導航與 SOC 側邊欄
-│   ├── main.tsx                    # React 應用程式掛載點
-│   ├── types.ts                    # 全域資料型別定義與 12 大模組清單
-│   ├── components/                 # UI 元件庫
-│   │   ├── case-management/        # 案件管理與 Incident Response 戰情室
-│   │   ├── soar/                   # SOAR 劇本編排與 FIM 完整性監控視圖
-│   │   │   └── fim/                # FIM Dashboard、劇本、策略與基線快照元件
-│   │   ├── apm/                    # SkyWalking APM 鏈路追蹤與拓撲圖視圖
-│   │   ├── cti/                    # 威脅情資視覺化看板
-│   │   ├── honeypot/               # T-Pot 攻擊地圖與蜜罐管理
-│   │   ├── malware/                # 惡意程式沙盒分析看板
-│   │   └── ...                     # NDR、UEBA、Wargaming 等其他專業視圖
-│   └── locales/                    # 多國語系語系檔 (繁體中文 / 英文)
-├── docker-compose.engine.yml       # 微服務容器編排定義 (Web + Collector + Rust Storage)
-├── package.json                    # 全端相依性套件與 NPM 腳本
-├── tsconfig.json                   # TypeScript 編譯器組態
-└── vite.config.ts                  # Vite 建置工具設定
-```
 
 ---
 
@@ -271,17 +183,66 @@
 
 ### 系統前置需求與硬體規格建議
 
-| 部署規模 | 適用場景 / 預期 EPS | 建議 CPU | 建議記憶體 (RAM) | 磁碟空間 (NVMe SSD 推薦) |
-| :--- | :--- | :--- | :--- | :--- |
-| **PoC / 評估模式** | < 1,000 EPS (本機沙盒測試) | 4 核心 | 8 GB | 50 GB |
-| **標準中小型企業** | 1,000 ~ 10,000 EPS | 8 核心 | 16 ~ 32 GB | 200 GB ~ 500 GB |
-| **企業 / 關鍵基礎設施** | 10,000 ~ 100,000+ EPS | 16 ~ 32 核心 | 64 ~ 128 GB | 1 TB ~ 4 TB (RAID 10) |
+> ⚖️ **台灣法規遵循重要聲明 (Taiwan Log Retention Compliance Requirement)**：  
+> 依據台灣**《資通安全管理法》**（資通安全責任額度及分級應行維護事項表、公務機關及特定非公務機關防護基準）、**《個人資料保護法施行細則》第 12 條**以及金管會**《金融機構辦理電腦系統資訊安全評估辦法 / 資安監控作業指引》**之強制規範：  
+> **資通系統日誌 (System Logs)、稽核軌跡 (Audit Trail)、防火牆與網路連線紀錄 (Flow/Traffic Logs) 及各類資安防禦事件，線上與離線查詢週期「依法至少必須完整保存 6 個月 (180 天) 以上」**（特定關鍵基礎設施 CI、A/B 級機關或金融機構更要求冷備份留存 1 至 3 年）。  
+> 
+> 為符合法定 6 個月以上之留存標準，硬體磁碟容量**切勿以短期測試或未壓縮之隨機容量評估**，必須依據企業每日實際進線 EPS (Events Per Second)、單筆日誌均量、VictoriaLogs 區塊壓縮比與 30% 系統安全緩衝水位進行科學精算。
 
-- **作業系統**：Ubuntu 22.04 LTS / 24.04 LTS、Debian 12、RHEL 8/9、Rocky Linux 9 或 macOS (Apple Silicon / Intel)。
+#### 1. 建議硬體規格配置表 (符合 6 個月以上法定留存標準)
+
+| 部署規模 | 適用場景 / 預期 EPS | 建議 CPU | 建議記憶體 (RAM) | 磁碟空間建議 (滿足 6 個月以上法規留存) | 儲存架構與等級推薦 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **PoC / 輕量評估** | < 1,000 EPS<br>(實驗室 / 邊緣節點) | 4 ~ 8 核心 | 16 GB | **1 TB ~ 2 TB**<br>*(原 50GB 僅能存數天，無法合規)* | NVMe SSD (單碟或 RAID 1)，含 OS、Docker 鏡像與 180 天完整日誌留存 |
+| **標準中小型企業** | 1,000 ~ 10,000 EPS<br>(一般企業 SOC) | 8 ~ 16 核心 | 32 ~ 64 GB | **8 TB ~ 20 TB**<br>*(滿足 180 天法規門檻)* | **分層儲存 (推薦)**：<br>• 熱資料層：2 ~ 4 TB NVMe SSD (即時關聯與近 30 天查詢)<br>• 溫資料層：16 TB Enterprise SAS RAID 10 (31~180 天法規合規庫) |
+| **大型企業 / 關鍵基礎設施** | 10,000 ~ 50,000 EPS<br>(CI 領域 / 跨國企業) | 16 ~ 32 核心 | 64 ~ 128 GB | **30 TB ~ 80 TB**<br>*(滿足 180 天 ~ 1 年留存)* | **高效能混合陣列**：<br>• 熱資料層：8 ~ 16 TB Enterprise NVMe (RAID 10)<br>• 溫/冷資料層：64 TB+ Enterprise SAS HDD (RAID 6/60) 或 S3 物件儲存 |
+| **超大規模 / 金控電信叢集** | 50,000 ~ 100,000+ EPS<br>(金控跨域 / 電信 / 集中式 MSSP) | 32 ~ 64+ 核心<br>(分散式多節點) | 128 ~ 256+ GB<br>(叢集節點) | **100 TB ~ 250 TB+**<br>*(滿足 6 個月至 3 年留存)* | **分散式橫向擴展 (Scale-out)**：<br>分散式儲存叢集 (Ceph / SAN / 分散式 NVMe-oF)，支援熱/溫/冷自動轉存與 PB 級物件歸檔 |
+
+---
+
+#### 2. 磁碟容量科學精算公式 (Capacity Sizing Formula)
+
+為協助企業架構師精確規劃儲存採購預算，可套用以下容量精算公式：
+
+$$\text{每日原始資料量 (Raw GB/day)} = \frac{\text{EPS} \times 86,400\,\text{秒} \times \text{平均單筆日誌大小 (Bytes)}}{1024^3}$$
+
+$$\text{6 個月法定合規儲存量 (GB)} = \left( \frac{\text{每日原始資料量}}{\text{壓縮比 (ZSTD + Delta-of-Delta)}} \times 180\,\text{天} \times \text{索引與 Bloom Filter 開銷 (1.15)} \right) \times \text{安全水位與 OS 保留 (1.30)}$$
+
+> **實務情境估算範例 (以 5,000 EPS 為例)**：
+> - **單筆日誌平均大小**：約 600 Bytes (含 Syslog 標頭、JSON 欄位、WinRM 內容)。
+> - **每日原始日誌量**：$5,000 \times 86,400 \times 600 \div 1024^3 \approx 241.4\,\text{GB/天}$。
+> - **VictoriaLogs 儲存核心壓縮比**：約 7x ~ 10x（壓縮後每日約 $24.1 \sim 34.5\,\text{GB}$）。
+> - **180 天 (6 個月) 淨儲存需求**：約 $4.3 \sim 6.2\,\text{TB}$。
+> - **加上 Bloom Filter 三層剪枝索引 (15%) + 磁碟健康水位與 OS 保留 (30%)**：需配置 **8 TB ~ 10 TB** 有效可用空間。
+> - 若規劃 RAID 10 鏡像冗餘，實際採購實體磁碟應為 **16 TB ~ 20 TB**。
+
+---
+
+#### 3. 日誌生命週期與分層保存策略 (Hot / Warm / Cold Tiering Policy)
+
+SEMOR CYBER NG-SIEM 遵循台灣資安規範建議採用三層式生命週期管理：
+
+1. **🔥 熱資料層 (Hot Tier, 0 ~ 30 天)**：
+   - **儲存媒介**：高效能 NVMe PCIe 4.0/5.0 SSD。
+   - **用途**：提供 Discovery 毫秒級日誌搜尋、MITRE ATT&CK 實時關聯分析、SOAR 自動化劇本即時判定與 APM 鏈路追蹤。
+2. **❄️ 溫資料層 (Warm Tier, 31 ~ 180 天，落實 6 個月法定門檻)**：
+   - **儲存媒介**：高密度 Enterprise SAS SSD 或 Enterprise SATA RAID 10/60 陣列。
+   - **用途**：以 Rust VictoriaLogs 列式不可變 Block 壓縮存放，保留 Bloom Filter 雙重散列索引，無需全量解壓即可迅速調閱案件證據鏈與法規稽核抽查。
+3. **🧊 冷備份層 (Cold Archive, 180 天以上至 1 ~ 3 年)**：
+   - **儲存媒介**：外部 NAS、磁帶櫃或相容 S3 / MinIO 之雲端冷儲存。
+   - **用途**：自動輸出加密壓縮封裝包，包含 SHA-256 數位簽章與不可篡改性證明，滿足司法調查、數位鑑識與金管會長週期備份規範。
+
+---
+
+#### 4. 作業系統與底層儲存環境調優
+
+- **建議作業系統**：Ubuntu 22.04 LTS / 24.04 LTS、Debian 12、RHEL 8/9、Rocky Linux 9 或 macOS (Apple Silicon / Intel)。
+- **推薦檔案系統**：`XFS` 或 `ext4`。建議在 `/etc/fstab` 掛載參數加入 `noatime,nodiratime` 以大幅降低磁碟 Metadata 寫入開銷。
+- **儲存陣列推薦**：正式生產環境強烈建議配置硬體 **RAID 10**，兼顧寫入效能 (IOPS) 與容錯能力；嚴禁於生產環境使用未做 RAID 的單顆硬碟或慢速網路磁碟 (NFS)。
 - **通訊埠需求清單**：
   - `3000/TCP`：Web 前端與 SOC 操作台 (可透過 Nginx 80/443 反代)
   - `8080/TCP`：Go 接收器 HTTP Ingest API (`/insert/jsonline`)
-  - `5140/UDP` & `5140/TCP`：Syslog 高速接收通道
+  - `5140/UDP` & `5140/TCP`：Syslog 高速接收通道 (建議搭配 32MB Socket 核心緩衝)
   - `9527/TCP`：Rust VictoriaLogs 核心內部 RPC 通訊
   - `5986/TCP`：Windows WinRM 遠端事件收集 (選用)
 
@@ -778,7 +739,8 @@ git push -u origin main
 3. **Docker 權限不足問題**：
    - 執行 `sudo usermod -aG docker $USER` 並重新登入終端機。
 
-4. **安全與法規合規性**：
+4. **安全與法規合規性 (Taiwan Compliance & Governance)**：
+   - **法定 6 個月以上日誌留存 (6+ Months Retention)**：依據台灣《資通安全管理法》及《個人資料保護法施行細則》第 12 條，全系統事件、系統登入、防火牆連線與稽核軌跡預設保留至少 180 天 (6 個月)，並具備分層溫/冷自動歸檔。
    - **角色型存取控制 (RBAC)**：嚴格劃分 Supervisor、Admin、Auditor 與 Viewer。
    - **數位證據保全鏈 (Chain of Custody)**：所有取證資料、PCAP 側錄與 FIM 還原均具備 SHA-256 數位簽章與不可篡改驗證。
 
