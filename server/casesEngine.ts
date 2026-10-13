@@ -33,8 +33,8 @@ export class CasesEngine {
   private versions: CaseConfigVersion[] = [];
 
   constructor() {
-    // Deep clone initial seed data
-    this.cases = JSON.parse(JSON.stringify(INITIAL_CASES));
+    // Initialize empty cases array for production mode
+    this.cases = [];
     this.customFields = JSON.parse(JSON.stringify(INITIAL_CUSTOM_FIELDS));
     this.layoutBlocks = JSON.parse(JSON.stringify(INITIAL_LAYOUT_BLOCKS));
     this.slaStages = JSON.parse(JSON.stringify(INITIAL_SLA_STAGES));

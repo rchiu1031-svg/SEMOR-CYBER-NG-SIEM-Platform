@@ -24,6 +24,7 @@
 4. [完整安裝與部署指南 (Comprehensive Installation Guide)](#-完整安裝與部署指南-comprehensive-installation-guide)
    - [系統前置需求與硬體規格建議 (依據台灣法規 6 個月以上法定留存)](#系統前置需求與硬體規格建議)
    - [環境相依工具安裝 (Ubuntu / Debian / RHEL / macOS)](#步驟零系統依賴環境安裝)
+   - [必備開源資安軟體與周邊套件安裝步驟 (VictoriaLogs, Suricata, ClamAV, YARA, Wazuh, T-Pot 等)](#步驟零點五必備開源資安軟體與周邊套件安裝步驟)
    - [步驟一：原始碼取得與環境變數設定](#步驟一原始碼取得與環境變數設定)
    - [步驟二：方法 A - Node.js 全端伺服器本地快速安裝 (建議開發與評估)](#方法-a-nodejs-全端伺服器本地快速安裝-建議開發與評估)
    - [步驟三：方法 B - Docker Compose 容器化全核心一鍵部署 (建議生產運維)](#方法-b-docker-compose-容器化全核心一鍵部署-建議生產運維)
@@ -286,6 +287,303 @@ sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/dock
 sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 sudo systemctl enable --now docker
 ```
+
+---
+
+### 步驟零點五：必備開源資安軟體與周邊套件安裝步驟
+
+SEMOR CYBER NG-SIEM 為達到企業級百萬 EPS 吞吐、全封包鑑識、威脅誘捕與端點聯防，深度整合並介接多個核心開源資安工具。以下提供各開源元件在 Linux (Ubuntu 22.04/24.04 LTS 及 RHEL/Rocky Linux 9) 上的完整安裝指令與服務化配置：
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       SEMOR CYBER 核心開源資安元件架構                       │
+├───────────────────┬───────────────────┬───────────────────┬─────────────────┤
+│ 1. 日誌儲存核心   │ 2. 網路流量 (NDR) │ 3. 惡意軟體掃描   │ 4. 端點與 FIM   │
+│   VictoriaLogs    │ Suricata / Arkime │   ClamAV & YARA   │      Wazuh      │
+├───────────────────┼───────────────────┼───────────────────┼─────────────────┤
+│ 5. 誘捕蜜罐生態系 │ 6. 威脅情資 (CTI) │ 7. 案件管理(SIRP) │ 8. 網路存取(NAC)│
+│       T-Pot       │  MISP / OpenCTI   │ TheHive & Cortex  │   PacketFence   │
+├───────────────────┼───────────────────┼───────────────────┼─────────────────┤
+│ 9. 應用觀測 (APM) │ 10. 網絡兵棋推演  │ 11. SIGMA 規則庫  │ 12. 系統加固    │
+│  ApacheSkyWalking │   MITRE CALDERA   │     Zircolite     │ Secubian/Auditd │
+└───────────────────┴───────────────────┴───────────────────┴─────────────────┘
+```
+
+#### 1. VictoriaLogs (高速時序日誌資料庫核心，落實 6 個月法定保存)
+*角色：承載百萬級 EPS 列式壓縮儲存，內建 ZSTD 與 Bloom Filter 索引。*
+
+- **下載與安裝二進位檔**：
+  ```bash
+  # 建立專用使用者與資料目錄 (確保權限隔離)
+  sudo useradd -r -s /bin/false victorialogs
+  sudo mkdir -p /var/lib/victoria-logs-data /usr/local/bin
+  sudo chown -R victorialogs:victorialogs /var/lib/victoria-logs-data
+
+  # 下載官方最新 Release (Linux amd64 或 arm64)
+  VLOGS_VER="v1.12.0"
+  wget https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${VLOGS_VER}/victoria-logs-linux-amd64-${VLOGS_VER}.tar.gz -O /tmp/vlogs.tar.gz
+  sudo tar -zxvf /tmp/vlogs.tar.gz -C /usr/local/bin/
+  sudo chmod +x /usr/local/bin/victoria-logs-prod
+  sudo ln -sf /usr/local/bin/victoria-logs-prod /usr/local/bin/victoria-logs
+  ```
+
+- **配置 Linux Systemd 服務 (強制 180 天法定留存)**：
+  ```bash
+  sudo tee /etc/systemd/system/victorialogs.service > /dev/null << 'EOF'
+  [Unit]
+  Description=VictoriaLogs High-Performance Log Storage Engine
+  Documentation=https://docs.victoriametrics.com/victorialogs/
+  After=network.target
+
+  [Service]
+  Type=simple
+  User=victorialogs
+  Group=victorialogs
+  ExecStart=/usr/local/bin/victoria-logs \
+      -storageDataPath=/var/lib/victoria-logs-data \
+      -retentionPeriod=180d \
+      -httpListenAddr=:9428 \
+      -futureRetention=7d
+  Restart=always
+  RestartSec=3s
+  LimitNOFILE=1048576
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+  # 啟動並設定開機自啟動
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now victorialogs
+  curl -s http://localhost:9428/health | grep -i "ok"
+  ```
+
+---
+
+#### 2. Suricata 7 (次世代 NDR 網路流量側錄與侵入偵測引擎)
+*角色：全封包深度側錄 (FPC)、JA3/JA4 TLS 指紋辨識、異常 C2 突發通聯分析。*
+
+- **Ubuntu / Debian 安裝**：
+  ```bash
+  sudo apt install -y software-properties-common
+  sudo add-apt-repository -y ppa:oisf/suricata-stable
+  sudo apt update
+  sudo apt install -y suricata suricata-update jq libpcap-dev
+  ```
+
+- **RHEL 9 / Rocky Linux 9 安裝**：
+  ```bash
+  sudo dnf install -y epel-release
+  sudo dnf install -y suricata jq libpcap-devel
+  ```
+
+- **更新 Emerging Threats 開源規則庫並啟動**：
+  ```bash
+  # 自動下載最新 ET Open 規則集
+  sudo suricata-update
+
+  # 驗證規則集編譯無誤
+  sudo suricata -T -c /etc/suricata/suricata.yaml
+
+  # 設定綁定監控網卡 (請將 eth0 替換為實際網卡代號)
+  sudo sed -i 's/interface: eth0/interface: eth0/g' /etc/suricata/suricata.yaml
+
+  # 啟用並啟動服務 (自動輸出 /var/log/suricata/eve.json)
+  sudo systemctl enable --now suricata
+  sudo systemctl status suricata
+  ```
+
+---
+
+#### 3. Arkime (Moloch - 企業級全封包側錄 FPC 與 PCAP 鑑識索引)
+*角色：支援即時 PCAP 索引調閱、TCP 串流還原與 Hex/ASCII 封包鑑識。*
+
+- **下載與安裝官方套件**：
+  ```bash
+  # 以 Ubuntu 22.04 / 24.04 為例
+  ARKIME_VER="5.1.0-1"
+  wget https://github.com/arkime/arkime/releases/download/v${ARKIME_VER}/arkime_${ARKIME_VER}.ubuntu2204_amd64.deb -O /tmp/arkime.deb
+  sudo apt install -y /tmp/arkime.deb
+
+  # 執行互動式組態設定 (指定監控網卡與 Elasticsearch / OpenSearch 端點)
+  sudo /opt/arkime/bin/Configure
+
+  # 初始化資料庫索引與預設管理者帳號
+  sudo /opt/arkime/db/db.pl http://localhost:9200 init
+  sudo /opt/arkime/bin/arkime_add_user.sh admin "Admin User" password123 --admin
+
+  # 啟動 Arkime Capture 與 Viewer 服務
+  sudo systemctl enable --now arkimecapture arkimeviewer
+  ```
+
+---
+
+#### 4. ClamAV & YARA (檔案惡意程式特徵碼與啟發式掃描核心)
+*角色：提供即時檔案 SHA-256 數位簽章比對、防毒特徵比對與自訂 YARA 規則測試。*
+
+- **Ubuntu / Debian 安裝**：
+  ```bash
+  sudo apt install -y clamav clamav-daemon freshclam yara libyara-dev
+  ```
+
+- **RHEL 9 / Rocky Linux 9 安裝**：
+  ```bash
+  sudo dnf install -y clamav clamav-update clamd yara
+  ```
+
+- **更新病毒特徵庫並啟動 ClamAV Daemon**：
+  ```bash
+  # 停止背景服務以手動執行特徵庫強制更新
+  sudo systemctl stop clamav-freshclam || true
+  sudo freshclam
+  sudo systemctl start clamav-freshclam
+
+  # 啟動 ClamAV 掃描常駐程序
+  sudo systemctl enable --now clamav-daemon || sudo systemctl enable --now clamd@scan
+
+  # 測試 YARA 規則編譯引擎
+  yara --version   # 需顯示 4.x
+  ```
+
+---
+
+#### 5. Wazuh (Open XDR / EDR 端點偵測與 FIM 檔案完整性監控核心)
+*角色：集中式主機安全防護、eBPF 探針、Syscheck 檔案防篡改與 Active Response 自動遏阻。*
+
+- **Wazuh 伺服器一鍵安裝 (Wazuh Indexer + Server + Dashboard)**：
+  ```bash
+  # 下載官方輔助部署腳本
+  curl -sO https://packages.wazuh.com/4.8/wazuh-install.sh
+  sudo bash wazuh-install.sh -a
+
+  # 檢視預設帳密與服務連線狀態
+  sudo tar -xvf wazuh-install-files.tar
+  cat ~/wazuh-install-files/wazuh-passwords.txt
+  ```
+
+- **於受監控端點主機部署 Wazuh Agent**：
+  ```bash
+  # Ubuntu / Debian Agent
+  wget -qO - https://packages.wazuh.com/key/GPG-KEY-WAZUH | sudo gpg --dearmor -o /etc/apt/keyrings/wazuh.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | sudo tee /etc/apt/sources.list.d/wazuh.list
+  sudo apt update && sudo WAZUH_MANAGER="<WAZUH_SERVER_IP>" apt install -y wazuh-agent
+  sudo systemctl enable --now wazuh-agent
+  ```
+
+---
+
+#### 6. T-Pot 誘捕蜜罐生態系 (Multi-Honeypot Architecture)
+*角色：部署 Cowrie (SSH/Telnet)、Dionaea、Honeytrap 進行全域誘捕與威脅情資反饋。*
+
+- **以 Docker Compose 容器化模組快速部署**：
+  ```bash
+  sudo mkdir -p /opt/tpot-honeypot && cd /opt/tpot-honeypot
+
+  # 建立專用蜜罐編排檔
+  sudo tee docker-compose.yml > /dev/null << 'EOF'
+  version: '3.8'
+  services:
+    cowrie:
+      image: cowrie/cowrie:latest
+      container_name: semor-honeypot-cowrie
+      restart: always
+      ports:
+        - "2222:2222"
+      volumes:
+        - ./cowrie-logs:/cowrie/var/log/cowrie
+
+    dionaea:
+      image: dinotools/dionaea:latest
+      container_name: semor-honeypot-dionaea
+      restart: always
+      ports:
+        - "21:21"
+        - "445:445"
+        - "1433:1433"
+        - "3306:3306"
+      volumes:
+        - ./dionaea-bistream:/opt/dionaea/var/dionaea/bistreams
+  EOF
+
+  # 啟動蜜罐容器並導向日誌佇列
+  docker compose up -d
+  ```
+
+---
+
+#### 7. TheHive 5 & Cortex 3 (資安事件應變 SIRP 與自動化鑑識分析器)
+*角色：支援 Case Management 數位證據保全鏈 (Chain of Custody) 與第三方分析器擴充。*
+
+- **容器化一鍵啟動**：
+  ```bash
+  sudo mkdir -p /opt/thehive && cd /opt/thehive
+  wget -q https://raw.githubusercontent.com/TheHive-Project/TheHive/master/docker-compose.yml
+  docker compose up -d
+  ```
+
+---
+
+#### 8. MISP & OpenCTI (威脅情報 STIX 2.1 / TAXII 2.1 平台)
+*角色：自動拉取開源情資饋送 (AlienVault OTX, ThreatFox, AbuseIPDB, URLhaus)。*
+
+- **MISP Docker 容器一鍵拉取**：
+  ```bash
+  sudo git clone https://github.com/coolacid/docker-misp.git /opt/misp
+  cd /opt/misp
+  cp template.env .env
+  docker compose up -d
+  ```
+
+---
+
+#### 9. PacketFence (開源網路存取控制 NAC & 802.1X 隔離)
+*角色：整合 FreeRADIUS、動態劃分 Switch VLAN、強制隔離受感染端點設備。*
+
+- **Debian / Ubuntu 安裝**：
+  ```bash
+  # 匯入官方軟體庫
+  sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 14AE4BD9
+  echo "deb http://inverse.ca/downloads/PacketFence/debian/13.0 bookworm bookworm" | sudo tee /etc/apt/sources.list.d/packetfence.list
+  sudo apt update && sudo apt install -y packetfence
+  ```
+
+---
+
+#### 10. Apache SkyWalking (企業級 APM 應用效能管理與全端鏈路追蹤)
+*角色：追蹤分散式呼叫鏈 (Trace)、微服務拓撲圖、JVM / Node.js 記憶體與吞吐指標。*
+
+- **以 Docker 容器快速啟動 OAP 服務**：
+  ```bash
+  docker run -d --name skywalking-oap \
+      -p 11800:11800 -p 12800:12800 \
+      -e SW_STORAGE=h2 \
+      apache/skywalking-oap-server:9.7.0
+  ```
+
+---
+
+#### 11. CALDERA (MITRE 網絡兵棋推演與紅藍攻防模擬引擎)
+*角色：自動化 APT 攻擊鏈滲透模擬 (Adversary Emulation)，驗證 SIEM/SOAR 防禦規則。*
+
+- **安裝與啟動**：
+  ```bash
+  git clone https://github.com/mitre/caldera.git /opt/caldera --recursive
+  cd /opt/caldera
+  pip3 install -r requirements.txt
+  python3 server.py --insecure
+  ```
+
+---
+
+#### 12. Zircolite (獨立快速 SIGMA 規則比對引擎)
+*角色：在記憶體中以 SQLite 對進線日誌進行即時 SIGMA 威脅特徵高速匹配。*
+
+- **安裝與規則集同步**：
+  ```bash
+  pip3 install zircolite
+  git clone https://github.com/SigmaHQ/sigma.git /opt/sigma-rules
+  zircolite --help
+  ```
 
 ---
 

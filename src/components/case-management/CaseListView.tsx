@@ -323,6 +323,18 @@ export const CaseListView: React.FC<CaseListViewProps> = ({
                     </tr>
                   );
                 })}
+
+                {cases.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-16 text-center text-gray-500">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <ShieldAlert className="w-9 h-9 text-gray-600" />
+                        <span className="text-sm font-semibold text-gray-400">目前尚無調查案件 (No Active Cases)</span>
+                        <span className="text-xs text-gray-600">系統關聯引擎偵測到高危事件或管理員手動立案時，將即時呈現於此</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

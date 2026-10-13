@@ -91,270 +91,15 @@ export interface CriticalIncidentItem {
   }[];
 }
 
-const DEFAULT_INCIDENTS: CriticalIncidentItem[] = [
-  {
-    id: 'INC-2026-0801',
-    time: '2026-04-30 02:30:00',
-    srcip: '10.100.4.18',
-    srcHost: 'WS-RD-DEV-04',
-    srcUser: 'Kevin (R&D Lead)',
-    dstip: '198.51.100.88',
-    dstHost: 'MEGA.nz Cloud Storage',
-    action: 'UEBA: Data Exfiltration',
-    country: 'Internal',
-    threat: 'Anomalous Upload (15GB Encrypted Blob)',
-    risk: 'Critical',
-    riskScore: 9.8,
-    status: 'active',
-    category: 'ueba',
-    cve: 'CWE-200 / Insider Threat',
-    mitreTTP: 'T1567.002 Exfiltration to Cloud Storage',
-    mitreStage: 'Exfiltration',
-    affectedAssets: 3,
-    confidence: 98.4,
-    payloadHex: '4d 45 47 41 5f 55 50 4c 4f 41 44 5f 53 45 53 53 49 4f 4e 5f 4b 45 59 3a 20 61 65 73 32 35 36 2d 67 63 6d 5f 70 61 79 6c 6f 61 64 2e 74 61 72 2e 67 7a',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-30T02:30:00Z",
-      event: "UEBA_ANOMALOUS_OUTBOUND",
-      source_user: "kevin_rd",
-      source_ip: "10.100.4.18",
-      dest_fqdn: "eu.storage.mega.co.nz",
-      dest_ip: "198.51.100.88",
-      protocol: "HTTPS/TLSv1.3",
-      bytes_out: 16106127360,
-      baseline_avg_bytes: 45000000,
-      deviation_sigma: "+7.4 sigma",
-      encryption: "Client-Side Pre-Encrypted Archive"
-    }, null, 2),
-    aiSummary: '戰術模式顯示研發部門帳號於非工作時間（凌晨 02:30）存取核心原始碼儲存庫後，向境外網盤高頻上傳高達 15GB 加密封裝資料。偏離該使用者過去 90 天行為基準線達 +7.4 個標準差，高度符合內部威脅資料竊取特徵。',
-    recommendedPlaybooks: [
-      { id: 'pb-1', title: '即時阻斷該端點連外網路 (Host Quarantine)', description: '透過 EDR 下發網路隔離指令，僅保留 SOC 通信埠', type: 'isolate' },
-      { id: 'pb-2', title: '強制撤銷 AD 帳號與 Session Token', description: '立即鎖定 Active Directory 帳號並終止所有雲端登入憑證', type: 'revoke' },
-      { id: 'pb-3', title: '下發邊界防火牆 DNS / IP 封鎖規則', description: '向 Palo Alto / Fortinet 下發 198.51.100.88 阻斷規則', type: 'block' },
-      { id: 'pb-4', title: '執行終端記憶體傾印取證 (Forensic Dump)', description: '即時擷取該開發主機 RAM 與暫存目錄進行數位鑑識', type: 'dump' }
-    ]
-  },
-  {
-    id: 'INC-2026-0802',
-    time: '2026-04-30 02:15:00',
-    srcip: '10.100.4.18',
-    srcHost: 'WS-RD-DEV-04',
-    srcUser: 'Kevin (R&D Lead)',
-    dstip: '10.200.1.20',
-    dstHost: 'GitLab-Enterprise-Core',
-    action: 'UEBA: File Access Anomaly',
-    country: 'Internal',
-    threat: 'High Vol Source Code Repository Clone',
-    risk: 'High',
-    riskScore: 8.6,
-    status: 'investigating',
-    category: 'ueba',
-    cve: 'CWE-284 Improper Access Control',
-    mitreTTP: 'T1005 Data from Local System',
-    mitreStage: 'Lateral Movement',
-    affectedAssets: 2,
-    confidence: 94.2,
-    payloadHex: '67 69 74 20 63 6c 6f 6e 65 20 2d 2d 6d 69 72 72 6f 72 20 67 69 74 40 67 69 74 6c 61 62 3a 64 65 66 65 6e 73 65 2d 63 34 69 73 72 2e 67 69 74',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-30T02:15:00Z",
-      event: "GIT_BULK_EXPORT",
-      actor: "kevin_rd",
-      repo_count: 18,
-      total_commits_downloaded: 45200,
-      protocol: "SSH-RSA",
-      fingerprint: "SHA256:d8:a1:4c:7b:99:12:ef"
-    }, null, 2),
-    aiSummary: '同一主機在進行大流量外洩前 15 分鐘，批次鏡像複製了 18 個軍事通信與 C4ISR 核心專案儲存庫，確認為連貫性資料竊取攻擊鏈之第一階段。',
-    recommendedPlaybooks: [
-      { id: 'pb-git-1', title: '暫時撤銷該使用者之 GitLab SSH 金鑰與權限', description: '防止繼續進行未授權之代碼複製', type: 'revoke' },
-      { id: 'pb-git-2', title: '限制內部 Git Server 存取 IP 網段', description: '加強微分段安全防護', type: 'block' }
-    ]
-  },
-  {
-    id: 'INC-2026-0803',
-    time: '2026-04-02 09:30:15',
-    srcip: '103.45.12.88',
-    srcHost: 'APT-66-PUPPET',
-    srcUser: 'SYSTEM (Exploited)',
-    dstip: '192.168.50.10',
-    dstHost: 'SCADA-PLC-TURBINE-01',
-    action: 'Modbus Write (0x05)',
-    country: 'Russia',
-    threat: 'Industrial Sabotage (Coil Override Attempt)',
-    risk: 'Critical',
-    riskScore: 9.9,
-    status: 'active',
-    category: 'ics',
-    cve: 'CVE-2022-22965 / Modbus Auth Bypass',
-    mitreTTP: 'T0855 Unauthorized Command Message',
-    mitreStage: 'Initial Access',
-    affectedAssets: 4,
-    confidence: 99.1,
-    payloadHex: '00 01 00 00 00 06 01 05 00 64 ff 00 (Modbus Force Single Coil: OVERRIDE_COOLING_VALVE_ON)',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-02T09:30:15Z",
-      protocol: "Modbus/TCP (Port 502)",
-      function_code: "0x05 (Write Single Coil)",
-      register_address: "0x0064 (Coil 100)",
-      requested_state: "0xFF00 (Force ON)",
-      plc_model: "Schneider Modicon M580",
-      threat_actor: "APT-66 (Industrial Disruptor)"
-    }, null, 2),
-    aiSummary: '偵測到針對關鍵基礎設施冷卻控制閥之強制寫入惡意指令 (Function Code 0x05)，企圖越過安全連鎖機構造成渦輪機過熱停機。來源 IP 位於境外高風險網段，屬於具備國家級背景之工控破壞攻擊。',
-    recommendedPlaybooks: [
-      { id: 'pb-ics-1', title: '切換工控網閘至單向硬體隔離模式 (Air-Gap)', description: '阻斷外部 IT-OT 橫向連線，維持本地 HMI 安全運作', type: 'isolate' },
-      { id: 'pb-ics-2', title: '下發 ICS 防火牆 Modbus 協議白名單過濾', description: '強制拒絕所有非排程之 0x05 / 0x0F 寫入指令', type: 'block' },
-      { id: 'pb-ics-3', title: '緊急啟動備援發電機與安全保護連鎖', description: '防止物理設備產生硬體損傷', type: 'notify' }
-    ]
-  },
-  {
-    id: 'INC-2026-0804',
-    time: '2026-04-02 09:12:40',
-    srcip: '45.122.3.15',
-    srcHost: 'HOST-EXTERNAL-SCANNER',
-    dstip: '172.16.0.5',
-    dstHost: 'DMZ-BASTION-JUMP',
-    action: 'SSH Brute Force',
-    country: 'China',
-    threat: 'Credential Access (Dict Attack: 2,400 attempts/min)',
-    risk: 'High',
-    riskScore: 8.2,
-    status: 'contained',
-    category: 'bruteforce',
-    cve: 'CWE-307 Excessive Authentication Attempts',
-    mitreTTP: 'T1110.001 Password Guessing',
-    mitreStage: 'Initial Access',
-    affectedAssets: 1,
-    confidence: 96.0,
-    payloadHex: '53 53 48 2d 32 2e 30 2d 4c 69 62 53 53 48 5f 30 2e 39 2e 35 20 61 75 74 68 5f 66 61 69 6c 75 72 65 3a 20 72 6f 6f 74',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-02T09:12:40Z",
-      service: "OpenSSH_8.9p1",
-      failed_attempts: 2480,
-      duration_seconds: 62,
-      target_accounts: ["root", "admin", "c4isr_op", "operator", "backup"]
-    }, null, 2),
-    aiSummary: '高頻字典檔攻擊邊界堡壘機，企圖透過自動化撞庫取得特權操作通道。自動化 WAF / Fail2ban 已即時下發 24 小時動態黑名單。',
-    recommendedPlaybooks: [
-      { id: 'pb-ssh-1', title: '延長來源 IP 封鎖期至 30 天', description: '將 45.122.3.15 加入全域邊界防禦清單', type: 'block' }
-    ]
-  },
-  {
-    id: 'INC-2026-0805',
-    time: '2026-04-02 08:55:22',
-    srcip: '185.220.101.4',
-    srcHost: 'TOR-EXIT-NODE-NETH',
-    dstip: '10.0.0.15',
-    dstHost: 'PORTAL-AUTH-API-01',
-    action: 'SQL Injection',
-    country: 'Netherlands',
-    threat: 'Data Exfiltration (UNION SELECT schema dump)',
-    risk: 'Critical',
-    riskScore: 9.5,
-    status: 'active',
-    category: 'apt',
-    cve: 'CVE-2023-34362 / SQLi in REST API',
-    mitreTTP: 'T1190 Exploit Public-Facing Application',
-    mitreStage: 'Initial Access',
-    affectedAssets: 2,
-    confidence: 97.8,
-    payloadHex: '27 20 55 4e 49 4f 4e 20 53 45 4c 45 43 54 20 6e 75 6c 6c 2c 20 74 61 62 6c 65 5f 6e 61 6d 65 2c 20 63 6f 6c 75 6d 6e 5f 6e 61 6d 65 20 46 52 4f 4d 20 69 6e 66 6f 72 6d 61 74 69 6f 6e 5f 73 63 68 65 6d 61 2e 63 6f 6c 75 6d 6e 73 20 2d 2d 20',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-02T08:55:22Z",
-      request_uri: "/api/v2/personnel/search?q='%20UNION%20SELECT%20null,table_name,column_name%20FROM%20information_schema.columns--",
-      user_agent: "sqlmap/1.7.2#stable (https://sqlmap.org)",
-      waf_status: "ALERT_GENERATED",
-      db_response_size: "142 KB"
-    }, null, 2),
-    aiSummary: '利用 Portal 查詢介面未經過濾之參數進行 UNION 注入，探測系統資料表結構並嘗試導出人員資料庫清冊。',
-    recommendedPlaybooks: [
-      { id: 'pb-sqli-1', title: '開啟 WAF 嚴格虛擬修補 (Virtual Patching)', description: '阻斷所有包含 UNION SELECT / SQL 特徵字元之 HTTP 請求', type: 'block' },
-      { id: 'pb-sqli-2', title: '暫時停用脆弱 API 節點 /api/v2/personnel/search', description: '將流量路由至靜態維護頁面以待熱修復', type: 'isolate' }
-    ]
-  },
-  {
-    id: 'INC-2026-0806',
-    time: '2026-04-02 08:40:10',
-    srcip: '91.241.19.33',
-    srcHost: 'UNKNOWN-HOST',
-    dstip: '192.168.1.100',
-    dstHost: 'WS-FINANCE-03',
-    action: 'RDP Exploit (BlueKeep)',
-    country: 'Ukraine',
-    threat: 'Lateral Movement (EternalBlue / BlueKeep probe)',
-    risk: 'High',
-    riskScore: 8.9,
-    status: 'investigating',
-    category: 'apt',
-    cve: 'CVE-2019-0708 (BlueKeep)',
-    mitreTTP: 'T1210 Exploitation of Remote Services',
-    mitreStage: 'Lateral Movement',
-    affectedAssets: 2,
-    confidence: 93.5,
-    payloadHex: '03 00 00 13 0e e0 00 00 00 00 00 01 00 08 00 03 00 00 00 (RDP MS_T120 Channel Malformed Packet)',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-02T08:40:10Z",
-      port: 3389,
-      channel: "MS_T120",
-      exploit_family: "BlueKeep Kernel Memory Corruption",
-      edr_state: "PROCESS_TAMPER_DETECTED"
-    }, null, 2),
-    aiSummary: '遠端桌面服務接收到異常通道封包，企圖觸發核心記憶體毀損以執行任意代碼。',
-    recommendedPlaybooks: [
-      { id: 'pb-rdp-1', title: '關閉非必要之公網 RDP 存取埠 (Port 3389)', description: '強制使用 VPN 加上 2FA 雙因子驗證連線', type: 'block' },
-      { id: 'pb-rdp-2', title: '下發微軟安全更新 KB4499175', description: '派送緊急安全性更新修補 BlueKeep 弱點', type: 'isolate' }
-    ]
-  },
-  {
-    id: 'INC-2026-0807',
-    time: '2026-04-02 08:15:05',
-    srcip: '192.168.50.200',
-    srcHost: 'WS-LOGISTICS-08',
-    dstip: '8.8.8.8',
-    dstHost: 'Google Public DNS (Hijacked Tunnel)',
-    action: 'DNS Tunneling',
-    country: 'Internal',
-    threat: 'C2 Communication (Encoded Subdomains Exfiltration)',
-    risk: 'Critical',
-    riskScore: 9.7,
-    status: 'active',
-    category: 'c2',
-    cve: 'CWE-319 Cleartext Transmission',
-    mitreTTP: 'T1071.004 DNS Application Layer Protocol',
-    mitreStage: 'Privilege Escalation',
-    affectedAssets: 3,
-    confidence: 99.3,
-    payloadHex: '71 78 7a 61 39 39 31 38 66 61 32 30 34 62 2e 63 32 2d 63 6f 6d 6d 61 6e 64 2e 6e 65 74',
-    rawLog: JSON.stringify({
-      timestamp: "2026-04-02T08:15:05Z",
-      query_type: "TXT / NULL",
-      subdomain_entropy: 4.88,
-      query_count: 5400,
-      dest_c2_ns: "ns1.c2-command.net"
-    }, null, 2),
-    aiSummary: '內網後勤端點向惡意 NS 伺服器發出高頻超長 Base32 子網域 DNS 請求，確認為隱蔽 C2 通道與慢速外洩特徵。',
-    recommendedPlaybooks: [
-      { id: 'pb-dns-1', title: '內部 DNS 伺服器強制啟用 DNS RPZ 響應原則區域', description: '將惡意網域導向安全黑洞 Sinkhole', type: 'block' },
-      { id: 'pb-dns-2', title: '隔離 WS-LOGISTICS-08 並進行惡意軟體掃描', description: '清除背景常駐之 DNS Beacon 惡意載荷', type: 'isolate' }
-    ]
-  }
-];
-
-export interface LogsSummary {
+interface LogsSummary {
+  success?: boolean;
   totalLogs: number;
   highRiskLogsCount: number;
-  activeIncidentCount: number;
-  lastIngestedLogTime: string;
-  recentLogsSample?: {
-    id: string;
-    timestamp: string;
-    host: string;
-    level: string;
-    protocol: string;
-    source: string;
-    message: string;
-  }[];
+  lastIngestedLogTime?: string;
+  recentLogsSample?: any[];
 }
+
+const DEFAULT_INCIDENTS: CriticalIncidentItem[] = [];
 
 export default function CriticalIncidentsView({ currentUser }: { currentUser: any }) {
   const { t, i18n } = useTranslation();
@@ -362,8 +107,8 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
 
   // Data state
   const [incidents, setIncidents] = useState<CriticalIncidentItem[]>(DEFAULT_INCIDENTS);
-  const [expandedRow, setExpandedRow] = useState<string | null>(DEFAULT_INCIDENTS[0].id);
-  const [selectedIncident, setSelectedIncident] = useState<CriticalIncidentItem | null>(DEFAULT_INCIDENTS[0]);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [selectedIncident, setSelectedIncident] = useState<CriticalIncidentItem | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzingAi, setIsAnalyzingAi] = useState(false);
@@ -1105,11 +850,28 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
             </thead>
 
             <tbody className="divide-y divide-gray-800/60">
-              {filteredIncidents.map((incident) => {
-                const isExpanded = expandedRow === incident.id;
+              {filteredIncidents.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-16 text-center text-gray-500">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <ShieldAlert className="w-10 h-10 text-gray-600" />
+                      <span className="text-sm font-semibold text-gray-300">
+                        {isZh ? '目前尚無重大安全事件 (No Critical Incidents)' : 'No Critical Incidents Detected'}
+                      </span>
+                      <span className="text-xs text-gray-500 max-w-md">
+                        {isZh 
+                          ? '系統關聯引擎持續監控進線日誌、網路連線流量與端點探針。偵測到高危攻擊行為時將自動在此拉響警報並觸發遏阻劇本。' 
+                          : 'Correlation engine is continuously monitoring incoming telemetry. High-risk threat signatures will be automatically elevated here.'}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredIncidents.map((incident) => {
+                  const isExpanded = expandedRow === incident.id;
 
-                return (
-                  <React.Fragment key={incident.id}>
+                  return (
+                    <React.Fragment key={incident.id}>
                     <tr
                       onClick={() => {
                         setExpandedRow(isExpanded ? null : incident.id);
@@ -1793,7 +1555,8 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                     </AnimatePresence>
                   </React.Fragment>
                 );
-              })}
+              })
+            )}
             </tbody>
           </table>
         </div>
