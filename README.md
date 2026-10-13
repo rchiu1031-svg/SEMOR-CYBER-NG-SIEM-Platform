@@ -159,9 +159,9 @@
 - **服務拓撲圖 (Topology Map)**：即時繪製微服務依賴關係、調用吞吐量 (QPS) 與錯誤率。
 - **JVM 與容器效能洞察**：監控記憶體堆疊、GC 頻率、執行緒集區與 Service Mesh 狀態。
 
-### 11. 工業控制與智慧基礎設施安全 (OT/SCADA & Traffic Control)
-- **OT/ICS 專用通訊協定解析**：深度側錄 Modbus TCP、Siemens S7、DNP3、EtherNet/IP 工控封包。
-- **交通號誌基礎設施控制**：結合 SCADA/HMI 模擬智慧城市交通號誌、資訊可變標誌 (CMS) 與 CCTV 連線安全。
+### 11. 工業控制系統安全 (OT/ICS & SCADA Security)
+- **OT/ICS 專用通訊協定深度解析**：深度解析與白名單過濾 Modbus TCP、Siemens S7Comm、DNP3、EtherNet/IP 工控通訊協定。
+- **Purdue Model 階層防護與安全儀表**：普渡模型 Level 0-3 即時資產拓撲、安全儀表板、異常 DPI 攔截與緊急停機 (ESD) 防護機制。
 
 ### 12. 軍方網絡兵棋推演 (Cyber Wargaming & CALDERA Simulation)
 - **紅藍軍攻防對抗模擬**：整合 MITRE ATT&CK 戰術想定，模擬 APT 組織滲透路徑。

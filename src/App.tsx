@@ -202,7 +202,6 @@ import CriticalIncidentsView from './components/CriticalIncidentsView';
 import AIAnalystView from './components/AIAnalystView';
 import SOARViewComponent from './components/SOARView';
 import OTSecurityViewComponent from './components/OTSecurityView';
-import TrafficControlView from './components/TrafficControlView';
 import IntelCTIViewComponent from './components/cti/IntelCTIView';
 import { MalwareAnalysisView } from './components/malware/MalwareAnalysisView';
 import { VulnerabilityView } from './components/vulnerability/VulnerabilityView';
@@ -1719,9 +1718,8 @@ export default function App() {
       case 'fim':
         return <FIMView />;
       case 'industrial':
-        return <OTSecurityViewComponent />;
       case 'traffic-control':
-        return <TrafficControlView />;
+        return <OTSecurityViewComponent />;
       case 'monitor':
         return <NetworkMonitorView />;
       case 'gateway':
@@ -14540,7 +14538,7 @@ function ModuleDetailView({ module }: { module: ModuleInfo }) {
             </div>
             <h2 className="text-3xl font-bold">{t(`modules.${module.id}`, { defaultValue: module.name })}</h2>
           </div>
-          <p className="text-gray-400 max-w-2xl">{isZh ? (module.id === 'traffic-control' ? '智慧城市交通號誌基礎設施：結合 SCADA/HMI 整合監控 CMS 資訊可變標誌看板、車道管制、速限標誌與 CCTV 交通攝影機。' : module.id === 'industrial' ? 'OT/IoT 工業控制安全：工業通訊協定深度解析 (Modbus, S7) 與全封包側錄。' : module.description) : module.description}</p>
+          <p className="text-gray-400 max-w-2xl">{isZh ? (module.id === 'industrial' ? 'OT/IoT 工業控制安全：工業通訊協定深度解析 (Modbus, S7) 與全封包側錄。' : module.description) : module.description}</p>
         </div>
         <div className="flex gap-3">
           <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors">

@@ -145,14 +145,6 @@ export const MODULES: ModuleInfo[] = [
     icon: 'Swords'
   },
   {
-    id: 'traffic-control',
-    name: '交通號誌控制 (Traffic Control)',
-    description: '智慧城市交通號誌基礎設施：結合 SCADA/HMI 整合監控 CMS 資訊可變標誌看板、車道管制、速限標誌與 CCTV 交通攝影機。',
-    category: 'INDUSTRIAL',
-    engines: ['SCADA', 'HMI', 'Modbus', 'DNP3', 'SNMP'],
-    icon: 'TrafficCone'
-  },
-  {
     id: 'monitor',
     name: 'Network Monitor',
     description: 'Internal Network Monitoring: Using flow collection and Nmap scanning to dynamically identify devices and generate topology maps.',
