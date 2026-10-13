@@ -137,7 +137,81 @@ export interface ProcessSensorData {
   plcInfo: string;
 }
 
-// Mock Purdue Level Assets
+export interface OTTelemetrySummary {
+  totalAssets: number;
+  plcsCount: number;
+  hmisCount: number;
+  scadaServersCount: number;
+  criticalAnomaliesCount: number;
+  dpiThroughputGbps: number;
+  processSafetyIndex: number;
+  purdueBreakdown: Record<PurdueLevel, number>;
+  protocolBreakdown: Record<string, number>;
+  esdActive: boolean;
+  fpcActive: boolean;
+  lastInspectionTimestamp: string;
+}
+
+export interface PurdueBoundaryRule {
+  id: string;
+  name: string;
+  srcZone: string;
+  destZone: string;
+  protocol: string;
+  allowedFunctionCodes: string[];
+  action: 'DROP' | 'ALLOW' | 'INSPECT' | 'ALERT';
+  enabled: boolean;
+  description: string;
+}
+
+export const INITIAL_RULES: PurdueBoundaryRule[] = [
+  {
+    id: 'ACL-RULE-001',
+    name: 'TIA Portal / Eng-WS to S7-1500 (Level 3 -> Level 1)',
+    srcZone: 'OT Level 3',
+    destZone: 'OT Level 1',
+    protocol: 'S7Comm',
+    allowedFunctionCodes: ['0x04', '0xF0', '0x1A'],
+    action: 'INSPECT',
+    enabled: true,
+    description: '限制僅允許讀取變數與基礎握手，對 0x28 停機指令進行審計隔離'
+  },
+  {
+    id: 'ACL-RULE-002',
+    name: 'Operator HMI to Field PLCs (Level 2 -> Level 1)',
+    srcZone: 'OT Level 2',
+    destZone: 'OT Level 1',
+    protocol: 'Modbus TCP / EtherNet/IP',
+    allowedFunctionCodes: ['0x01', '0x02', '0x03', '0x04', '0x05', '0x06', '0x10'],
+    action: 'ALLOW',
+    enabled: true,
+    description: '操作台白名單控制通訊，限制速率每秒不超過 100 次查詢'
+  },
+  {
+    id: 'ACL-RULE-003',
+    name: 'IT / Enterprise to OT Level 1 Direct Access',
+    srcZone: 'IT Level 4',
+    destZone: 'OT Level 1',
+    protocol: 'ALL',
+    allowedFunctionCodes: [],
+    action: 'DROP',
+    enabled: true,
+    description: '嚴格落實 Purdue 模型隔離：IT 網段禁止繞過 iDMZ 直連現場控制器'
+  },
+  {
+    id: 'ACL-RULE-004',
+    name: 'iDMZ Jumpbox to Production PLCs',
+    srcZone: 'iDMZ',
+    destZone: 'OT Level 1',
+    protocol: 'Modbus TCP',
+    allowedFunctionCodes: ['0x01', '0x02', '0x03', '0x04'],
+    action: 'INSPECT',
+    enabled: true,
+    description: '僅允許白名單 HMI/SCADA 讀取指令，嚴禁未授權寫入 0x05/0x06/0x10'
+  }
+];
+
+// Baseline Purdue Level Assets
 const INITIAL_ASSETS: IndustrialAsset[] = [
   // Level 1: PLCs & Controllers
   {
@@ -571,14 +645,22 @@ export default function OTSecurityView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'purdue' | 'inventory' | 'dpi' | 'killchain' | 'safety' | 'fpc'>('purdue');
+  const [activeTab, setActiveTab] = useState<'purdue' | 'inventory' | 'dpi' | 'killchain' | 'safety' | 'rules' | 'fpc'>('purdue');
   
   // Data states
+  const [telemetry, setTelemetry] = useState<OTTelemetrySummary | null>(null);
   const [assets, setAssets] = useState<IndustrialAsset[]>(INITIAL_ASSETS);
   const [dpiCommands, setDpiCommands] = useState<ICSProtocolCommand[]>(INITIAL_DPI_COMMANDS);
   const [incidents, setIncidents] = useState<ITtoOTIncident[]>(INITIAL_INCIDENTS);
   const [sensors, setSensors] = useState<ProcessSensorData[]>(INITIAL_SENSORS);
-  
+  const [rules, setRules] = useState<PurdueBoundaryRule[]>(INITIAL_RULES);
+  const [backendSynced, setBackendSynced] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Selected DPI payload deep dissection breakdown
+  const [selectedDpiPayload, setSelectedDpiPayload] = useState<any | null>(null);
+  const [loadingPayload, setLoadingPayload] = useState<boolean>(false);
+
   // Filter & Selection States
   const [selectedAsset, setSelectedAsset] = useState<IndustrialAsset | null>(INITIAL_ASSETS[0]);
   const [selectedIncident, setSelectedIncident] = useState<ITtoOTIncident | null>(INITIAL_INCIDENTS[0]);
@@ -596,59 +678,227 @@ export default function OTSecurityView() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
-  // Simulate Live ICS Packet Ingestion
+  // Hydrate all data from backend
+  const fetchAllData = async () => {
+    try {
+      setIsRefreshing(true);
+      const [telRes, assRes, dpiRes, incRes, senRes, rulRes] = await Promise.all([
+        fetch('/api/v1/ot/telemetry').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/v1/ot/assets').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/v1/ot/dpi-commands').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/v1/ot/incidents').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/v1/ot/sensors').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/v1/ot/rules').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+
+      if (telRes?.summary) setTelemetry(telRes.summary);
+      if (assRes?.assets && assRes.assets.length > 0) setAssets(assRes.assets);
+      if (dpiRes?.commands && dpiRes.commands.length > 0) setDpiCommands(dpiRes.commands);
+      if (incRes?.incidents && incRes.incidents.length > 0) setIncidents(incRes.incidents);
+      if (senRes?.sensors && senRes.sensors.length > 0) setSensors(senRes.sensors);
+      if (rulRes?.rules && rulRes.rules.length > 0) setRules(rulRes.rules);
+
+      setBackendSynced(true);
+    } catch (e) {
+      console.warn('Backend sync error:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  // Periodic Telemetry and Sensor Polling Loop
   useEffect(() => {
     if (!isLiveStreaming) return;
-    const interval = setInterval(() => {
-      // randomly update sensor subtle fluctuations
-      setSensors(prev => prev.map(s => {
-        const delta = (Math.random() - 0.48) * 0.8;
-        const newVal = Number((s.currentValue + delta).toFixed(1));
-        const newTrend = [...s.trend.slice(1), newVal];
-        let status: 'Normal' | 'Warning' | 'Hazardous Critical' = 'Normal';
-        if (newVal > s.hazardCriticalLimit || newVal < s.baselineMin * 0.8) status = 'Hazardous Critical';
-        else if (newVal > s.baselineMax || newVal < s.baselineMin) status = 'Warning';
-        return { ...s, currentValue: newVal, trend: newTrend, status };
-      }));
-    }, 2500);
+    const interval = setInterval(async () => {
+      try {
+        const [telRes, senRes, dpiRes] = await Promise.all([
+          fetch('/api/v1/ot/telemetry').then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/v1/ot/sensors').then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/v1/ot/dpi-commands?limit=20').then(r => r.ok ? r.json() : null).catch(() => null),
+        ]);
+        if (telRes?.summary) setTelemetry(telRes.summary);
+        if (senRes?.sensors && senRes.sensors.length > 0) setSensors(senRes.sensors);
+        if (dpiRes?.commands && dpiRes.commands.length > 0) {
+          setDpiCommands(prev => {
+            const existingIds = new Set(prev.map(c => c.id));
+            const newCmds = dpiRes.commands.filter((c: any) => !existingIds.has(c.id));
+            return newCmds.length > 0 ? [...newCmds, ...prev] : prev;
+          });
+        }
+      } catch (e) {
+        // Fallback local fluctuation if server unreachable
+        setSensors(prev => prev.map(s => {
+          const delta = (Math.random() - 0.48) * 0.8;
+          const newVal = Number((s.currentValue + delta).toFixed(1));
+          const newTrend = [...s.trend.slice(1), newVal];
+          let status: 'Normal' | 'Warning' | 'Hazardous Critical' = 'Normal';
+          if (newVal > s.hazardCriticalLimit || newVal < s.baselineMin * 0.8) status = 'Hazardous Critical';
+          else if (newVal > s.baselineMax || newVal < s.baselineMin) status = 'Warning';
+          return { ...s, currentValue: newVal, trend: newTrend, status };
+        }));
+      }
+    }, 2800);
     return () => clearInterval(interval);
   }, [isLiveStreaming]);
 
-  // Inject Simulated Malicious ICS Command
-  const handleInjectAttack = () => {
-    const newCmd: ICSProtocolCommand = {
-      id: `DPI-2026-${Math.floor(Math.random() * 9000 + 1000)}`,
-      timestamp: new Date().toLocaleTimeString() + '.' + Math.floor(Math.random() * 900 + 100),
-      protocol: 'Modbus TCP',
-      source: '10.10.12.44 (IT Compromised WS)',
-      sourceZone: 'IT Level 4',
-      destination: '192.168.50.15 (Schneider M340)',
-      destZone: 'OT Level 1',
-      functionCode: '0x05 (Force Coil Emergency Flush)',
-      functionDesc: '【模擬注入】強制觸發緊急洩壓閥門打開 (Coil #0099 = ON)',
-      payloadHex: '00 09 00 00 00 06 01 05 00 63 FF 00',
-      riskLevel: 'Critical',
-      isAnomaly: true,
-      anomalyReason: '【未授權 IT 寫入】經由跨層未過濾通道直達 PLC，已由 Zeek-OT 實時特徵比對攔截！',
-      actionTaken: 'Blocked (TCP RST)'
-    };
+  // Inject Simulated Malicious ICS Command to Backend
+  const handleInjectAttack = async () => {
+    try {
+      const payload: Partial<ICSProtocolCommand> = {
+        protocol: 'Modbus TCP',
+        source: '10.10.12.44 (IT Compromised WS)',
+        sourceZone: 'IT Level 4',
+        destination: '192.168.50.15 (Schneider M340)',
+        destZone: 'OT Level 1',
+        functionCode: '0x05 (Force Coil Emergency Flush)',
+        functionDesc: isZh ? '【模擬注入】強制觸發緊急洩壓閥門打開 (Coil #0099 = ON)' : 'Force trip emergency relief coil #0099',
+        riskLevel: 'Critical',
+        isAnomaly: true,
+        anomalyReason: isZh ? '【未授權 IT 寫入】經由跨層未過濾通道直達 PLC，已由 Zeek-OT 實時特徵比對攔截！' : 'Unauthorized cross-zone Modbus write command detected.',
+        actionTaken: 'Blocked (TCP RST)'
+      };
 
-    setDpiCommands(prev => [newCmd, ...prev]);
-    showToast(isZh ? '🚨 已成功模擬注入跨 Purdue 模型之未授權 Modbus 寫入攻擊！' : '🚨 Injected unauthorized Modbus write command across Purdue layers!');
+      const res = await fetch('/api/v1/ot/dpi-commands/inject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.command) {
+        setDpiCommands(prev => [data.command, ...prev]);
+        showToast(isZh ? '🚨 已成功模擬注入工控攻擊並由後端 Zeek-OT DPI 引擎攔截記錄！' : '🚨 Injected unauthorized Modbus ICS attack into backend!');
+      }
+      fetchAllData();
+    } catch (e) {
+      showToast(isZh ? '模擬注入失敗' : 'Attack injection failed');
+    }
   };
 
-  // Approve SOAR Containment for Incident
-  const handleApproveMitigation = (incidentId: string) => {
-    setIncidents(prev => prev.map(inc => {
-      if (inc.id === incidentId) {
-        return {
-          ...inc,
-          soarPlaybookStatus: 'Mitigated'
-        };
+  // Approve SOAR Containment for Incident in Backend
+  const handleApproveMitigation = async (incidentId: string) => {
+    try {
+      const res = await fetch(`/api/v1/ot/incidents/${encodeURIComponent(incidentId)}/mitigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: isZh ? '管理員於 UI 介面核准執行工控隔離劇本' : 'Approved via UI' })
+      });
+      const data = await res.json();
+      if (data.incident) {
+        setIncidents(prev => prev.map(inc => inc.id === incidentId ? data.incident : inc));
+        showToast(isZh ? `✅ 已核准執行工控隔離劇本：已斷開 iDMZ 跳板機並封鎖 IT 直連 OT 路由！` : `✅ Approved OT containment playbook for ${incidentId}.`);
+      } else {
+        setIncidents(prev => prev.map(inc => inc.id === incidentId ? { ...inc, soarPlaybookStatus: 'Mitigated' } : inc));
+        showToast(isZh ? `✅ 已核准執行工控隔離劇本` : `✅ Approved containment`);
       }
-      return inc;
-    }));
-    showToast(isZh ? `✅ 已核准執行工控隔離劇本：已斷開 iDMZ 跳板機並封鎖 IT 直連 OT 路由！` : `✅ Approved OT containment playbook for ${incidentId}.`);
+      fetchAllData();
+    } catch (e) {
+      showToast(isZh ? '隔離劇本執行失敗' : 'Mitigation failed');
+    }
+  };
+
+  // Emergency Shutdown (ESD) Triggers
+  const handleEmergencyShutdown = async () => {
+    if (!window.confirm(isZh ? '⚠️ 確定要啟動全廠工控緊急安全停機 (Emergency Shutdown - ESD) 嗎？此動作將下發指令至所有 L1/L2 PLC 轉入 STOP 安全保護狀態！' : 'Confirm plant-wide Emergency Shutdown (ESD)? All PLCs will switch to STOP state.')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/v1/ot/emergency-shutdown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operator: 'SOC Lead Operator' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh ? '🚨 全廠 ESD 緊急安全停機已啟動！各產線 PLC 已切換至 STOP 保護模式。' : '🚨 ESD Emergency Shutdown Tripped!');
+        fetchAllData();
+      }
+    } catch (e) {
+      showToast(isZh ? 'ESD 觸發失敗' : 'ESD trigger failed');
+    }
+  };
+
+  const handleResetEmergencyShutdown = async () => {
+    try {
+      const res = await fetch('/api/v1/ot/reset-emergency-shutdown', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh ? '✅ 全廠 ESD 緊急停機已解除，產線 PLC 恢復 RUN 常態運轉。' : '✅ Plant-wide ESD reset. PLCs restored to RUN.');
+        fetchAllData();
+      }
+    } catch (e) {
+      showToast(isZh ? '解除 ESD 失敗' : 'Reset ESD failed');
+    }
+  };
+
+  // Toggle Purdue Boundary Firewall Rules
+  const handleToggleRule = async (ruleId: string, enabled: boolean) => {
+    try {
+      const res = await fetch(`/api/v1/ot/rules/${encodeURIComponent(ruleId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      const data = await res.json();
+      if (data.rule) {
+        setRules(prev => prev.map(r => r.id === ruleId ? data.rule : r));
+        showToast(isZh ? `Purdue 防火牆規則 [${data.rule.name}] 已${enabled ? '啟用' : '停用'}` : `Rule ${enabled ? 'Enabled' : 'Disabled'}`);
+      }
+    } catch (e) {
+      showToast(isZh ? '規則更新失敗' : 'Rule update failed');
+    }
+  };
+
+  // Direct PCAP Binary Download
+  const handleDownloadPcap = (pcapId?: string) => {
+    const id = pcapId || 'PCAP-ICS-FULL-CAPTURE.pcap';
+    const a = document.createElement('a');
+    a.href = `/api/v1/ot/pcap/download?id=${encodeURIComponent(id)}`;
+    a.download = id.endsWith('.pcap') ? id : `${id}.pcap`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast(isZh ? `已下載 ${id} Wireshark 原始封包 (TCPDUMP 相容格式)` : `Downloading ${id}`);
+  };
+
+  // Deep DPI Payload Inspection
+  const handleInspectDpiCmd = async (cmd: ICSProtocolCommand) => {
+    setSelectedDpiCmd(cmd);
+    setLoadingPayload(true);
+    setSelectedDpiPayload(null);
+    try {
+      const res = await fetch(`/api/v1/ot/dpi-commands/${encodeURIComponent(cmd.id)}/payload`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedDpiPayload(data);
+      }
+    } catch (e) {
+      console.warn('Error fetching dissected payload:', e);
+    } finally {
+      setLoadingPayload(false);
+    }
+  };
+
+  // Update Asset PLC Mode
+  const handleUpdateAssetPlcMode = async (assetId: string, newMode: 'RUN' | 'STOP' | 'PROGRAM') => {
+    try {
+      const res = await fetch(`/api/v1/ot/assets/${encodeURIComponent(assetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plcMode: newMode })
+      });
+      const data = await res.json();
+      if (data.asset) {
+        setAssets(prev => prev.map(a => a.id === assetId ? data.asset : a));
+        if (selectedAsset?.id === assetId) setSelectedAsset(data.asset);
+        showToast(isZh ? `已將 ${data.asset.name} PLC 模式切換為: ${newMode}` : `Switched PLC mode to: ${newMode}`);
+      }
+    } catch (e) {
+      showToast(isZh ? '更新 PLC 模式失敗' : 'Failed to update PLC mode');
+    }
   };
 
   // Filtered Assets
@@ -694,13 +944,24 @@ export default function OTSecurityView() {
                 <Factory className="w-7 h-7 text-orange-400 animate-pulse" />
               </div>
               <div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 flex-wrap">
                   <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight">
                     {isZh ? 'SEMOR 工業控制安全 (ICS / OT Security Center)' : 'SEMOR Industrial Control Security (ICS / OT)'}
                   </h2>
                   <span className="text-[10px] font-black uppercase font-mono px-2.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/30">
                     Purdue L0-L4 Active
                   </span>
+                  {backendSynced && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      {isZh ? '後端即時同步中' : 'Engine Synced'}
+                    </span>
+                  )}
+                  {telemetry?.esdActive && (
+                    <span className="text-[10px] font-black uppercase font-mono px-2.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/50 animate-pulse">
+                      🚨 ESD ACTIVE
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400 font-mono mt-1 flex items-center gap-2">
                   <Radio className="w-3.5 h-3.5 text-green-400 animate-pulse" />
@@ -712,42 +973,104 @@ export default function OTSecurityView() {
             </div>
           </div>
 
-          {/* TELEMETRY GAUGES */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
-              <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
-                <Cpu size={13} className="text-blue-400" />
-                {isZh ? 'OT 工控資產清冊' : 'OT Assets'}
-              </div>
-              <div className="text-xl font-black text-blue-400 font-mono mt-0.5">1,248</div>
-              <div className="text-[9px] text-gray-400 font-mono">{isZh ? '42 台 PLC / 18 組 HMI' : '42 PLCs / 18 HMIs'}</div>
-            </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={fetchAllData}
+              disabled={isRefreshing}
+              className="p-2.5 bg-gray-850 hover:bg-gray-800 text-gray-300 rounded-xl border border-gray-700 transition-colors flex items-center gap-1.5 text-xs font-mono"
+              title={isZh ? '重新同步後端工控數據' : 'Refresh OT Telemetry'}
+            >
+              <RefreshCw size={14} className={isRefreshing ? "animate-spin text-orange-400" : ""} />
+              <span className="hidden sm:inline">{isZh ? '同步' : 'Sync'}</span>
+            </button>
+            <button
+              onClick={() => setIsLiveStreaming(!isLiveStreaming)}
+              className={cn(
+                "p-2.5 rounded-xl border transition-colors flex items-center gap-1.5 text-xs font-mono",
+                isLiveStreaming 
+                  ? "bg-green-500/10 text-green-400 border-green-500/30" 
+                  : "bg-gray-850 text-gray-400 border-gray-700"
+              )}
+            >
+              {isLiveStreaming ? <Pause size={14} /> : <Play size={14} />}
+              <span className="hidden sm:inline">{isLiveStreaming ? (isZh ? '側錄中' : 'Live') : (isZh ? '暫停' : 'Paused')}</span>
+            </button>
+          </div>
+        </div>
 
-            <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
-              <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
-                <ShieldAlert size={13} className="text-red-400" />
-                {isZh ? '工控異常指令告警' : 'ICS Anomalies'}
+        {/* ESD EMERGENCY BANNER */}
+        {telemetry?.esdActive && (
+          <div className="mt-6 bg-red-950/80 border-2 border-red-500/80 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-2xl animate-pulse">
+            <div className="flex items-center gap-3">
+              <Flame className="text-red-400 shrink-0" size={24} />
+              <div>
+                <div className="font-black text-red-200 font-mono text-xs uppercase tracking-wider">
+                  🚨 全廠工控緊急安全停機 (ESD) 聯鎖已啟動 — 所有 L1/L2 PLC 控制器已強制轉入 STOP 保護模式
+                </div>
+                <div className="text-[11px] text-red-300/80 font-mono mt-0.5">
+                  Plant-wide Emergency Shutdown active. All chemical reaction vessels & high pressure loops interlocked safely.
+                </div>
               </div>
-              <div className="text-xl font-black text-red-400 font-mono mt-0.5">3 CRITICAL</div>
-              <div className="text-[9px] text-gray-400 font-mono">{isZh ? '已主動 TCP RST 阻斷' : 'Auto-Blocked'}</div>
             </div>
+            <button
+              onClick={handleResetEmergencyShutdown}
+              className="px-4 py-2 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-mono font-black text-xs rounded-xl shadow-lg flex items-center gap-2 whitespace-nowrap"
+            >
+              <RotateCw size={14} />
+              {isZh ? '解除 ESD 緊急停機並復歸' : 'Reset ESD Interlock'}
+            </button>
+          </div>
+        )}
 
-            <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
-              <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
-                <Activity size={13} className="text-green-400" />
-                {isZh ? '側錄傳輸流量' : 'DPI Telemetry'}
-              </div>
-              <div className="text-xl font-black text-[#00FF66] font-mono mt-0.5">1.48 Gbps</div>
-              <div className="text-[9px] text-gray-400 font-mono">{isZh ? 'Arkime FPC 零丟包' : '0% Packet Loss'}</div>
+        {/* TELEMETRY GAUGES */}
+        <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
+            <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
+              <Cpu size={13} className="text-blue-400" />
+              {isZh ? 'OT 工控資產清冊' : 'OT Assets'}
             </div>
+            <div className="text-xl font-black text-blue-400 font-mono mt-0.5">
+              {telemetry?.totalAssets ?? assets.length}
+            </div>
+            <div className="text-[9px] text-gray-400 font-mono">
+              {telemetry?.plcsCount ?? 42} 台 PLC / {telemetry?.hmisCount ?? 18} 組 HMI
+            </div>
+          </div>
 
-            <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
-              <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
-                <Gauge size={13} className="text-amber-400" />
-                {isZh ? '物理製程安全指數' : 'Process Safety'}
-              </div>
-              <div className="text-xl font-black text-amber-400 font-mono mt-0.5">98.2%</div>
-              <div className="text-[9px] text-gray-400 font-mono">{isZh ? '1 組差壓預警中' : '1 Warning Tag'}</div>
+          <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
+            <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
+              <ShieldAlert size={13} className="text-red-400" />
+              {isZh ? '工控異常指令告警' : 'ICS Anomalies'}
+            </div>
+            <div className="text-xl font-black text-red-400 font-mono mt-0.5">
+              {telemetry?.criticalAnomaliesCount ?? dpiCommands.filter(c => c.isAnomaly).length} CRITICAL
+            </div>
+            <div className="text-[9px] text-gray-400 font-mono">{isZh ? '已主動 TCP RST 阻斷' : 'Auto-Blocked'}</div>
+          </div>
+
+          <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
+            <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
+              <Activity size={13} className="text-green-400" />
+              {isZh ? '側錄傳輸流量' : 'DPI Telemetry'}
+            </div>
+            <div className="text-xl font-black text-[#00FF66] font-mono mt-0.5">
+              {telemetry?.dpiThroughputGbps ?? 1.48} Gbps
+            </div>
+            <div className="text-[9px] text-gray-400 font-mono">{isZh ? 'Arkime FPC 零丟包' : '0% Packet Loss'}</div>
+          </div>
+
+          <div className="bg-black/60 border border-gray-800 p-3.5 rounded-xl">
+            <div className="text-[10px] text-gray-500 uppercase font-black tracking-wider flex items-center gap-1.5">
+              <Gauge size={13} className="text-amber-400" />
+              {isZh ? '物理製程安全指數' : 'Process Safety'}
+            </div>
+            <div className="text-xl font-black text-amber-400 font-mono mt-0.5">
+              {telemetry?.processSafetyIndex ?? 98.2}%
+            </div>
+            <div className="text-[9px] text-gray-400 font-mono">
+              {sensors.filter(s => s.status !== 'Normal').length > 0 
+                ? `${sensors.filter(s => s.status !== 'Normal').length} 組警戒數值` 
+                : (isZh ? '所有製程數值正常' : 'All Tags Nominal')}
             </div>
           </div>
         </div>
@@ -760,6 +1083,7 @@ export default function OTSecurityView() {
             { id: 'dpi', label: isZh ? '工控協定 DPI 與指令審計' : 'ICS Protocol DPI & Commands', icon: <Binary size={14} /> },
             { id: 'killchain', label: isZh ? 'IT-to-OT 跨區攻擊鏈關聯' : 'IT/OT Kill-Chain Correlation', icon: <Share2 size={14} /> },
             { id: 'safety', label: isZh ? '物理製程遙測與安全閾值' : 'Process Safety & Sensor Limits', icon: <Gauge size={14} /> },
+            { id: 'rules', label: isZh ? 'Purdue 邊界防護與 ACL 規則' : 'Purdue Boundary ACL Rules', icon: <Lock size={14} /> },
             { id: 'fpc', label: isZh ? 'Arkime 全封包側錄與 Zeek 規則' : 'Arkime FPC & Zeek Engine', icon: <HardDrive size={14} /> },
           ].map((tab) => (
             <button
@@ -1265,7 +1589,7 @@ export default function OTSecurityView() {
                         {cmd.actionTaken}
                       </span>
                       <button
-                        onClick={() => setSelectedDpiCmd(cmd)}
+                        onClick={() => handleInspectDpiCmd(cmd)}
                         className="text-[11px] font-mono text-blue-400 hover:text-blue-300 flex items-center gap-1"
                       >
                         {isZh ? 'Hex 鑑識' : 'Hex Dump'} <ChevronRight size={12} />
@@ -1406,7 +1730,7 @@ export default function OTSecurityView() {
                   <div className="mt-4 flex items-center justify-between text-xs font-mono text-gray-400">
                     <span>{isZh ? '物理影響評估：' : 'Physical Impact: '} <strong className="text-red-400">{inc.impact}</strong></span>
                     <button 
-                      onClick={() => showToast(isZh ? `已下載 ${inc.rawPcapId} 原始封包 (Arkime)` : `Downloading ${inc.rawPcapId}`)}
+                      onClick={() => handleDownloadPcap(inc.rawPcapId)}
                       className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg flex items-center gap-1.5 transition-all"
                     >
                       <Download size={12} /> {inc.rawPcapId}
@@ -1425,6 +1749,56 @@ export default function OTSecurityView() {
       {activeTab === 'safety' && (
         <div className="space-y-8">
           
+          {/* ESD CONTROL HUB */}
+          <div className="bg-[#090d15] border border-gray-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className={cn(
+                "p-3 rounded-2xl border",
+                telemetry?.esdActive 
+                  ? "bg-red-500/20 border-red-500/50 text-red-400 animate-pulse" 
+                  : "bg-orange-500/10 border-orange-500/30 text-orange-400"
+              )}>
+                <Flame size={28} />
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  {isZh ? '全廠緊急安全停機系統 (ESD - Emergency Shutdown Interlock)' : 'Emergency Shutdown (ESD) Interlock'}
+                  <span className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-mono font-bold",
+                    telemetry?.esdActive ? "bg-red-500/20 text-red-400 border border-red-500/40" : "bg-green-500/10 text-green-400"
+                  )}>
+                    {telemetry?.esdActive ? (isZh ? 'ESD 觸發停機中' : 'TRIPPED') : (isZh ? '正常備妥' : 'STANDBY')}
+                  </span>
+                </h4>
+                <p className="text-[11px] text-gray-400 font-mono mt-1">
+                  {isZh 
+                    ? '依據 IEC 61511 / ISA-84 安全儀表系統標準 (SIS)，觸發後將下發廣播指令將 L1 控制器轉入安全保護狀態。' 
+                    : 'IEC 61511 Safety Instrumented System compliance for physical emergency trip.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {telemetry?.esdActive ? (
+                <button
+                  onClick={handleResetEmergencyShutdown}
+                  className="px-5 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-mono font-black text-xs rounded-xl shadow-lg shadow-green-600/30 flex items-center gap-2 transition-all whitespace-nowrap"
+                >
+                  <RotateCw size={14} />
+                  {isZh ? '解除 ESD 緊急停機並復歸' : 'Reset ESD Interlock'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleEmergencyShutdown}
+                  className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-mono font-black text-xs rounded-xl shadow-lg shadow-red-600/30 flex items-center gap-2 transition-all whitespace-nowrap"
+                >
+                  <Flame size={14} />
+                  {isZh ? '🚨 手動觸發全廠 ESD 緊急停機' : '🚨 Trigger Plant-wide ESD'}
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {sensors.map(sensor => (
               <div key={sensor.id} className="bg-[#090d15] border border-gray-800 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col justify-between">
@@ -1495,11 +1869,127 @@ export default function OTSecurityView() {
       )}
 
       {/* ========================================================================= */}
+      {/* TAB: PURDUE BOUNDARY ACL RULES */}
+      {/* ========================================================================= */}
+      {activeTab === 'rules' && (
+        <div className="space-y-8">
+          <div className="bg-[#090d15] border border-gray-800 rounded-2xl p-6 md:p-8 shadow-2xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-6 border-b border-gray-800 gap-4">
+              <div>
+                <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <Lock className="text-orange-400" size={18} />
+                  {isZh ? 'Purdue 模型邊界防火牆與存取控制 ACL 規則' : 'Purdue Model Boundary Firewall & ACL Rules'}
+                </h3>
+                <p className="text-[11px] text-gray-400 font-mono mt-1">
+                  {isZh 
+                    ? '控制跨 Purdue 層級之工控通訊白名單，阻斷 IT 直連 L1/L2，並對特定 S7/Modbus 功能碼進行深度封包檢查 (DPI)' 
+                    : 'Enforce zero-trust boundary segmentation between Enterprise IT, iDMZ, and Field Control layers.'}
+                </p>
+              </div>
+              <div className="text-xs font-mono text-gray-400">
+                {rules.filter(r => r.enabled).length} / {rules.length} {isZh ? '規則生效中' : 'Rules Active'}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {rules.map(rule => (
+                <div key={rule.id} className="bg-[#0d121c] border border-gray-800 hover:border-gray-700 rounded-xl p-5 transition-all">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-mono font-bold text-orange-400">{rule.id}</span>
+                        <h4 className="text-sm font-black text-white">{rule.name}</h4>
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-black uppercase font-mono border",
+                          rule.action === 'DROP' ? "bg-red-500/20 text-red-400 border-red-500/40" :
+                          rule.action === 'INSPECT' ? "bg-purple-500/20 text-purple-400 border-purple-500/40" :
+                          rule.action === 'ALERT' ? "bg-amber-500/20 text-amber-400 border-amber-500/40" :
+                          "bg-green-500/10 text-green-400 border-green-500/30"
+                        )}>
+                          {rule.action}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 font-mono">{rule.description}</p>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <span className="text-xs font-mono text-gray-400">{rule.enabled ? (isZh ? '已啟用' : 'Active') : (isZh ? '停用' : 'Disabled')}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleRule(rule.id, !rule.enabled)}
+                          className={cn(
+                            "w-11 h-6 rounded-full transition-colors relative p-0.5 focus:outline-none",
+                            rule.enabled ? "bg-orange-600" : "bg-gray-800"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-5 h-5 rounded-full bg-white transition-transform shadow-md",
+                            rule.enabled ? "translate-x-5" : "translate-x-0"
+                          )} />
+                        </button>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-gray-800/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono text-gray-400">
+                    <div>
+                      <span className="text-gray-500 text-[10px] block uppercase">來源網段 (Source)</span>
+                      <span className="text-white font-bold">{rule.srcZone}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 text-[10px] block uppercase">目的網段 (Destination)</span>
+                      <span className="text-white font-bold">{rule.destZone}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 text-[10px] block uppercase">工控協定 (Protocol)</span>
+                      <span className="text-blue-400 font-bold">{rule.protocol}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 text-[10px] block uppercase">白名單功能碼 (Function Codes)</span>
+                      <span className="text-purple-400 font-bold">
+                        {rule.allowedFunctionCodes.length > 0 ? rule.allowedFunctionCodes.join(', ') : '無 (全部封鎖)'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* TAB 6: ARKIME FPC & ZEEK-OT ENGINE */}
       {/* ========================================================================= */}
       {activeTab === 'fpc' && (
         <div className="space-y-8">
           
+          {/* PCAP FORENSIC RETRIEVAL ACTION */}
+          <div className="bg-[#090d15] border border-gray-800 rounded-2xl p-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-400">
+                <Download size={22} />
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-white uppercase font-mono">
+                  {isZh ? 'Arkime / SPAN 工控原始封包隨選匯出 (PCAP Dump)' : 'On-Demand Industrial PCAP Forensic Extraction'}
+                </h4>
+                <div className="text-[11px] text-gray-400 font-mono mt-0.5">
+                  {isZh ? '支援 Wireshark, tcpdump, NetworkMiner 直接開啟分析，保留奈秒級工控時間戳。' : 'Wireshark & tcpdump compatible libpcap v2.4 format with nanosecond precision.'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => handleDownloadPcap('PCAP-ICS-FULL-CAPTURE-STREAM.pcap')}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-mono font-bold text-xs rounded-xl shadow-lg shadow-blue-600/20 flex items-center gap-2 transition-all whitespace-nowrap"
+            >
+              <Download size={14} />
+              {isZh ? '匯出最新 ICS 側錄 PCAP 檔' : 'Download Live PCAP Stream'}
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-[#090d15] border border-gray-800 p-6 rounded-2xl shadow-xl flex flex-col justify-between">
               <div className="space-y-3">
@@ -1606,8 +2096,23 @@ export default function OTSecurityView() {
                 </div>
                 <div className="bg-black/60 p-3 rounded-xl border border-gray-800">
                   <div className="text-[9px] text-gray-500 uppercase">{isZh ? 'PLC 運作模式' : 'PLC Mode'}</div>
-                  <div className="font-bold text-green-400 mt-1">{selectedAsset.plcMode}</div>
-                  <div className="text-[9px] text-gray-400">{selectedAsset.ioPointsCount} I/O Points</div>
+                  <div className="flex items-center gap-1 mt-1">
+                    {(['RUN', 'STOP', 'PROGRAM'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => handleUpdateAssetPlcMode(selectedAsset.id, mode)}
+                        className={cn(
+                          "px-1.5 py-0.5 rounded text-[10px] font-bold font-mono transition-all",
+                          selectedAsset.plcMode === mode 
+                            ? mode === 'RUN' ? "bg-green-600 text-white" : mode === 'STOP' ? "bg-red-600 text-white" : "bg-purple-600 text-white"
+                            : "bg-gray-800 text-gray-400 hover:text-white"
+                        )}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[9px] text-gray-400 mt-1">{selectedAsset.ioPointsCount} I/O Points</div>
                 </div>
                 <div className="bg-black/60 p-3 rounded-xl border border-gray-800">
                   <div className="text-[9px] text-gray-500 uppercase">{isZh ? 'CVSS 弱點指數' : 'Vulnerability'}</div>
@@ -1680,6 +2185,28 @@ export default function OTSecurityView() {
                     {selectedDpiCmd.payloadHex}
                   </div>
                 </div>
+
+                {loadingPayload && (
+                  <div className="text-xs text-orange-400 font-mono flex items-center gap-2">
+                    <RefreshCw className="animate-spin" size={14} />
+                    {isZh ? '正在向後端 Zeek-OT 引擎請求深度協定解構數據...' : 'Fetching deep packet dissection...'}
+                  </div>
+                )}
+
+                {selectedDpiPayload?.dissector && (
+                  <div className="bg-black/60 p-3.5 rounded-xl border border-purple-500/30 space-y-2 text-xs">
+                    <div className="text-[10px] text-purple-400 font-bold uppercase">{isZh ? 'Zeek-OT 協定解構器剖析 (Deep Dissector)' : 'Zeek Dissector'}</div>
+                    <div className="text-gray-300">協定傳輸層: <span className="text-white font-bold">{selectedDpiPayload.dissector.transport}</span></div>
+                    <div className="text-gray-300">處置判定: <span className="text-red-400 font-bold">{selectedDpiPayload.dissector.parsedFields.actionTaken}</span></div>
+                    <div className="text-gray-300">解構判定原因: <span className="text-amber-300">{selectedDpiPayload.dissector.parsedFields.reason}</span></div>
+                    {selectedDpiPayload.ascii && (
+                      <div className="mt-2">
+                        <div className="text-[10px] text-gray-500 uppercase">ASCII 解碼文字:</div>
+                        <div className="text-gray-200 bg-black/80 p-2 rounded border border-gray-800 font-mono text-[11px] truncate">{selectedDpiPayload.ascii}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {selectedDpiCmd.anomalyReason && (
                   <div className="p-3 bg-red-950/30 border border-red-500/40 rounded-xl text-red-300">

@@ -24,7 +24,7 @@
 4. [完整安裝與部署指南 (Comprehensive Installation Guide)](#-完整安裝與部署指南-comprehensive-installation-guide)
    - [系統前置需求與硬體規格建議 (依據台灣法規 6 個月以上法定留存)](#系統前置需求與硬體規格建議)
    - [環境相依工具安裝 (Ubuntu / Debian / RHEL / macOS)](#步驟零系統依賴環境安裝)
-   - [必備開源資安軟體與周邊套件安裝步驟 (VictoriaLogs, Suricata, ClamAV, YARA, Wazuh, T-Pot 等)](#步驟零點五必備開源資安軟體與周邊套件安裝步驟)
+   - [必備開源資安軟體與周邊套件安裝步驟 (VictoriaLogs, Suricata, Arkime, Zeek-OT, ClamAV, YARA, Wazuh, T-Pot 等)](#步驟零點五必備開源資安軟體與周邊套件安裝步驟)
    - [步驟一：原始碼取得與環境變數設定](#步驟一原始碼取得與環境變數設定)
    - [步驟二：方法 A - Node.js 全端伺服器本地快速安裝 (建議開發與評估)](#方法-a-nodejs-全端伺服器本地快速安裝-建議開發與評估)
    - [步驟三：方法 B - Docker Compose 容器化全核心一鍵部署 (建議生產運維)](#方法-b-docker-compose-容器化全核心一鍵部署-建議生產運維)
@@ -418,7 +418,48 @@ SEMOR CYBER NG-SIEM 為達到企業級百萬 EPS 吞吐、全封包鑑識、威�
 
 ---
 
-#### 4. ClamAV & YARA (檔案惡意程式特徵碼與啟發式掃描核心)
+#### 4. Zeek & Zeek-OT (工控協定深度解構框架，解析 S7Comm, Modbus, CIP, BACnet, OPC UA)
+*角色：透過 SPAN 鏡像流量深度提取工控功能碼 (Function Code)、PLC 暫存器讀寫數值、梯形圖程式碼雜湊，並產生結構化 JSON 事件。*
+
+- **Ubuntu / Debian 安裝 Zeek LTS 官方套件**：
+  ```bash
+  # 加入 Zeek 官方開源存儲庫
+  echo 'deb http://download.opensuse.org/repositories/security:/zeek/xUbuntu_22.04/ /' | sudo tee /etc/apt/sources.list.d/security:zeek.list
+  curl -fsSL https://download.opensuse.org/repositories/security:zeek/xUbuntu_22.04/Release.key | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/security_zeek.gpg > /dev/null
+  sudo apt update
+  sudo apt install -y zeek zeek-core zeekctl python3-pip
+
+  # 安裝 Zeek 套件管理器 (zkg) 並加載 ICS 工控協定解析模組
+  pip3 install zkg
+  zkg refresh
+  zkg install --force ics-protocols/modbus
+  zkg install --force ics-protocols/s7comm
+  zkg install --force ics-protocols/enip
+  zkg install --force ics-protocols/bacnet
+  ```
+
+- **RHEL 9 / Rocky Linux 9 安裝**：
+  ```bash
+  sudo dnf config-manager --add-repo https://download.opensuse.org/repositories/security:zeek/CentOS_9_Stream/security:zeek.repo
+  sudo dnf install -y zeek zeekctl
+  ```
+
+- **配置工控 SPAN 鏡像網卡與啟動**：
+  ```bash
+  # 編輯 /opt/zeek/etc/node.cfg 設定鏡像監控介面 (例如 eth1)
+  sudo sed -i 's/interface=eth0/interface=eth1/g' /opt/zeek/etc/node.cfg
+
+  # 啟用 JSON 格式日誌輸出 (便於 SEMOR 後端自動串接)
+  echo '@load policy/tuning/json-logs.zeek' | sudo tee -a /opt/zeek/share/zeek/site/local.zeek
+
+  # 部署並啟動 Zeek
+  sudo /opt/zeek/bin/zeekctl deploy
+  sudo /opt/zeek/bin/zeekctl status
+  ```
+
+---
+
+#### 5. ClamAV & YARA (檔案惡意程式特徵碼與啟發式掃描核心)
 *角色：提供即時檔案 SHA-256 數位簽章比對、防毒特徵比對與自訂 YARA 規則測試。*
 
 - **Ubuntu / Debian 安裝**：
