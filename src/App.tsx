@@ -193,6 +193,7 @@ import DecoderView from './components/DecoderView';
 import { PlatformPerformanceView } from './components/PlatformPerformanceView';
 import NetworkMonitorView from './components/NetworkMonitorView';
 import TrafficAnalysisNDRView from './components/TrafficAnalysisNDRView';
+import NDRAlertAnalyticsView from './components/NDRAlertAnalyticsView';
 import OpenXDRView from './components/OpenXDRView';
 import CorrelationSummaryView from './components/CorrelationSummaryView';
 import CorrelationSettingView from './components/CorrelationSettingView';
@@ -1729,6 +1730,8 @@ export default function App() {
         return <APMView />;
       case 'flow':
         return <TrafficAnalysisNDRView />;
+      case 'ndr-analytics':
+        return <NDRAlertAnalyticsView onNavigateToRuleSettings={() => { setActiveTab('settings'); setActiveSettingsTab('ndr_alerts'); }} />;
       case 'endpoint':
         return <OpenXDRView />;
       case 'soar':
@@ -2089,7 +2092,7 @@ export default function App() {
             isExpanded={expandedGroups['collection'] !== false}
             onToggle={() => toggleGroup('collection')}
           >
-            {MODULES.filter(m => userCanSeeModule(m.id) && ['flow', 'endpoint', 'discovery'].includes(m.id)).map(module => (
+            {MODULES.filter(m => userCanSeeModule(m.id) && ['flow', 'ndr-analytics', 'endpoint', 'discovery'].includes(m.id)).map(module => (
               <SidebarSubItem 
                 key={module.id}
                 label={t(`modules.${module.id}`)} 

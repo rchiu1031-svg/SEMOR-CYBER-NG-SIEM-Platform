@@ -31,8 +31,8 @@
       "soarAction": true,
       "soarActionType": "deploy_suricata_rule"
     },
-    "lastTriggeredAt": "2026-10-12T10:00:27.254Z",
-    "triggerCount": 5,
+    "lastTriggeredAt": "2026-10-13T02:34:43.300Z",
+    "triggerCount": 6,
     "createdAt": "2026-09-20T08:00:00.000Z",
     "updatedAt": "2026-09-28T14:30:00.000Z"
   },

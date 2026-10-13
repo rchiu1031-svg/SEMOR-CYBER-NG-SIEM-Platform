@@ -1,0 +1,134 @@
+{
+  "config": {
+    "samplingRate": 75,
+    "isEmergencyActive": false,
+    "complianceStandard": "GDPR/PCI-DSS",
+    "oapEncryption": true,
+    "maxTraceBufferMB": 2048,
+    "adaptiveSheddingThreshold": 90
+  },
+  "maskingRules": [
+    {
+      "id": "mask-pwd",
+      "name": "機敏登入密碼遮蔽 (Password Regex Masking)",
+      "regex": "(?i)\"password\"\\s*:\\s*\"[^\"]+\"",
+      "replacement": "\"password\": \"******\"",
+      "isActive": true
+    },
+    {
+      "id": "mask-card",
+      "name": "信用卡卡號遮蔽 (Credit Card Masking)",
+      "regex": "\\b(?:\\d[ -]*?){13,16}\\b",
+      "replacement": "[CC CARD HOLDER MASKED]",
+      "isActive": true
+    },
+    {
+      "id": "mask-jwt",
+      "name": "API 授權金鑰遮蔽 (Bearer Auth Header Token)",
+      "regex": "Bearer\\s+ey[a-zA-Z0-9-_=]+\\.[a-zA-Z0-9-_=]+\\.?[a-zA-Z0-9-_.+/=]*",
+      "replacement": "Bearer [JWT TOKEN MASKED]",
+      "isActive": true
+    }
+  ],
+  "profilingTasks": [
+    {
+      "id": "PROF-101",
+      "taskName": "CPU-Profiling-Task-01",
+      "durationSeconds": 10,
+      "status": "Completed",
+      "time": "2026-06-12 10:15:00",
+      "targetInstance": "order-service-pod-0x1a8",
+      "flameGraphData": [
+        {
+          "layer": 1,
+          "method": "java.lang.Thread.run()",
+          "cpuPercent": 100
+        },
+        {
+          "layer": 2,
+          "method": "org.springframework.web.servlet.DispatcherServlet.doService()",
+          "cpuPercent": 85
+        },
+        {
+          "layer": 3,
+          "method": "com.app.order.OrderService.calculateTotal()",
+          "cpuPercent": 72,
+          "isHotspot": true
+        },
+        {
+          "layer": 4,
+          "method": "com.app.order.OrderService.dbQueryTimeoutFetch()",
+          "cpuPercent": 48,
+          "isHotspot": true
+        },
+        {
+          "layer": 5,
+          "method": "java.net.SocketInputStream.socketRead0()",
+          "cpuPercent": 35
+        }
+      ]
+    },
+    {
+      "id": "PROF-102",
+      "taskName": "Heap-Allocation-Tracer",
+      "durationSeconds": 30,
+      "status": "Completed",
+      "time": "2026-06-12 09:42:12",
+      "targetInstance": "payment-service-pod-0x2d1",
+      "flameGraphData": [
+        {
+          "layer": 1,
+          "method": "java.lang.Thread.run()",
+          "cpuPercent": 100
+        },
+        {
+          "layer": 2,
+          "method": "com.app.payment.PaymentController.charge()",
+          "cpuPercent": 92
+        },
+        {
+          "layer": 3,
+          "method": "com.stripe.net.APIResource.request()",
+          "cpuPercent": 84,
+          "isHotspot": true
+        },
+        {
+          "layer": 4,
+          "method": "com.stripe.net.HttpClient.post()",
+          "cpuPercent": 78
+        },
+        {
+          "layer": 5,
+          "method": "java.net.KeepAliveCache.put()",
+          "cpuPercent": 55
+        }
+      ]
+    },
+    {
+      "id": "PROF-103",
+      "taskName": "Active-Thread-Contention-Digger",
+      "durationSeconds": 15,
+      "status": "Running",
+      "time": "Running now...",
+      "targetInstance": "auth-service-pod-0x2d1",
+      "flameGraphData": [
+        {
+          "layer": 1,
+          "method": "java.lang.Thread.run()",
+          "cpuPercent": 100
+        },
+        {
+          "layer": 2,
+          "method": "com.app.auth.AuthController.login()",
+          "cpuPercent": 90
+        },
+        {
+          "layer": 3,
+          "method": "com.app.auth.TokenGenerator.hmac()",
+          "cpuPercent": 65,
+          "isHotspot": true
+        }
+      ]
+    }
+  ]
+}

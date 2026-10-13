@@ -49,6 +49,7 @@
   },
   "modules": {
     "flow": "フロー分析 (NDR)",
+    "ndr-analytics": "NDR アラート分析",
     "endpoint": "オープン XDR (EDR/XDR)",
     "ingest": "データ取り込み",
     "discovery": "ログ検索",

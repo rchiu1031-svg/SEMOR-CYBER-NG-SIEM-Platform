@@ -25,6 +25,14 @@ export const MODULES: ModuleInfo[] = [
     icon: 'Activity'
   },
   {
+    id: 'ndr-analytics',
+    name: 'NDR 流量告警分析 (Alert Analytics)',
+    description: '視覺化全網流量告警分佈（嚴重性、通訊協定、地理來源），支援深入下鑽違規規則細節與即時應急處置。',
+    category: 'NDR',
+    engines: ['Suricata', 'Zeek', 'Recharts', 'Interflow'],
+    icon: 'BarChart2'
+  },
+  {
     id: 'endpoint',
     name: 'SEMOR Open XDR (EDR/XDR)',
     description: 'Unified Security: Stellar Cyber-style Open XDR with Interflow™, AI/ML detection, and integrated SOAR/UEBA.',

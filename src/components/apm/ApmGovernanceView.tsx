@@ -17,17 +17,34 @@ interface ApmGovernanceViewProps {
   onAddRule: (rule: Omit<MaskingRule, 'id' | 'isActive'>) => void;
   onToggleRule: (id: string) => void;
   onDeleteRule: (id: string) => void;
+  samplingRate?: number;
+  onUpdateSamplingRate?: (rate: number) => void;
+  onEmergencyShedding?: () => void;
+  isEmergencyActive?: boolean;
 }
 
 export const ApmGovernanceView: React.FC<ApmGovernanceViewProps> = ({
   maskingRules,
   onAddRule,
   onToggleRule,
-  onDeleteRule
+  onDeleteRule,
+  samplingRate: propSamplingRate = 75,
+  onUpdateSamplingRate,
+  onEmergencyShedding,
+  isEmergencyActive: propIsEmergency = false
 }) => {
   // Sampling rate states
-  const [samplingRate, setSamplingRate] = useState(75);
-  const [isEmergencyActive, setIsEmergencyActive] = useState(false);
+  const [samplingRate, setSamplingRate] = useState(propSamplingRate);
+  const [isEmergencyActive, setIsEmergencyActive] = useState(propIsEmergency);
+
+  // Sync prop changes
+  React.useEffect(() => {
+    setSamplingRate(propSamplingRate);
+  }, [propSamplingRate]);
+
+  React.useEffect(() => {
+    setIsEmergencyActive(propIsEmergency);
+  }, [propIsEmergency]);
 
   // New rule builder states
   const [newRuleName, setNewRuleName] = useState('');
@@ -84,11 +101,13 @@ export const ApmGovernanceView: React.FC<ApmGovernanceViewProps> = ({
   const triggerEmergencyShedding = () => {
     setIsEmergencyActive(true);
     setSamplingRate(5);
-    
-    // Auto clear alert status after standard time
-    setTimeout(() => {
-      setIsEmergencyActive(false);
-    }, 3000);
+    if (onEmergencyShedding) {
+      onEmergencyShedding();
+    } else {
+      setTimeout(() => {
+        setIsEmergencyActive(false);
+      }, 3000);
+    }
   };
 
   return (
@@ -127,7 +146,11 @@ export const ApmGovernanceView: React.FC<ApmGovernanceViewProps> = ({
               max="100"
               step="5"
               value={samplingRate}
-              onChange={(e) => setSamplingRate(Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setSamplingRate(val);
+                onUpdateSamplingRate?.(val);
+              }}
               className="w-full accent-blue-500 bg-gray-950 cursor-pointer h-1.5 rounded-full"
             />
 

@@ -49,6 +49,7 @@
   },
   "modules": {
     "flow": "流量分析 (NDR)",
+    "ndr-analytics": "NDR 流量告警分析",
     "endpoint": "開放式 XDR (EDR/XDR)",
     "ingest": "數據接入",
     "discovery": "日誌搜尋",

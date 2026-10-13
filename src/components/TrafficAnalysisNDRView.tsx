@@ -11,6 +11,7 @@ import {
   Bug, Fingerprint, Waves, Key
 } from 'lucide-react';
 import NDRTrafficHeatmap24h from './NDRTrafficHeatmap24h';
+import NDRAlertAnalyticsView from './NDRAlertAnalyticsView';
 import { 
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, 
   Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend
@@ -415,7 +416,7 @@ export default function TrafficAnalysisNDRView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation Subtabs
-  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'topology' | 'heatmap' | 'bandwidth' | 'dpi' | 'c2_beacon' | 'replay'>('forensics');
+  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'analytics' | 'topology' | 'heatmap' | 'bandwidth' | 'dpi' | 'c2_beacon' | 'replay'>('forensics');
   
   // Forensics states
   const [pcapFilterQuery, setPcapFilterQuery] = useState('');
@@ -946,6 +947,7 @@ export default function TrafficAnalysisNDRView() {
           {[
             { id: 'forensics', label: isZh ? '🔬 封包鑑識與 PCAP 串流' : 'PCAP Forensics', icon: FileCode },
             { id: 'suricata', label: isZh ? '🛡️ Suricata IDS & 威脅檢測' : 'Suricata IDS & Zeek', icon: Shield },
+            { id: 'analytics', label: isZh ? '🚨 NDR 告警分佈分析' : 'NDR Alert Analytics', icon: ShieldAlert },
             { id: 'dpi', label: isZh ? '⚡ DPI 深層負載與香農熵分析' : 'DPI & Payload Entropy', icon: Bug },
             { id: 'c2_beacon', label: isZh ? '📡 C2 信標週期與 JA3 指紋庫' : 'C2 Jitter & JA3 TLS', icon: Fingerprint },
             { id: 'topology', label: isZh ? '🌐 即時連線流量拓撲' : 'Traffic Topology', icon: Network },
@@ -1624,6 +1626,13 @@ export default function TrafficAnalysisNDRView() {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* SUBTAB: 🚨 NDR 告警分佈與規則鑽取分析 (NDR ALERT ANALYTICS DASHBOARD) */}
+      {activeTab === 'analytics' && (
+        <div className="pt-1">
+          <NDRAlertAnalyticsView />
         </div>
       )}
 

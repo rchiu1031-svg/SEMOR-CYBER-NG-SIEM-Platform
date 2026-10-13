@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { 
   Network, 
@@ -10,7 +10,9 @@ import {
   Clock, 
   Zap, 
   Compass, 
-  HelpCircle 
+  CheckCircle2,
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 
 // Import our modular models and types
@@ -27,6 +29,9 @@ import {
   CORRELATION_TIME_BLOCKS, 
   DEFAULT_MASKING_RULES 
 } from './apm/ApmMockData';
+
+// Import SIEM Service for real backend API synchronization
+import { siemService } from '../services/siemService';
 
 // Import our subviews
 import { ApmTopologyView } from './apm/ApmTopologyView';
@@ -46,39 +51,171 @@ export default function SkywalkingApmView() {
   const [env, setEnv] = useState<string>('prod');
   const [timeRange, setTimeRange] = useState<string>('15m');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(30);
+  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
+  const [backendConnected, setBackendConnected] = useState<boolean>(true);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'warning' | 'info' } | null>(null);
 
   // Core Data States
   const [selectedNode, setSelectedNode] = useState<ServiceNode | null>(null);
+  const [topologyServices, setTopologyServices] = useState<ServiceNode[]>(MOCK_SERVICES.prod);
+  const [topologyRelations, setTopologyRelations] = useState(MOCK_RELATIONS.prod);
+  const [backendStats, setBackendStats] = useState<{ totalCPM: number; avgLatency: number; avgSla: number; activeAlarms: number } | null>(null);
+
   const [traces, setTraces] = useState<Trace[]>(MOCK_TRACES);
   const [activeTrace, setActiveTrace] = useState<Trace>(MOCK_TRACES[0]);
-  const [selectedSpan, setSelectedSpan] = useState<Span | null>(MOCK_TRACES[0].spans[0]);
+  const [selectedSpan, setSelectedSpan] = useState<Span | null>(MOCK_TRACES[0]?.spans?.[0] || null);
   const [copiedText, setCopiedText] = useState(false);
 
-  // SRE State Lists (Allows simulation additions/deletions)
+  // Metrics Data States
+  const [rtTrend, setRtTrend] = useState(MOCK_RT_TREND);
+  const [slowSql, setSlowSql] = useState(MOCK_SLOW_SQL);
+  const [slowEndpoints, setSlowEndpoints] = useState(MOCK_SLOW_ENDPOINTS);
+  const [jvmServers, setJvmServers] = useState(MOCK_JVM_SERVERS);
+
+  // SRE State Lists (Governance & Diagnostics)
   const [profilingTasks, setProfilingTasks] = useState<ProfilingTask[]>(MOCK_PROFILING_TASKS);
   const [maskingRules, setMaskingRules] = useState<MaskingRule[]>(DEFAULT_MASKING_RULES);
+  const [samplingRate, setSamplingRate] = useState<number>(75);
+  const [isEmergencyActive, setIsEmergencyActive] = useState<boolean>(false);
 
-  // Dynamic values based on environment selected
-  const environmentalServices = useMemo(() => {
-    return MOCK_SERVICES[env] || MOCK_SERVICES.prod;
-  }, [env]);
+  // Toast notification helper
+  const showToast = useCallback((text: string, type: 'success' | 'warning' | 'info' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage(prev => prev?.text === text ? null : prev);
+    }, 3500);
+  }, []);
 
-  const environmentalRelations = useMemo(() => {
-    return MOCK_RELATIONS[env] || MOCK_RELATIONS.prod;
-  }, [env]);
+  // 1. Fetch Topology from Backend
+  const loadTopology = useCallback(async (currentEnv: string) => {
+    try {
+      const res = await siemService.getApmTopology(currentEnv);
+      if (res && res.success && res.services) {
+        setTopologyServices(res.services);
+        setTopologyRelations(res.relations || []);
+        if (res.stats) {
+          setBackendStats(res.stats);
+        }
+        setBackendConnected(true);
+      }
+    } catch (err) {
+      console.warn('Backend APM topology offline, fallback to mock data', err);
+      setTopologyServices(MOCK_SERVICES[currentEnv] || MOCK_SERVICES.prod);
+      setTopologyRelations(MOCK_RELATIONS[currentEnv] || MOCK_RELATIONS.prod);
+      setBackendConnected(false);
+    }
+  }, []);
 
+  // 2. Fetch Metrics from Backend
+  const loadMetrics = useCallback(async (currentEnv: string) => {
+    try {
+      const res = await siemService.getApmMetrics(currentEnv);
+      if (res && res.success) {
+        if (res.stats) setBackendStats(res.stats);
+        if (res.rtTrend) setRtTrend(res.rtTrend);
+        if (res.slowSql) setSlowSql(res.slowSql);
+        if (res.slowEndpoints) setSlowEndpoints(res.slowEndpoints);
+        if (res.jvmServers) setJvmServers(res.jvmServers);
+      }
+    } catch (err) {
+      console.warn('Backend APM metrics offline', err);
+    }
+  }, []);
+
+  // 3. Fetch Traces from Backend
+  const loadTraces = useCallback(async () => {
+    try {
+      const res = await siemService.getApmTraces();
+      if (res && res.success && res.traces && res.traces.length > 0) {
+        setTraces(res.traces);
+        if (!res.traces.some((t: Trace) => t.traceId === activeTrace?.traceId)) {
+          setActiveTrace(res.traces[0]);
+          setSelectedSpan(res.traces[0]?.spans?.[0] || null);
+        }
+      }
+    } catch (err) {
+      console.warn('Backend APM traces offline', err);
+    }
+  }, [activeTrace]);
+
+  // 4. Fetch Governance Config & Masking Rules from Backend
+  const loadGovernance = useCallback(async () => {
+    try {
+      const res = await siemService.getApmGovernance();
+      if (res && res.success) {
+        if (res.config) {
+          setSamplingRate(res.config.samplingRate);
+          setIsEmergencyActive(res.config.isEmergencyActive);
+        }
+        if (res.maskingRules) {
+          setMaskingRules(res.maskingRules);
+        }
+      }
+    } catch (err) {
+      console.warn('Backend APM governance offline', err);
+    }
+  }, []);
+
+  // 5. Fetch Profiling Tasks from Backend
+  const loadProfilingTasks = useCallback(async () => {
+    try {
+      const res = await siemService.getApmProfilingTasks();
+      if (res && res.success && res.tasks) {
+        setProfilingTasks(res.tasks);
+      }
+    } catch (err) {
+      console.warn('Backend APM profiling offline', err);
+    }
+  }, []);
+
+  // Synchronize all data on mount and environment change
+  useEffect(() => {
+    loadTopology(env);
+    loadMetrics(env);
+    loadTraces();
+    loadGovernance();
+    loadProfilingTasks();
+    setLastSyncTime(new Date().toLocaleTimeString());
+  }, [env, loadTopology, loadMetrics, loadTraces, loadGovernance, loadProfilingTasks]);
+
+  // Auto-refresh interval (30 seconds)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadTopology(env);
+      loadMetrics(env);
+      setLastSyncTime(new Date().toLocaleTimeString());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [env, loadTopology, loadMetrics]);
+
+  // Calculated Stats
   const environmentalStats = useMemo(() => {
-    const totalCPM = environmentalServices.reduce((sum, s) => sum + s.cpm, 0);
-    const avgLatency = Math.round(environmentalServices.reduce((sum, s) => sum + s.latency, 0) / environmentalServices.length);
-    const avgSla = parseFloat((environmentalServices.reduce((sum, s) => sum + s.sla, 0) / environmentalServices.length).toFixed(2));
+    if (backendStats) return backendStats;
+    const totalCPM = topologyServices.reduce((sum, s) => sum + s.cpm, 0);
+    const avgLatency = Math.round(topologyServices.reduce((sum, s) => sum + s.latency, 0) / (topologyServices.length || 1));
+    const avgSla = parseFloat((topologyServices.reduce((sum, s) => sum + s.sla, 0) / (topologyServices.length || 1)).toFixed(2));
     const activeAlarms = env === 'prod' ? 3 : env === 'staging' ? 0 : 1;
-
     return { totalCPM, avgLatency, avgSla, activeAlarms };
-  }, [environmentalServices, env]);
+  }, [backendStats, topologyServices, env]);
 
-  // Handle Dynamic Profiling addition simulation
-  const handleTriggerProfiling = (taskName: string, instance: string, duration: number) => {
+  // Handle Dynamic Profiling addition
+  const handleTriggerProfiling = async (taskName: string, instance: string, duration: number) => {
+    try {
+      const res = await siemService.createApmProfilingTask({
+        taskName,
+        targetInstance: instance,
+        durationSeconds: duration
+      });
+      if (res && res.success) {
+        setProfilingTasks(res.tasks);
+        showToast(isZh ? `剖析任務已完成並建立火焰圖 (${instance})` : `Profiling completed for ${instance}`);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend profiling create failed, using local simulation', err);
+    }
+
+    // Fallback simulation
     const newTask: ProfilingTask = {
       id: `PROF-${Date.now()}`,
       taskName,
@@ -93,12 +230,23 @@ export default function SkywalkingApmView() {
         { layer: 4, method: "java.lang.Thread.sleep()", cpuPercent: 75, isHotspot: true }
       ]
     };
-
     setProfilingTasks([newTask, ...profilingTasks]);
+    showToast(isZh ? `剖析任務已完成 (${instance})` : `Profiling finished for ${instance}`);
   };
 
-  // Masking Rules modifications handlers
-  const handleAddMaskingRule = (rule: Omit<MaskingRule, 'id' | 'isActive'>) => {
+  // Masking Rules modifications handlers with real backend integration
+  const handleAddMaskingRule = async (rule: Omit<MaskingRule, 'id' | 'isActive'>) => {
+    try {
+      const res = await siemService.addApmMaskingRule(rule);
+      if (res && res.success && res.rules) {
+        setMaskingRules(res.rules);
+        showToast(isZh ? `成功建立機敏脫敏規則: ${rule.name}` : `Masking rule created: ${rule.name}`);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend add rule failed, using local fallback', err);
+    }
+
     const newRule: MaskingRule = {
       id: `rule-${Date.now()}`,
       name: rule.name,
@@ -107,16 +255,90 @@ export default function SkywalkingApmView() {
       isActive: true
     };
     setMaskingRules([...maskingRules, newRule]);
+    showToast(isZh ? `脫敏規則已建立 (本機模式)` : `Rule created locally`);
   };
 
-  const handleToggleMaskingRule = (id: string) => {
+  const handleToggleMaskingRule = async (id: string) => {
+    try {
+      const res = await siemService.toggleApmMaskingRule(id);
+      if (res && res.success && res.rules) {
+        setMaskingRules(res.rules);
+        const target = res.rules.find((r: MaskingRule) => r.id === id);
+        showToast(isZh ? `規則狀態已切換為: ${target?.isActive ? '啟用' : '停用'}` : `Rule state toggled`);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend toggle rule failed', err);
+    }
+
     setMaskingRules(
       maskingRules.map(r => r.id === id ? { ...r, isActive: !r.isActive } : r)
     );
   };
 
-  const handleDeleteMaskingRule = (id: string) => {
+  const handleDeleteMaskingRule = async (id: string) => {
+    try {
+      const res = await siemService.deleteApmMaskingRule(id);
+      if (res && res.success && res.rules) {
+        setMaskingRules(res.rules);
+        showToast(isZh ? '脫敏規則已刪除' : 'Masking rule deleted', 'warning');
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend delete rule failed', err);
+    }
+
     setMaskingRules(maskingRules.filter(r => r.id !== id));
+    showToast(isZh ? '脫敏規則已刪除' : 'Masking rule deleted', 'warning');
+  };
+
+  // Update Sampling rate with backend sync
+  const handleUpdateSamplingRate = async (rate: number) => {
+    setSamplingRate(rate);
+    try {
+      await siemService.updateApmSamplingRate(rate);
+    } catch (err) {
+      console.warn('Failed to persist sampling rate', err);
+    }
+  };
+
+  // Emergency Shedding action
+  const handleEmergencyShedding = async () => {
+    setIsEmergencyActive(true);
+    setSamplingRate(5);
+    try {
+      await siemService.triggerApmEmergencyShedding();
+      showToast(isZh ? '🚨 熔斷 bypass 機制已啟動 (採樣率降至 5%)' : '🚨 Emergency traffic shedding activated (5%)', 'warning');
+    } catch (err) {
+      console.warn('Emergency shedding API failed', err);
+    }
+    setTimeout(() => {
+      setIsEmergencyActive(false);
+    }, 6000);
+  };
+
+  // Reset all APM settings to default
+  const handleResetDefaults = async () => {
+    if (!window.confirm(isZh ? '確定要將所有 APM 治理與探針設定恢復為預設範本嗎？' : 'Reset all APM governance settings to defaults?')) {
+      return;
+    }
+    try {
+      const res = await siemService.resetApmDefaults();
+      if (res && res.success) {
+        setSamplingRate(res.config.samplingRate);
+        setIsEmergencyActive(res.config.isEmergencyActive);
+        setMaskingRules(res.maskingRules);
+        setProfilingTasks(res.profilingTasks);
+        showToast(isZh ? 'APM 設定已成功重置為初始出廠狀態' : 'APM settings reset to defaults');
+        return;
+      }
+    } catch (err) {
+      console.warn('Failed to reset APM defaults', err);
+    }
+    setMaskingRules(DEFAULT_MASKING_RULES);
+    setProfilingTasks(MOCK_PROFILING_TASKS);
+    setSamplingRate(75);
+    showToast(isZh ? '已重置為預設設定' : 'Reset completed');
   };
 
   // Node select side effect
@@ -124,20 +346,29 @@ export default function SkywalkingApmView() {
     setSelectedNode(node);
   };
 
-  // Simulate quick selection
+  // Quick selection simulation
   const handleQuickSimulate = (id: string) => {
-    const target = environmentalServices.find(s => s.id === id);
+    const target = topologyServices.find(s => s.id === id);
     if (target) {
       setSelectedNode(target);
     }
   };
 
-  // Manual Reload Simulation
-  const handleManualReload = () => {
+  // Manual Reload
+  const handleManualReload = async () => {
     setIsRefreshing(true);
+    await Promise.all([
+      loadTopology(env),
+      loadMetrics(env),
+      loadTraces(),
+      loadGovernance(),
+      loadProfilingTasks()
+    ]);
+    setLastSyncTime(new Date().toLocaleTimeString());
     setTimeout(() => {
       setIsRefreshing(false);
-    }, 1200);
+      showToast(isZh ? 'OAP 探針遙測與拓撲數據已更新' : 'OAP telemetry synced');
+    }, 600);
   };
 
   // Copy helper
@@ -148,8 +379,20 @@ export default function SkywalkingApmView() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090b0f] text-gray-100 flex overflow-hidden">
+    <div className="min-h-screen bg-[#090b0f] text-gray-100 flex overflow-hidden relative">
       
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className={`fixed top-5 right-8 z-50 px-4 py-2.5 rounded-xl border font-mono text-xs shadow-2xl flex items-center gap-2.5 animate-[fadeIn_0.3s_ease-out] ${
+          toastMessage.type === 'warning'
+            ? 'bg-amber-950/90 border-amber-500/40 text-amber-200'
+            : 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
+        }`}>
+          {toastMessage.type === 'warning' ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}
+          <span>{toastMessage.text}</span>
+        </div>
+      )}
+
       {/* SRE Navigation Sidebar (固定在左側) */}
       <aside className="w-64 bg-[#0d0f14] border-r border-[#1a1c23] flex flex-col justify-between shrink-0 select-none">
         <div className="flex flex-col">
@@ -223,19 +466,34 @@ export default function SkywalkingApmView() {
           </nav>
         </div>
 
-        {/* Footer info box to minimize noise in margins */}
+        {/* Footer info box with reset action */}
         <div className="p-5 border-t border-[#1a1c23] space-y-3 font-mono text-[10px] text-gray-500 text-left">
           <div className="flex justify-between items-center">
             <span>OAP Core Node:</span>
-            <span className="text-emerald-400 font-bold uppercase select-none flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+            <span className={`font-bold uppercase select-none flex items-center gap-1 ${backendConnected ? 'text-emerald-400' : 'text-amber-400'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${backendConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></span>
+              {backendConnected ? 'Online (v9.4)' : 'Fallback'}
             </span>
           </div>
-          <div className="flex justify-between">
-            <span>API SLA Status:</span>
-            <span className="text-gray-350 font-bold">100.0%</span>
+          <div className="flex justify-between items-center">
+            <span>採樣率持久化:</span>
+            <span className="text-gray-300 font-bold">{samplingRate}%</span>
           </div>
-          <p className="text-[9px] text-gray-600 mt-2 leading-relaxed">
+          <div className="flex justify-between items-center">
+            <span>上次同步:</span>
+            <span className="text-gray-400">{lastSyncTime}</span>
+          </div>
+          
+          <button
+            onClick={handleResetDefaults}
+            className="w-full mt-2 py-1.5 px-2 bg-gray-950 hover:bg-gray-900 text-gray-400 hover:text-gray-200 border border-gray-800 rounded-lg text-[9.5px] font-mono flex items-center justify-center gap-1.5 transition-all"
+            title="將採樣率與脫敏規則重置為工廠預設值"
+          >
+            <RotateCcw size={11} />
+            <span>{isZh ? '恢復 APM 預設範本' : 'Reset APM Defaults'}</span>
+          </button>
+
+          <p className="text-[9px] text-gray-600 pt-1 leading-relaxed">
             Apache SkyWalking v9.4 Enterprise Edition Client
           </p>
         </div>
@@ -324,8 +582,8 @@ export default function SkywalkingApmView() {
           {/* Topology Page */}
           {activeTab === 'topology' && (
             <ApmTopologyView
-              services={environmentalServices}
-              relations={environmentalRelations}
+              services={topologyServices}
+              relations={topologyRelations}
               selectedNode={selectedNode}
               onNodeSelect={handleNodeSelect}
               onQuickSimulate={handleQuickSimulate}
@@ -337,10 +595,10 @@ export default function SkywalkingApmView() {
           {activeTab === 'metrics' && (
             <ApmMetricsView
               stats={environmentalStats}
-              rtTrend={MOCK_RT_TREND}
-              slowSql={MOCK_SLOW_SQL}
-              slowEndpoints={MOCK_SLOW_ENDPOINTS}
-              jvmServers={MOCK_JVM_SERVERS}
+              rtTrend={rtTrend}
+              slowSql={slowSql}
+              slowEndpoints={slowEndpoints}
+              jvmServers={jvmServers}
               env={env}
             />
           )}
@@ -374,6 +632,10 @@ export default function SkywalkingApmView() {
               onAddRule={handleAddMaskingRule}
               onToggleRule={handleToggleMaskingRule}
               onDeleteRule={handleDeleteMaskingRule}
+              samplingRate={samplingRate}
+              onUpdateSamplingRate={handleUpdateSamplingRate}
+              onEmergencyShedding={handleEmergencyShedding}
+              isEmergencyActive={isEmergencyActive}
             />
           )}
 

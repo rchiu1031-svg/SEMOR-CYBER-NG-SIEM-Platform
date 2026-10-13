@@ -359,5 +359,125 @@ export const siemService = {
       overwrite
     });
     return response.data;
+  },
+
+  // --- APM & Observability Insights APIs ---
+  async getApmHealth() {
+    const response = await axios.get('/api/v1/apm/health');
+    return response.data;
+  },
+
+  async getApmTopology(env: string = 'prod') {
+    const response = await axios.get('/api/v1/apm/topology', {
+      params: { env }
+    });
+    return response.data;
+  },
+
+  async getApmMetrics(env: string = 'prod') {
+    const response = await axios.get('/api/v1/apm/metrics', {
+      params: { env }
+    });
+    return response.data;
+  },
+
+  async getApmTraces(query?: string, filter?: 'all' | 'error' | 'success') {
+    const response = await axios.get('/api/v1/apm/traces', {
+      params: { query, filter }
+    });
+    return response.data;
+  },
+
+  async getApmTraceById(traceId: string) {
+    const response = await axios.get(`/api/v1/apm/traces/${traceId}`);
+    return response.data;
+  },
+
+  async getApmGovernance() {
+    const response = await axios.get('/api/v1/apm/governance');
+    return response.data;
+  },
+
+  async updateApmSamplingRate(samplingRate: number) {
+    const response = await axios.put('/api/v1/apm/governance/sampling', { samplingRate });
+    return response.data;
+  },
+
+  async triggerApmEmergencyShedding() {
+    const response = await axios.post('/api/v1/apm/governance/emergency-shedding');
+    return response.data;
+  },
+
+  async getApmMaskingRules() {
+    const response = await axios.get('/api/v1/apm/masking-rules');
+    return response.data;
+  },
+
+  async addApmMaskingRule(rule: { name: string; regex: string; replacement: string }) {
+    const response = await axios.post('/api/v1/apm/masking-rules', rule);
+    return response.data;
+  },
+
+  async toggleApmMaskingRule(id: string) {
+    const response = await axios.put(`/api/v1/apm/masking-rules/${id}/toggle`);
+    return response.data;
+  },
+
+  async deleteApmMaskingRule(id: string) {
+    const response = await axios.delete(`/api/v1/apm/masking-rules/${id}`);
+    return response.data;
+  },
+
+  async simulateApmMasking(payload: string) {
+    const response = await axios.post('/api/v1/apm/masking/simulate', { payload });
+    return response.data;
+  },
+
+  async getApmProfilingTasks() {
+    const response = await axios.get('/api/v1/apm/diagnostics/profiling-tasks');
+    return response.data;
+  },
+
+  async createApmProfilingTask(task: { taskName: string; targetInstance: string; durationSeconds: number }) {
+    const response = await axios.post('/api/v1/apm/diagnostics/profiling-tasks', task);
+    return response.data;
+  },
+
+  async resetApmDefaults() {
+    const response = await axios.post('/api/v1/apm/governance/reset-defaults');
+    return response.data;
+  },
+
+  // --- NDR Alert Analytics & Rule Drilldown API ---
+  async getNdrAlertAnalytics(params?: {
+    timeRange?: string;
+    severity?: string;
+    protocol?: string;
+    country?: string;
+    ruleId?: string;
+    search?: string;
+  }) {
+    const response = await axios.get('/api/v1/ndr/analytics/alerts-overview', { params });
+    return response.data;
+  },
+
+  async simulateNdrRuleViolation(params: {
+    ruleId?: string;
+    customSeverity?: string;
+    customProtocol?: string;
+    customCountry?: string;
+  }) {
+    const response = await axios.post('/api/v1/ndr/analytics/simulate-violation', params);
+    return response.data;
+  },
+
+  async mitigateNdrAlert(alertId: string, action: string, notes?: string) {
+    const response = await axios.post('/api/v1/ndr/analytics/mitigate', {
+      alertId,
+      action,
+      notes
+    });
+    return response.data;
   }
 };
+

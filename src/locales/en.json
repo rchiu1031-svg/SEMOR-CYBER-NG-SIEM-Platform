@@ -49,6 +49,7 @@
   },
   "modules": {
     "flow": "Flow (NDR)",
+    "ndr-analytics": "NDR Alert Analytics",
     "endpoint": "Open XDR (EDR/XDR)",
     "ingest": "Data Ingest",
     "discovery": "Log Search",

@@ -2184,7 +2184,1108 @@ export function createNdrRouter() {
     });
   });
 
+  // =========================================================================
+  // 18. NDR ALERT ANALYTICS & DRILLDOWN ENGINE (Recharts-powered Distribution)
+  // =========================================================================
+
+  interface NdrAnalyticsAlert {
+    id: string;
+    ruleId: string;
+    ruleName: string;
+    patternType: string;
+    severity: 'Critical' | 'High' | 'Medium' | 'Low';
+    protocol: 'TCP' | 'UDP' | 'TLS/HTTPS' | 'DNS' | 'ICMP' | 'SSH' | 'HTTP';
+    srcIp: string;
+    srcPort: number;
+    srcCountry: string;
+    srcCountryCode: string;
+    srcFlag: string;
+    srcCity: string;
+    srcAsn: string;
+    srcAsnLocal?: string;
+    dstIp: string;
+    dstPort: number;
+    dstCountry: string;
+    dstCountryCode: string;
+    dstFlag: string;
+    timestamp: string;
+    duration: string;
+    bytesTransferred: string;
+    bytesNumeric: number;
+    packetsCount: number;
+    throughput: string;
+    throughputMbps: number;
+    mitreTactic: string;
+    mitreTechnique: string;
+    payloadSnippet: string;
+    ja3Hash?: string;
+    ruleThresholdViolated: string;
+    status: 'Active' | 'Investigating' | 'Mitigated' | 'Resolved';
+    actionTaken: string;
+  }
+
+  // Pre-seed realistic alert records correlated with the NDR rules
+  const seedNdrAnalyticsAlerts = (): NdrAnalyticsAlert[] => {
+    const now = Date.now();
+    const records: NdrAnalyticsAlert[] = [
+      {
+        id: 'NDR-ALT-9001',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
+        patternType: 'bandwidth_surge',
+        severity: 'Critical',
+        protocol: 'TCP',
+        srcIp: '198.51.100.89',
+        srcPort: 49152,
+        srcCountry: 'United States',
+        srcCountryCode: 'US',
+        srcFlag: '🇺🇸',
+        srcCity: 'Ashburn, VA',
+        srcAsn: 'AS16509 Amazon.com',
+        dstIp: '10.88.88.201',
+        dstPort: 443,
+        dstCountry: 'Taiwan (Internal DMZ)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 12 * 60 * 1000).toISOString(),
+        duration: '1m 45s',
+        bytesTransferred: '3.42 GB',
+        bytesNumeric: 3672000000,
+        packetsCount: 248900,
+        throughput: '1,450 Mbps',
+        throughputMbps: 1450,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1498 Network Denial of Service',
+        payloadSnippet: 'SYN_FLOOD_STREAM: [TCP Win=65535, Len=1460, MSS=1460] Ingress Bandwidth threshold exceeded (Threshold: 1200 Mbps, Actual: 1450 Mbps)',
+        ruleThresholdViolated: 'Throughput >= 1,200 Mbps (Actual: 1,450 Mbps, +20.8% Overload)',
+        status: 'Active',
+        actionTaken: 'Firewall Rate-Limit Enforced'
+      },
+      {
+        id: 'NDR-ALT-9002',
+        ruleId: 'ndr-rule-data-exfiltration',
+        ruleName: '巨量出境資料外洩異常 (High Outbound Data Exfiltration)',
+        patternType: 'data_exfiltration',
+        severity: 'Critical',
+        protocol: 'TLS/HTTPS',
+        srcIp: '10.88.88.106',
+        srcPort: 52140,
+        srcCountry: 'Taiwan (Workstation Lan)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei',
+        srcAsn: 'AS9924 Private Subnet',
+        dstIp: '185.220.101.45',
+        dstPort: 8443,
+        dstCountry: 'Netherlands',
+        dstCountryCode: 'NL',
+        dstFlag: '🇳🇱',
+        srcAsnLocal: 'Local Workstation Subnet',
+        timestamp: new Date(now - 28 * 60 * 1000).toISOString(),
+        duration: '8m 12s',
+        bytesTransferred: '5.84 GB',
+        bytesNumeric: 6270000000,
+        packetsCount: 421000,
+        throughput: '780 Mbps',
+        throughputMbps: 780,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048.003 Exfiltration Over Alternative Protocol',
+        payloadSnippet: 'TLS_SESSION_EXFIL: encrypted chunkstream -> target s3-bucket-mirror.ru [JA3: ada70206e40642a3e4461f35503241d5]',
+        ja3Hash: 'ada70206e40642a3e4461f35503241d5',
+        ruleThresholdViolated: 'Outbound egress single session >= 500 MB (Actual: 5.84 GB, +1068% Surge)',
+        status: 'Investigating',
+        actionTaken: 'Blocked (Drop) & Quarantine IP'
+      },
+      {
+        id: 'NDR-ALT-9003',
+        ruleId: 'ndr-rule-c2-beaconing',
+        ruleName: 'C2 週期性心跳信標特徵 (Command & Control Periodic Beacon)',
+        patternType: 'c2_beaconing',
+        severity: 'High',
+        protocol: 'TCP',
+        srcIp: '10.88.88.114',
+        srcPort: 48922,
+        srcCountry: 'Taiwan (Finance Dept)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Hsinchu',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '45.154.255.88',
+        dstPort: 443,
+        dstCountry: 'Russia',
+        dstCountryCode: 'RU',
+        dstFlag: '🇷🇺',
+        timestamp: new Date(now - 35 * 60 * 1000).toISOString(),
+        duration: '42m 00s',
+        bytesTransferred: '84.2 MB',
+        bytesNumeric: 88289000,
+        packetsCount: 1240,
+        throughput: '28 Kbps',
+        throughputMbps: 0.028,
+        mitreTactic: 'Command and Control',
+        mitreTechnique: 'T1071.001 Web Protocols',
+        payloadSnippet: 'POST /v2/agent/heartbeat HTTP/1.1 | Host: relay-c2.darknet.ru | Beacon interval: 60.02s (Jitter 0.8% detected)',
+        ja3Hash: '72a589da586844d7f0818ce684948eea',
+        ruleThresholdViolated: 'Beacon Interval regularity >= 90% (Actual: 99.2% regularity, Jitter < 1.0%)',
+        status: 'Active',
+        actionTaken: 'Firewall Rule Generated (Drop)'
+      },
+      {
+        id: 'NDR-ALT-9004',
+        ruleId: 'ndr-rule-lateral-movement',
+        ruleName: '內網橫向移動與異常流量離群叢集 (Lateral Flow Cluster Storm)',
+        patternType: 'abnormal_flow_cluster',
+        severity: 'Critical',
+        protocol: 'TCP',
+        srcIp: '10.88.88.106',
+        srcPort: 54101,
+        srcCountry: 'Taiwan (Internal Lan)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei Office',
+        srcAsn: 'AS9924 Local Vlan 10',
+        dstIp: '10.88.88.150',
+        dstPort: 445,
+        dstCountry: 'Taiwan (Core DC)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 50 * 60 * 1000).toISOString(),
+        duration: '3m 20s',
+        bytesTransferred: '890 MB',
+        bytesNumeric: 933230000,
+        packetsCount: 56400,
+        throughput: '340 Mbps',
+        throughputMbps: 340,
+        mitreTactic: 'Lateral Movement',
+        mitreTechnique: 'T1021.002 SMB/Windows Admin Shares',
+        payloadSnippet: 'SMB2_TREE_CONNECT: \\\\10.88.88.150\\ADMIN$ | Fan-out degree: 48 target endpoints in 120s',
+        ruleThresholdViolated: 'Internal East-West Fanout degree >= 30 hosts (Actual: 48 hosts in 2 mins)',
+        status: 'Mitigated',
+        actionTaken: 'Switch Port 802.1X Isolated'
+      },
+      {
+        id: 'NDR-ALT-9005',
+        ruleId: 'ndr-rule-dns-tunneling',
+        ruleName: 'DNS 隧道偽裝高熵查詢 (DNS Exfiltration & Tunneling)',
+        patternType: 'dns_tunneling',
+        severity: 'High',
+        protocol: 'DNS',
+        srcIp: '10.88.88.102',
+        srcPort: 53109,
+        srcCountry: 'Taiwan (R&D Dev)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '103.224.182.245',
+        dstPort: 53,
+        dstCountry: 'China',
+        dstCountryCode: 'CN',
+        dstFlag: '🇨🇳',
+        timestamp: new Date(now - 75 * 60 * 1000).toISOString(),
+        duration: '15m 10s',
+        bytesTransferred: '142 MB',
+        bytesNumeric: 148890000,
+        packetsCount: 38900,
+        throughput: '12 Mbps',
+        throughputMbps: 12,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048.003 Exfiltration Over Alternative Protocol',
+        payloadSnippet: 'DNS QNAME: [4.91 Shannon Entropy] dG9wX3NlY3JldF9wYXRlbnRfZG9j.ns1.tunnel-dns-exfil.xyz',
+        ruleThresholdViolated: 'DNS Query Subdomain Entropy >= 4.50 (Actual: 4.91, 1,280 QPS Spike)',
+        status: 'Active',
+        actionTaken: 'DNS Sinkhole Activated'
+      },
+      {
+        id: 'NDR-ALT-9006',
+        ruleId: 'ndr-rule-traffic-silence',
+        ruleName: '核心業務時段進線流量異常暴跌斷流 (Ingress Silence / Drop)',
+        patternType: 'traffic_silence_drop',
+        severity: 'Medium',
+        protocol: 'TCP',
+        srcIp: '0.0.0.0/0',
+        srcPort: 0,
+        srcCountry: 'Germany',
+        srcCountryCode: 'DE',
+        srcFlag: '🇩🇪',
+        srcCity: 'Frankfurt Gateway',
+        srcAsn: 'AS3320 Deutsche Telekom',
+        dstIp: '10.88.88.201',
+        dstPort: 443,
+        dstCountry: 'Taiwan (Core Gateway)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 110 * 60 * 1000).toISOString(),
+        duration: '18m 00s',
+        bytesTransferred: '12 MB',
+        bytesNumeric: 12582912,
+        packetsCount: 840,
+        throughput: '0.8 Mbps',
+        throughputMbps: 0.8,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1499 Endpoint Denial of Service',
+        payloadSnippet: 'BGP_ROUTER_DROP: European ingress route traffic collapsed by 88% compared with 7-day baseline',
+        ruleThresholdViolated: 'Ingress Traffic Drop >= 80% below baseline (Actual: -88.4% collapse)',
+        status: 'Investigating',
+        actionTaken: 'BGP Peer Rerouted & NOC Paged'
+      },
+      {
+        id: 'NDR-ALT-9007',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
+        patternType: 'bandwidth_surge',
+        severity: 'Critical',
+        protocol: 'UDP',
+        srcIp: '91.240.118.17',
+        srcPort: 37812,
+        srcCountry: 'Netherlands',
+        srcCountryCode: 'NL',
+        srcFlag: '🇳🇱',
+        srcCity: 'Amsterdam',
+        srcAsn: 'AS202425 Serverius',
+        dstIp: '10.88.88.205',
+        dstPort: 53,
+        dstCountry: 'Taiwan (DNS Cluster)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 140 * 60 * 1000).toISOString(),
+        duration: '4m 30s',
+        bytesTransferred: '2.89 GB',
+        bytesNumeric: 3103000000,
+        packetsCount: 312000,
+        throughput: '1,320 Mbps',
+        throughputMbps: 1320,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1498.002 Reflection Amplification',
+        payloadSnippet: 'NTP/DNS AMP REFLECTION: UDP payload 512-byte response flood targeting authoritative nameserver',
+        ruleThresholdViolated: 'UDP Ingress Bandwidth >= 1,000 Mbps (Actual: 1,320 Mbps, +32% Burst)',
+        status: 'Mitigated',
+        actionTaken: 'BGP Flowspec Rate-Limited'
+      },
+      {
+        id: 'NDR-ALT-9008',
+        ruleId: 'ndr-rule-c2-beaconing',
+        ruleName: 'C2 週期性心跳信標特徵 (Command & Control Periodic Beacon)',
+        patternType: 'c2_beaconing',
+        severity: 'High',
+        protocol: 'TLS/HTTPS',
+        srcIp: '10.88.88.119',
+        srcPort: 51044,
+        srcCountry: 'Taiwan (Sales Dept)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taichung',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '104.244.42.1',
+        dstPort: 443,
+        dstCountry: 'United States',
+        dstCountryCode: 'US',
+        dstFlag: '🇺🇸',
+        timestamp: new Date(now - 170 * 60 * 1000).toISOString(),
+        duration: '22m 15s',
+        bytesTransferred: '34.5 MB',
+        bytesNumeric: 36175000,
+        packetsCount: 890,
+        throughput: '18 Kbps',
+        throughputMbps: 0.018,
+        mitreTactic: 'Command and Control',
+        mitreTechnique: 'T1071.001 Web Protocols',
+        payloadSnippet: 'TLS_BEACON: CobaltStrike default malleable profile sleep=30s [JA3: 51c64c77e60f39ac3e1776489102b4f1]',
+        ja3Hash: '51c64c77e60f39ac3e1776489102b4f1',
+        ruleThresholdViolated: 'CobaltStrike TLS Signature Matched (Jitter: 2.3%, Period: 30.1s)',
+        status: 'Active',
+        actionTaken: 'EDR Agent Host Quarantine'
+      },
+      {
+        id: 'NDR-ALT-9009',
+        ruleId: 'ndr-rule-data-exfiltration',
+        ruleName: '巨量出境資料外洩異常 (High Outbound Data Exfiltration)',
+        patternType: 'data_exfiltration',
+        severity: 'Critical',
+        protocol: 'SSH',
+        srcIp: '10.88.88.105',
+        srcPort: 49811,
+        srcCountry: 'Taiwan (Core Linux Server)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei Datacenter',
+        srcAsn: 'AS9924 Enterprise DC',
+        dstIp: '210.140.10.8',
+        dstPort: 2222,
+        dstCountry: 'Japan',
+        dstCountryCode: 'JP',
+        dstFlag: '🇯🇵',
+        timestamp: new Date(now - 210 * 60 * 1000).toISOString(),
+        duration: '11m 40s',
+        bytesTransferred: '4.15 GB',
+        bytesNumeric: 4456000000,
+        packetsCount: 295000,
+        throughput: '620 Mbps',
+        throughputMbps: 620,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048.002 Exfiltration Over Asymmetric Encrypted Channel',
+        payloadSnippet: 'SFTP_OUTBOUND_BULK: OpenSSH_8.9 scp upload database_dump_2026.sql.gz to untrusted external host',
+        ruleThresholdViolated: 'Single outbound SFTP session >= 1.0 GB (Actual: 4.15 GB, Unauthorized Port: 2222)',
+        status: 'Investigating',
+        actionTaken: 'Session Terminated (TCP RST)'
+      },
+      {
+        id: 'NDR-ALT-9010',
+        ruleId: 'ndr-rule-lateral-movement',
+        ruleName: '內網橫向移動與異常流量離群叢集 (Lateral Flow Cluster Storm)',
+        patternType: 'abnormal_flow_cluster',
+        severity: 'High',
+        protocol: 'TCP',
+        srcIp: '10.88.88.106',
+        srcPort: 59384,
+        srcCountry: 'Taiwan (Workstation 106)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei HQ',
+        srcAsn: 'AS9924 Local Lan',
+        dstIp: '10.88.88.180',
+        dstPort: 3389,
+        dstCountry: 'Taiwan (Production Server)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 250 * 60 * 1000).toISOString(),
+        duration: '1m 15s',
+        bytesTransferred: '64 MB',
+        bytesNumeric: 67108000,
+        packetsCount: 5400,
+        throughput: '45 Mbps',
+        throughputMbps: 45,
+        mitreTactic: 'Lateral Movement',
+        mitreTechnique: 'T1021.001 Remote Desktop Protocol',
+        payloadSnippet: 'RDP_CREDENTIAL_SPRAY: Rapid connection attempts to 18 internal desktop endpoints with NT_STATUS_LOGON_FAILURE',
+        ruleThresholdViolated: 'Failed RDP Logon attempts >= 10 in 60s (Actual: 18 attempts across subnet)',
+        status: 'Resolved',
+        actionTaken: 'Account Locked & Firewall Dropped'
+      },
+      {
+        id: 'NDR-ALT-9011',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
+        patternType: 'bandwidth_surge',
+        severity: 'High',
+        protocol: 'ICMP',
+        srcIp: '185.191.171.12',
+        srcPort: 0,
+        srcCountry: 'United States',
+        srcCountryCode: 'US',
+        srcFlag: '🇺🇸',
+        srcCity: 'Secaucus, NJ',
+        srcAsn: 'AS396982 DigitalOcean',
+        dstIp: '10.88.88.201',
+        dstPort: 0,
+        dstCountry: 'Taiwan (Gateway)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 300 * 60 * 1000).toISOString(),
+        duration: '2m 10s',
+        bytesTransferred: '1.20 GB',
+        bytesNumeric: 1288000000,
+        packetsCount: 189000,
+        throughput: '980 Mbps',
+        throughputMbps: 980,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1498 Network Denial of Service',
+        payloadSnippet: 'ICMP_PING_FLOOD: Echo Request Type 8 Size 1400 Flood (150,000 pps)',
+        ruleThresholdViolated: 'ICMP Ingress PPS >= 50,000 (Actual: 150,000 pps, Threshold: 850 Mbps)',
+        status: 'Mitigated',
+        actionTaken: 'ICMP Rate-Limit Enforced'
+      },
+      {
+        id: 'NDR-ALT-9012',
+        ruleId: 'ndr-rule-dns-tunneling',
+        ruleName: 'DNS 隧道偽裝高熵查詢 (DNS Exfiltration & Tunneling)',
+        patternType: 'dns_tunneling',
+        severity: 'Medium',
+        protocol: 'UDP',
+        srcIp: '10.88.88.109',
+        srcPort: 58210,
+        srcCountry: 'Taiwan (Dev Subnet)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '1.1.1.1',
+        dstPort: 53,
+        dstCountry: 'United States',
+        dstCountryCode: 'US',
+        dstFlag: '🇺🇸',
+        timestamp: new Date(now - 350 * 60 * 1000).toISOString(),
+        duration: '8m 40s',
+        bytesTransferred: '48 MB',
+        bytesNumeric: 50331000,
+        packetsCount: 14200,
+        throughput: '4.8 Mbps',
+        throughputMbps: 4.8,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048.003 Exfiltration Over Alternative Protocol',
+        payloadSnippet: 'DNS_HIGH_ENTROPY: [4.62 Shannon Entropy] dnscat2 session token payload in TXT queries',
+        ruleThresholdViolated: 'Shannon Entropy >= 4.50 (Actual: 4.62 on recursive resolver query)',
+        status: 'Active',
+        actionTaken: 'EDR Isolation Alert Raised'
+      },
+      {
+        id: 'NDR-ALT-9013',
+        ruleId: 'ndr-rule-c2-beaconing',
+        ruleName: 'C2 週期性心跳信標特徵 (Command & Control Periodic Beacon)',
+        patternType: 'c2_beaconing',
+        severity: 'Critical',
+        protocol: 'HTTP',
+        srcIp: '10.88.88.118',
+        srcPort: 48930,
+        srcCountry: 'Taiwan (Logistics)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taoyuan',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '194.26.29.112',
+        dstPort: 8080,
+        dstCountry: 'Russia',
+        dstCountryCode: 'RU',
+        dstFlag: '🇷🇺',
+        timestamp: new Date(now - 400 * 60 * 1000).toISOString(),
+        duration: '55m 00s',
+        bytesTransferred: '12.8 MB',
+        bytesNumeric: 13421000,
+        packetsCount: 980,
+        throughput: '12 Kbps',
+        throughputMbps: 0.012,
+        mitreTactic: 'Command and Control',
+        mitreTechnique: 'T1071.001 Web Protocols',
+        payloadSnippet: 'GET /news.php?sess=94a1f&id=7 HTTP/1.1 | User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) | Slivers C2 interval 45s',
+        ruleThresholdViolated: 'C2 Beacon Interval Regularity >= 95% (Actual: 98.4%, Slivers HTTP Profile)',
+        status: 'Investigating',
+        actionTaken: 'Proxy Domain Blacklisted'
+      },
+      {
+        id: 'NDR-ALT-9014',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
+        patternType: 'bandwidth_surge',
+        severity: 'Critical',
+        protocol: 'TCP',
+        srcIp: '177.54.148.22',
+        srcPort: 41290,
+        srcCountry: 'Brazil',
+        srcCountryCode: 'BR',
+        srcFlag: '🇧🇷',
+        srcCity: 'Sao Paulo',
+        srcAsn: 'AS28573 Claro Brasil',
+        dstIp: '10.88.88.201',
+        dstPort: 443,
+        dstCountry: 'Taiwan (Core Gateway)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 480 * 60 * 1000).toISOString(),
+        duration: '2m 50s',
+        bytesTransferred: '2.40 GB',
+        bytesNumeric: 2576000000,
+        packetsCount: 198000,
+        throughput: '1,280 Mbps',
+        throughputMbps: 1280,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1498 Network Denial of Service',
+        payloadSnippet: 'TCP_SYN_ACK_BURST: External reflection payload targeting border load balancer',
+        ruleThresholdViolated: 'Bandwidth >= 1,200 Mbps (Actual: 1,280 Mbps, Sustained > 30s)',
+        status: 'Mitigated',
+        actionTaken: 'Firewall Drop Rule Added'
+      },
+      {
+        id: 'NDR-ALT-9015',
+        ruleId: 'ndr-rule-data-exfiltration',
+        ruleName: '巨量出境資料外洩異常 (High Outbound Data Exfiltration)',
+        patternType: 'data_exfiltration',
+        severity: 'High',
+        protocol: 'TCP',
+        srcIp: '10.88.88.106',
+        srcPort: 56701,
+        srcCountry: 'Taiwan (Workstation 106)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '159.69.210.4',
+        dstPort: 9001,
+        dstCountry: 'Germany',
+        dstCountryCode: 'DE',
+        dstFlag: '🇩🇪',
+        timestamp: new Date(now - 550 * 60 * 1000).toISOString(),
+        duration: '14m 20s',
+        bytesTransferred: '2.10 GB',
+        bytesNumeric: 2254000000,
+        packetsCount: 145000,
+        throughput: '410 Mbps',
+        throughputMbps: 410,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048 Exfiltration Over Alternative Protocol',
+        payloadSnippet: 'RAW_SOCKET_STREAM: Unknown binary header with AES-GCM tag to unclassified cloud VPS',
+        ruleThresholdViolated: 'Outbound flow volume >= 1.0 GB to uncategorized IP (Actual: 2.10 GB)',
+        status: 'Active',
+        actionTaken: 'Session Severed'
+      },
+      {
+        id: 'NDR-ALT-9016',
+        ruleId: 'ndr-rule-lateral-movement',
+        ruleName: '內網橫向移動與異常流量離群叢集 (Lateral Flow Cluster Storm)',
+        patternType: 'abnormal_flow_cluster',
+        severity: 'Medium',
+        protocol: 'TCP',
+        srcIp: '10.88.88.112',
+        srcPort: 50412,
+        srcCountry: 'Taiwan (QA Subnet)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Hsinchu',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '10.88.88.160',
+        dstPort: 5985,
+        dstCountry: 'Taiwan (Internal Server Farm)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 620 * 60 * 1000).toISOString(),
+        duration: '5m 10s',
+        bytesTransferred: '32 MB',
+        bytesNumeric: 33554000,
+        packetsCount: 4100,
+        throughput: '22 Mbps',
+        throughputMbps: 22,
+        mitreTactic: 'Lateral Movement',
+        mitreTechnique: 'T1021.006 Windows Remote Management',
+        payloadSnippet: 'WINRM_INVOKE: PSRemoting cluster enumeration scan across subnet 10.88.88.0/24',
+        ruleThresholdViolated: 'WinRM connections to >= 8 hosts in 5m (Actual: 12 hosts target)',
+        status: 'Investigating',
+        actionTaken: 'Host Flagged in SIEM'
+      },
+      {
+        id: 'NDR-ALT-9017',
+        ruleId: 'ndr-rule-c2-beaconing',
+        ruleName: 'C2 週期性心跳信標特徵 (Command & Control Periodic Beacon)',
+        patternType: 'c2_beaconing',
+        severity: 'High',
+        protocol: 'DNS',
+        srcIp: '10.88.88.121',
+        srcPort: 54911,
+        srcCountry: 'Taiwan (HR Dept)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '116.203.18.99',
+        dstPort: 53,
+        dstCountry: 'Germany',
+        dstCountryCode: 'DE',
+        dstFlag: '🇩🇪',
+        timestamp: new Date(now - 700 * 60 * 1000).toISOString(),
+        duration: '1h 10m',
+        bytesTransferred: '18.4 MB',
+        bytesNumeric: 19293000,
+        packetsCount: 3900,
+        throughput: '15 Kbps',
+        throughputMbps: 0.015,
+        mitreTactic: 'Command and Control',
+        mitreTechnique: 'T1071.004 DNS Protocols',
+        payloadSnippet: 'DNS_C2_HEARTBEAT: periodic NS query every 120s +- 1.2s to command.dynamic-sync.de',
+        ruleThresholdViolated: 'Periodic DNS Query regularity >= 90% (Actual: 97.2%)',
+        status: 'Active',
+        actionTaken: 'DNS Sinkholed'
+      },
+      {
+        id: 'NDR-ALT-9018',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
+        patternType: 'bandwidth_surge',
+        severity: 'Critical',
+        protocol: 'TCP',
+        srcIp: '103.251.167.33',
+        srcPort: 55410,
+        srcCountry: 'China',
+        srcCountryCode: 'CN',
+        srcFlag: '🇨🇳',
+        srcCity: 'Guangzhou',
+        srcAsn: 'AS4134 Chinanet',
+        dstIp: '10.88.88.201',
+        dstPort: 443,
+        dstCountry: 'Taiwan (Core Gateway)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 780 * 60 * 1000).toISOString(),
+        duration: '4m 00s',
+        bytesTransferred: '3.90 GB',
+        bytesNumeric: 4187000000,
+        packetsCount: 284000,
+        throughput: '1,520 Mbps',
+        throughputMbps: 1520,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1498 Network Denial of Service',
+        payloadSnippet: 'TCP_RST_FLOOD: Malicious spoofed handshake bursts saturating border interface',
+        ruleThresholdViolated: 'Border interface saturation >= 1,200 Mbps (Actual: 1,520 Mbps, +26.7% Overload)',
+        status: 'Mitigated',
+        actionTaken: 'Cloudflare Magic Transit Scrubbing'
+      },
+      {
+        id: 'NDR-ALT-9019',
+        ruleId: 'ndr-rule-traffic-silence',
+        ruleName: '核心業務時段進線流量異常暴跌斷流 (Ingress Silence / Drop)',
+        patternType: 'traffic_silence_drop',
+        severity: 'Low',
+        protocol: 'TCP',
+        srcIp: '0.0.0.0/0',
+        srcPort: 0,
+        srcCountry: 'United Kingdom',
+        srcCountryCode: 'GB',
+        srcFlag: '🇬🇧',
+        srcCity: 'London',
+        srcAsn: 'AS2856 British Telecom',
+        dstIp: '10.88.88.201',
+        dstPort: 443,
+        dstCountry: 'Taiwan (Core Gateway)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 860 * 60 * 1000).toISOString(),
+        duration: '10m 00s',
+        bytesTransferred: '4 MB',
+        bytesNumeric: 4194304,
+        packetsCount: 320,
+        throughput: '0.3 Mbps',
+        throughputMbps: 0.3,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1499 Endpoint Denial of Service',
+        payloadSnippet: 'TRANSIT_FIBER_CUT: European transatlantic route dip -42% under normal daytime curve',
+        ruleThresholdViolated: 'Traffic volume dipped -42% for 10m',
+        status: 'Resolved',
+        actionTaken: 'Trans-Pacific Circuit Failover'
+      },
+      {
+        id: 'NDR-ALT-9020',
+        ruleId: 'ndr-rule-dns-tunneling',
+        ruleName: 'DNS 隧道偽裝高熵查詢 (DNS Exfiltration & Tunneling)',
+        patternType: 'dns_tunneling',
+        severity: 'High',
+        protocol: 'DNS',
+        srcIp: '10.88.88.115',
+        srcPort: 59124,
+        srcCountry: 'Taiwan (Engineering)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei',
+        srcAsn: 'AS9924 Enterprise Internal',
+        dstIp: '8.8.4.4',
+        dstPort: 53,
+        dstCountry: 'United States',
+        dstCountryCode: 'US',
+        dstFlag: '🇺🇸',
+        timestamp: new Date(now - 920 * 60 * 1000).toISOString(),
+        duration: '24m 00s',
+        bytesTransferred: '92 MB',
+        bytesNumeric: 96468000,
+        packetsCount: 28400,
+        throughput: '8.2 Mbps',
+        throughputMbps: 8.2,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048.003 Exfiltration Over Alternative Protocol',
+        payloadSnippet: 'DNS_CHUNKED_EXFIL: Base32 hex encoded labels with payload sequence id: [4.74 Shannon Entropy]',
+        ruleThresholdViolated: 'Entropy >= 4.50 (Actual: 4.74, 820 chunk queries)',
+        status: 'Active',
+        actionTaken: 'DNS Firewall Blocked'
+      }
+    ];
+
+    return records;
+  };
+
+  let ndrAnalyticsAlerts: NdrAnalyticsAlert[] = seedNdrAnalyticsAlerts();
+
+  // 18.1 GET /api/v1/ndr/analytics/alerts-overview
+  router.get('/analytics/alerts-overview', (req: Request, res: Response) => {
+    try {
+      const { timeRange, severity, protocol, country, ruleId, search } = req.query;
+
+      // Filter dataset based on parameters
+      let filtered = [...ndrAnalyticsAlerts];
+
+      if (severity && severity !== 'ALL') {
+        filtered = filtered.filter(a => a.severity.toLowerCase() === String(severity).toLowerCase());
+      }
+      if (protocol && protocol !== 'ALL') {
+        filtered = filtered.filter(a => a.protocol.toLowerCase() === String(protocol).toLowerCase());
+      }
+      if (country && country !== 'ALL') {
+        filtered = filtered.filter(a => 
+          a.srcCountry.toLowerCase().includes(String(country).toLowerCase()) || 
+          a.srcCountryCode.toLowerCase() === String(country).toLowerCase()
+        );
+      }
+      if (ruleId && ruleId !== 'ALL') {
+        filtered = filtered.filter(a => a.ruleId === String(ruleId));
+      }
+      if (search && String(search).trim() !== '') {
+        const q = String(search).toLowerCase().trim();
+        filtered = filtered.filter(a => 
+          a.id.toLowerCase().includes(q) ||
+          a.ruleName.toLowerCase().includes(q) ||
+          a.srcIp.toLowerCase().includes(q) ||
+          a.dstIp.toLowerCase().includes(q) ||
+          a.srcCountry.toLowerCase().includes(q) ||
+          a.payloadSnippet.toLowerCase().includes(q) ||
+          a.mitreTechnique.toLowerCase().includes(q)
+        );
+      }
+
+      // Compute Total Summary
+      const totalAlerts = filtered.length;
+      const criticalCount = filtered.filter(a => a.severity === 'Critical').length;
+      const highCount = filtered.filter(a => a.severity === 'High').length;
+      const mediumCount = filtered.filter(a => a.severity === 'Medium').length;
+      const lowCount = filtered.filter(a => a.severity === 'Low').length;
+
+      const activeThreats = filtered.filter(a => a.status === 'Active' || a.status === 'Investigating').length;
+      const mitigatedCount = filtered.filter(a => a.status === 'Mitigated' || a.status === 'Resolved').length;
+
+      // Severity Distribution (for Pie/Donut Chart)
+      const severityDistribution = [
+        { 
+          severity: 'Critical', 
+          count: criticalCount, 
+          percentage: totalAlerts > 0 ? Number(((criticalCount / totalAlerts) * 100).toFixed(1)) : 0, 
+          color: '#ef4444',
+          description: '即時嚴重破壞、外洩或阻斷服務'
+        },
+        { 
+          severity: 'High', 
+          count: highCount, 
+          percentage: totalAlerts > 0 ? Number(((highCount / totalAlerts) * 100).toFixed(1)) : 0, 
+          color: '#f97316',
+          description: 'C2 潛伏心跳、DNS 隧道或橫向攻擊'
+        },
+        { 
+          severity: 'Medium', 
+          count: mediumCount, 
+          percentage: totalAlerts > 0 ? Number(((mediumCount / totalAlerts) * 100).toFixed(1)) : 0, 
+          color: '#eab308',
+          description: '流量突變、連線異常或離群分佈'
+        },
+        { 
+          severity: 'Low', 
+          count: lowCount, 
+          percentage: totalAlerts > 0 ? Number(((lowCount / totalAlerts) * 100).toFixed(1)) : 0, 
+          color: '#3b82f6',
+          description: '輕度探測、通訊斷續或資訊提示'
+        }
+      ];
+
+      // Protocol Distribution (for Recharts BarChart)
+      const protoMap: Record<string, { count: number; bytes: number; color: string }> = {
+        'TCP': { count: 0, bytes: 0, color: '#3b82f6' },
+        'TLS/HTTPS': { count: 0, bytes: 0, color: '#8b5cf6' },
+        'UDP': { count: 0, bytes: 0, color: '#10b981' },
+        'DNS': { count: 0, bytes: 0, color: '#f59e0b' },
+        'ICMP': { count: 0, bytes: 0, color: '#ec4899' },
+        'SSH': { count: 0, bytes: 0, color: '#06b6d4' },
+        'HTTP': { count: 0, bytes: 0, color: '#14b8a6' }
+      };
+
+      filtered.forEach(a => {
+        if (!protoMap[a.protocol]) {
+          protoMap[a.protocol] = { count: 0, bytes: 0, color: '#64748b' };
+        }
+        protoMap[a.protocol].count += 1;
+        protoMap[a.protocol].bytes += a.bytesNumeric;
+      });
+
+      const protocolDistribution = Object.entries(protoMap).map(([proto, d]) => ({
+        protocol: proto,
+        count: d.count,
+        volumeMb: Number((d.bytes / (1024 * 1024)).toFixed(1)),
+        percentage: totalAlerts > 0 ? Number(((d.count / totalAlerts) * 100).toFixed(1)) : 0,
+        color: d.color
+      })).sort((a, b) => b.count - a.count);
+
+      // Geographical Source Distribution (for Recharts Horizontal BarChart)
+      const geoMap: Record<string, { 
+        name: string; 
+        code: string; 
+        flag: string; 
+        count: number; 
+        inbound: number; 
+        outbound: number;
+        avgThreatScore: number;
+        topProtocol: string;
+      }> = {};
+
+      filtered.forEach(a => {
+        const cKey = a.srcCountryCode || 'OTHER';
+        if (!geoMap[cKey]) {
+          geoMap[cKey] = {
+            name: a.srcCountry,
+            code: a.srcCountryCode,
+            flag: a.srcFlag,
+            count: 0,
+            inbound: 0,
+            outbound: 0,
+            avgThreatScore: 75,
+            topProtocol: a.protocol
+          };
+        }
+        geoMap[cKey].count += 1;
+        if (a.dstCountryCode === 'TW') {
+          geoMap[cKey].inbound += 1;
+        } else {
+          geoMap[cKey].outbound += 1;
+        }
+      });
+
+      const geoDistribution = Object.values(geoMap).map(g => ({
+        country: g.name,
+        countryCode: g.code,
+        flag: g.flag,
+        count: g.count,
+        inbound: g.inbound,
+        outbound: g.outbound,
+        percentage: totalAlerts > 0 ? Number(((g.count / totalAlerts) * 100).toFixed(1)) : 0,
+        threatScore: Math.min(99, 65 + g.count * 4)
+      })).sort((a, b) => b.count - a.count);
+
+      // Time Series Trend (24h hourly buckets for Recharts AreaChart)
+      const hours = ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'];
+      const timeSeriesDistribution = hours.map((hour, idx) => {
+        const factor = (idx % 3 === 0 ? 2 : 1) + (idx > 5 && idx < 10 ? 2 : 0);
+        return {
+          time: hour,
+          Critical: Math.max(0, Math.floor(criticalCount * 0.12 * factor)),
+          High: Math.max(0, Math.floor(highCount * 0.14 * factor)),
+          Medium: Math.max(0, Math.floor(mediumCount * 0.15 * factor)),
+          Low: Math.max(0, Math.floor(lowCount * 0.15 * factor)),
+          total: Math.max(1, Math.floor(totalAlerts * 0.12 * factor)),
+          bandwidthMbps: Math.floor(450 + Math.sin(idx) * 280 + factor * 140)
+        };
+      });
+
+      // Group by Rule Violations (Drilldown Summary)
+      const currentRules = loadNdrAlertRules();
+      const ruleViolationMap: Record<string, {
+        ruleId: string;
+        ruleName: string;
+        patternType: string;
+        severity: string;
+        count: number;
+        affectedHosts: Set<string>;
+        topProto: string;
+        topGeo: string;
+        lastTriggered: string;
+        thresholdInfo: string;
+      }> = {};
+
+      // Seed with existing rules
+      currentRules.forEach((r: any) => {
+        ruleViolationMap[r.id] = {
+          ruleId: r.id,
+          ruleName: r.name,
+          patternType: r.patternType,
+          severity: r.severity,
+          count: 0,
+          affectedHosts: new Set(),
+          topProto: 'TCP',
+          topGeo: '🇺🇸 US',
+          lastTriggered: r.lastTriggeredAt || new Date().toISOString(),
+          thresholdInfo: `${r.condition} ${r.criticalThreshold || r.warningThreshold || ''} ${r.unit || ''}`
+        };
+      });
+
+      filtered.forEach(a => {
+        if (!ruleViolationMap[a.ruleId]) {
+          ruleViolationMap[a.ruleId] = {
+            ruleId: a.ruleId,
+            ruleName: a.ruleName,
+            patternType: a.patternType,
+            severity: a.severity,
+            count: 0,
+            affectedHosts: new Set(),
+            topProto: a.protocol,
+            topGeo: `${a.srcFlag} ${a.srcCountryCode}`,
+            lastTriggered: a.timestamp,
+            thresholdInfo: a.ruleThresholdViolated
+          };
+        }
+        ruleViolationMap[a.ruleId].count += 1;
+        ruleViolationMap[a.ruleId].affectedHosts.add(a.srcIp);
+        ruleViolationMap[a.ruleId].affectedHosts.add(a.dstIp);
+        ruleViolationMap[a.ruleId].topProto = a.protocol;
+        ruleViolationMap[a.ruleId].topGeo = `${a.srcFlag} ${a.srcCountryCode}`;
+      });
+
+      const ruleViolations = Object.values(ruleViolationMap).map(rv => ({
+        ruleId: rv.ruleId,
+        ruleName: rv.ruleName,
+        patternType: rv.patternType,
+        severity: rv.severity,
+        count: rv.count,
+        percentage: totalAlerts > 0 ? Number(((rv.count / totalAlerts) * 100).toFixed(1)) : 0,
+        affectedHostsCount: rv.affectedHosts.size,
+        topProtocol: rv.topProto,
+        topGeo: rv.topGeo,
+        lastTriggered: rv.lastTriggered,
+        thresholdInfo: rv.thresholdInfo
+      })).sort((a, b) => b.count - a.count);
+
+      res.json({
+        success: true,
+        summary: {
+          totalAlerts,
+          criticalCount,
+          highCount,
+          mediumCount,
+          lowCount,
+          activeThreats,
+          mitigatedCount,
+          totalBandwidthBurstGbps: '4.82 Gbps',
+          uniqueThreatActors: geoDistribution.length,
+          lastUpdatedAt: new Date().toISOString()
+        },
+        distributions: {
+          severity: severityDistribution,
+          protocol: protocolDistribution,
+          geo: geoDistribution,
+          timeSeries: timeSeriesDistribution
+        },
+        ruleViolations,
+        alerts: filtered
+      });
+    } catch (e: any) {
+      console.error('Error generating NDR alert analytics:', e);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // 18.2 POST /api/v1/ndr/analytics/simulate-violation (Inject dynamic test violation)
+  router.post('/analytics/simulate-violation', (req: Request, res: Response) => {
+    try {
+      const { ruleId, customSeverity, customProtocol, customCountry } = req.body;
+      const currentRules = loadNdrAlertRules();
+      const targetRule = currentRules.find((r: any) => r.id === ruleId) || currentRules[0];
+
+      const simCountries = [
+        { name: 'United States', code: 'US', flag: '🇺🇸', city: 'San Jose, CA', asn: 'AS15169 Google LLC' },
+        { name: 'Netherlands', code: 'NL', flag: '🇳🇱', city: 'Rotterdam', asn: 'AS202425 Serverius' },
+        { name: 'China', code: 'CN', flag: '🇨🇳', city: 'Shanghai', asn: 'AS4812 China Telecom' },
+        { name: 'Russia', code: 'RU', flag: '🇷🇺', city: 'Saint Petersburg', asn: 'AS12389 Rostelecom' },
+        { name: 'Germany', code: 'DE', flag: '🇩🇪', city: 'Berlin', asn: 'AS3320 DTAG' },
+        { name: 'Japan', code: 'JP', flag: '🇯🇵', city: 'Tokyo', asn: 'AS2516 KDDI' }
+      ];
+
+      const randomCountry = simCountries[Math.floor(Math.random() * simCountries.length)];
+      const protocols = ['TCP', 'TLS/HTTPS', 'UDP', 'DNS', 'ICMP', 'SSH'] as const;
+      const selectedProtocol = customProtocol || protocols[Math.floor(Math.random() * protocols.length)];
+
+      const newAlertId = `NDR-ALT-${Math.floor(1000 + Math.random() * 9000)}`;
+      const randomMbps = Math.floor(950 + Math.random() * 650);
+
+      const newAlert: NdrAnalyticsAlert = {
+        id: newAlertId,
+        ruleId: targetRule ? targetRule.id : 'ndr-rule-bandwidth-burst',
+        ruleName: targetRule ? targetRule.name : '即時頻寬異常告警 (Dynamic Triggered)',
+        patternType: targetRule ? targetRule.patternType : 'bandwidth_surge',
+        severity: customSeverity || (targetRule ? targetRule.severity : 'Critical'),
+        protocol: selectedProtocol as any,
+        srcIp: `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`,
+        srcPort: Math.floor(30000 + Math.random() * 25000),
+        srcCountry: customCountry || randomCountry.name,
+        srcCountryCode: randomCountry.code,
+        srcFlag: randomCountry.flag,
+        srcCity: randomCountry.city,
+        srcAsn: randomCountry.asn,
+        dstIp: `10.88.88.${Math.floor(100 + Math.random() * 110)}`,
+        dstPort: selectedProtocol === 'DNS' ? 53 : selectedProtocol === 'SSH' ? 22 : 443,
+        dstCountry: 'Taiwan (Core Internal)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date().toISOString(),
+        duration: `${Math.floor(1 + Math.random() * 5)}m ${Math.floor(Math.random() * 59)}s`,
+        bytesTransferred: `${(Math.random() * 3.5 + 0.8).toFixed(2)} GB`,
+        bytesNumeric: Math.floor(Math.random() * 3000000000 + 800000000),
+        packetsCount: Math.floor(Math.random() * 200000 + 40000),
+        throughput: `${randomMbps} Mbps`,
+        throughputMbps: randomMbps,
+        mitreTactic: targetRule?.patternType === 'data_exfiltration' ? 'Exfiltration' : 
+                    targetRule?.patternType === 'c2_beaconing' ? 'Command and Control' : 
+                    targetRule?.patternType === 'abnormal_flow_cluster' ? 'Lateral Movement' : 'Impact',
+        mitreTechnique: 'T1048.003 Exfiltration Over Alternative Protocol',
+        payloadSnippet: `DYNAMIC_SIM_ALERT: Flow violated rule [${targetRule?.name}]. Detected throughput ${randomMbps} Mbps exceeding baseline limit.`,
+        ruleThresholdViolated: `Threshold exceeded: Condition ${targetRule?.condition || '>='} ${targetRule?.criticalThreshold || 1200} (Actual: ${randomMbps} Mbps)`,
+        status: 'Active',
+        actionTaken: 'Pending SOC Analyst Action'
+      };
+
+      // Prepend to alerts list
+      ndrAnalyticsAlerts.unshift(newAlert);
+      if (ndrAnalyticsAlerts.length > 200) {
+        ndrAnalyticsAlerts.pop();
+      }
+
+      // Update target rule trigger counts
+      if (targetRule) {
+        targetRule.triggerCount = (targetRule.triggerCount || 0) + 1;
+        targetRule.lastTriggeredAt = new Date().toISOString();
+        saveNdrAlertRules(currentRules);
+      }
+
+      res.json({
+        success: true,
+        message: `Successfully simulated traffic violation for rule "${newAlert.ruleName}"`,
+        alert: newAlert
+      });
+    } catch (e: any) {
+      console.error('Failed to simulate rule violation:', e);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  // 18.3 POST /api/v1/ndr/analytics/mitigate (Apply instant SOC response action)
+  router.post('/analytics/mitigate', (req: Request, res: Response) => {
+    try {
+      const { alertId, action, notes } = req.body;
+      const alert = ndrAnalyticsAlerts.find(a => a.id === alertId);
+
+      if (!alert) {
+        return res.status(404).json({ success: false, error: `Alert with ID "${alertId}" not found.` });
+      }
+
+      const actionMap: Record<string, { status: 'Mitigated' | 'Resolved' | 'Investigating' | 'Active'; actionTaken: string }> = {
+        'isolate_host': { status: 'Mitigated', actionTaken: 'Host Quarantined via EDR/NAC (802.1X VLAN 999)' },
+        'block_ip': { status: 'Mitigated', actionTaken: `Border Firewall Drop Rule Applied (IP: ${alert.srcIp})` },
+        'deploy_suricata': { status: 'Mitigated', actionTaken: 'Dynamic Suricata IPS Drop Signature Deployed' },
+        'export_pcap': { status: 'Investigating', actionTaken: 'PCAP Forensics Stream Dumped to Storage' },
+        'resolve': { status: 'Resolved', actionTaken: 'Resolved by SOC Analyst' },
+        'acknowledge': { status: 'Investigating', actionTaken: 'Acknowledged by Tier 2 SOC Analyst' }
+      };
+
+      const matchedAction = actionMap[action] || { status: 'Mitigated', actionTaken: `Custom Action: ${action}` };
+
+      alert.status = matchedAction.status;
+      alert.actionTaken = matchedAction.actionTaken;
+
+      res.json({
+        success: true,
+        message: `Mitigation action "${action}" executed successfully on alert ${alertId}.`,
+        alert,
+        actionLog: {
+          timestamp: new Date().toISOString(),
+          analyst: 'SOC Supervisor (Admin)',
+          actionTaken: matchedAction.actionTaken,
+          notes: notes || 'Automated response executed from NDR Alert Analytics view.'
+        }
+      });
+    } catch (e: any) {
+      console.error('Failed to mitigate alert:', e);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   return router;
 }
+
 
 
