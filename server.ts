@@ -33,6 +33,7 @@ import { createNacRouter } from './server/nacRouter.ts';
 import { createSettingsRouter } from './server/settingsRouter.ts';
 import { createEngineMonitoringRouter } from './server/engineMonitoringRouter.ts';
 import { createOtRouter } from './server/otRouter.ts';
+import { createPlatformPerformanceRouter } from './server/platformPerformanceRouter.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
 import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
@@ -2144,6 +2145,11 @@ async function startServer() {
   app.use('/api/ot', otRouter);
   app.use('/api/v1/industrial', otRouter);
   app.use('/api/industrial', otRouter);
+
+  const platformPerformanceRouter = createPlatformPerformanceRouter();
+  app.use('/api/v1/platform-performance', platformPerformanceRouter);
+  app.use('/api/platform-performance', platformPerformanceRouter);
+  app.use('/api/v1/infra/performance', platformPerformanceRouter);
 
   // Discovered Assets & Inventory API
   app.get('/api/v1/assets', (req, res) => {

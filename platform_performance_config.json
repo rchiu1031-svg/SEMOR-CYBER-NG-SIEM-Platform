@@ -1,0 +1,33 @@
+{
+  "updatedAt": "2026-10-13T10:16:22.197Z",
+  "thresholds": {
+    "cpuWarning": 70,
+    "cpuCritical": 88,
+    "cpuDurationMinutes": 3,
+    "ramWarning": 80,
+    "ramCritical": 90,
+    "ramDurationMinutes": 5,
+    "diskWarning": 85,
+    "diskCritical": 92,
+    "trafficWarningMbps": 120,
+    "trafficCriticalMbps": 180,
+    "enableEmail": true,
+    "emailRecipients": "admin-infra@corp.internal, soc-alerts@corp.internal",
+    "enableWebhook": true,
+    "webhookUrl": "https://hooks.slack.com/services/T00/B00/platform-infra-alerts",
+    "webhookChannel": "#infra-alerts-soc",
+    "enableSyslog": false,
+    "syslogServer": "192.168.10.250",
+    "syslogPort": 514,
+    "alertCooldownMinutes": 15,
+    "notifyOnWarning": true,
+    "notifyOnCritical": true,
+    "nodeOverrides": {
+      "master-01": {
+        "cpuCritical": 80,
+        "ramCritical": 85,
+        "diskCritical": 85
+      }
+    }
+  }
+}

@@ -27,7 +27,10 @@ import {
   RotateCcw,
   Sparkles,
   Wifi,
-  ExternalLink
+  ExternalLink,
+  Download,
+  Wrench,
+  Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EngineArchitectureView } from './EngineArchitectureView';
@@ -52,12 +55,29 @@ interface NodeInfo {
   name: string;
   type: string;
   rawType: 'Dashboard Node' | 'Master Node' | 'Work Node';
+  role?: string;
   ip: string;
   cpu: number;
   ram: number;
   disk: number;
   traffic: { tcp: number; udp: number; agent: number };
-  status: 'Online' | 'Warning' | 'Offline';
+  status: 'Online' | 'Warning' | 'Offline' | 'Draining';
+  cordoned?: boolean;
+  loadAvg?: [number, number, number];
+  iops?: { read: number; write: number };
+  processCount?: number;
+  uptimeSeconds?: number;
+  osInfo?: {
+    os: string;
+    kernel: string;
+    arch: string;
+    vCpu: number;
+    totalRamGB: number;
+    totalDiskGB: number;
+  };
+  interfaces?: { name: string; ip: string; rxMbps: number; txMbps: number; droppedPackets: number }[];
+  services?: { name: string; status: 'running' | 'degraded' | 'stopped'; pid: number; uptime: string }[];
+  lastSync?: string;
 }
 
 interface ThresholdSettings {
@@ -125,8 +145,11 @@ export function PlatformPerformanceView() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [testAlertSent, setTestAlertSent] = useState(false);
   const [testAlertLog, setTestAlertLog] = useState<string[]>([]);
+  const [selectedNode, setSelectedNode] = useState<NodeInfo | null>(null);
+  const [isNodeActionLoading, setIsNodeActionLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Thresholds state with localStorage persistence
+  // Thresholds state with backend persistence and local cache fallback
   const [thresholds, setThresholds] = useState<ThresholdSettings>(() => {
     try {
       const saved = localStorage.getItem('platform_performance_thresholds');
@@ -145,6 +168,7 @@ export function PlatformPerformanceView() {
       name: 'Dashboard-Node-01',
       type: isZh ? '控制台節點' : 'Dashboard Node',
       rawType: 'Dashboard Node',
+      role: '控制台前端與 API 網關叢集',
       ip: '192.168.10.10',
       cpu: 45,
       ram: 62,
@@ -157,6 +181,7 @@ export function PlatformPerformanceView() {
       name: 'Master-Node-01',
       type: isZh ? '主控管理節點' : 'Master Node',
       rawType: 'Master Node',
+      role: 'Kubernetes/Cluster Control Plane & 排程仲裁',
       ip: '192.168.10.20',
       cpu: 28,
       ram: 45,
@@ -169,6 +194,7 @@ export function PlatformPerformanceView() {
       name: 'Work-Node-01',
       type: isZh ? '運算工作節點' : 'Work Node',
       rawType: 'Work Node',
+      role: '高吞吐封包捕獲與 Suricata/Zeek 深度解析',
       ip: '192.168.10.31',
       cpu: 78,
       ram: 82,
@@ -181,6 +207,7 @@ export function PlatformPerformanceView() {
       name: 'Work-Node-02',
       type: isZh ? '運算工作節點' : 'Work Node',
       rawType: 'Work Node',
+      role: 'VictoriaLogs 區塊時序日誌高壓縮儲存庫',
       ip: '192.168.10.32',
       cpu: 65,
       ram: 70,
@@ -193,6 +220,7 @@ export function PlatformPerformanceView() {
       name: 'Work-Node-03',
       type: isZh ? '運算工作節點' : 'Work Node',
       rawType: 'Work Node',
+      role: 'AI/ML 異常威脅研判與即時關聯推論引擎',
       ip: '192.168.10.33',
       cpu: 92,
       ram: 88,
@@ -203,7 +231,7 @@ export function PlatformPerformanceView() {
   ]);
 
   // Historical trend data for 24h analytics
-  const historyTrendData = [
+  const [historyTrendData, setHistoryTrendData] = useState<any[]>([
     { time: '00:00', avgCpu: 42, avgRam: 58, peakTraffic: 140, clusterEvents: 3 },
     { time: '03:00', avgCpu: 35, avgRam: 55, peakTraffic: 110, clusterEvents: 1 },
     { time: '06:00', avgCpu: 48, avgRam: 62, peakTraffic: 190, clusterEvents: 5 },
@@ -212,7 +240,71 @@ export function PlatformPerformanceView() {
     { time: '15:00', avgCpu: 84, avgRam: 82, peakTraffic: 460, clusterEvents: 19 },
     { time: '18:00', avgCpu: 76, avgRam: 78, peakTraffic: 390, clusterEvents: 11 },
     { time: '21:00', avgCpu: 61, avgRam: 69, peakTraffic: 275, clusterEvents: 4 },
-  ];
+  ]);
+
+  // Topology data
+  const [topologyNodes, setTopologyNodes] = useState<any[]>([
+    { id: 'INTERNET', label: isZh ? '外部流量' : 'External Traffic', type: 'external', x: 200, y: 50 },
+    { id: 'MASTER', label: isZh ? '主控節點' : 'Master Node', type: 'master', x: 200, y: 150 },
+    { id: 'DASHBOARD', label: isZh ? '儀表板' : 'Dashboard', type: 'dashboard', x: 50, y: 150 },
+    { id: 'WORK-01', label: 'Work-01', type: 'work', x: 50, y: 300 },
+    { id: 'WORK-02', label: 'Work-02', type: 'work', x: 200, y: 300 },
+    { id: 'WORK-03', label: 'Work-03', type: 'work', x: 350, y: 300 },
+  ]);
+
+  const [topologyLinks, setTopologyLinks] = useState<any[]>([
+    { from: 'INTERNET', to: 'MASTER' },
+    { from: 'MASTER', to: 'DASHBOARD' },
+    { from: 'MASTER', to: 'WORK-01' },
+    { from: 'MASTER', to: 'WORK-02' },
+    { from: 'MASTER', to: 'WORK-03' },
+  ]);
+
+  // Fetch real-time platform data from backend APIs
+  const fetchPlatformData = async () => {
+    try {
+      const [nodesRes, thresholdsRes, trendsRes, topoRes] = await Promise.all([
+        fetch('/api/v1/platform-performance/nodes').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/platform-performance/thresholds').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/platform-performance/trends').then(r => r.json()).catch(() => null),
+        fetch('/api/v1/platform-performance/topology').then(r => r.json()).catch(() => null)
+      ]);
+
+      if (nodesRes?.success && Array.isArray(nodesRes.nodes)) {
+        setNodes(nodesRes.nodes);
+        if (selectedNode) {
+          const updated = nodesRes.nodes.find((n: NodeInfo) => n.id === selectedNode.id);
+          if (updated) setSelectedNode(updated);
+        }
+      }
+
+      if (thresholdsRes?.success && thresholdsRes.thresholds) {
+        setThresholds(thresholdsRes.thresholds);
+        localStorage.setItem('platform_performance_thresholds', JSON.stringify(thresholdsRes.thresholds));
+      }
+
+      if (trendsRes?.success && Array.isArray(trendsRes.trends)) {
+        setHistoryTrendData(trendsRes.trends);
+      }
+
+      if (topoRes?.success && Array.isArray(topoRes.nodes)) {
+        setTopologyNodes(topoRes.nodes);
+        if (Array.isArray(topoRes.links)) {
+          setTopologyLinks(topoRes.links);
+        }
+      }
+    } catch (err) {
+      console.error('[PlatformPerformanceView] API Fetch error:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchPlatformData();
+    const timer = setInterval(() => {
+      fetchPlatformData();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Compare each node with active thresholds to identify alerts
   const getNodeAlerts = (node: NodeInfo) => {
@@ -245,61 +337,144 @@ export function PlatformPerformanceView() {
 
   // Compute cluster-wide stats
   const totalNodes = nodes.length;
-  const avgCpu = Math.round(nodes.reduce((acc, n) => acc + n.cpu, 0) / totalNodes);
-  const avgRam = Math.round(nodes.reduce((acc, n) => acc + n.ram, 0) / totalNodes);
-  const avgDisk = Math.round(nodes.reduce((acc, n) => acc + n.disk, 0) / totalNodes);
-  const totalTraffic = nodes.reduce((acc, n) => acc + n.traffic.tcp + n.traffic.udp + n.traffic.agent, 0).toFixed(1);
+  const avgCpu = Math.round(nodes.reduce((acc, n) => acc + n.cpu, 0) / (totalNodes || 1));
+  const avgRam = Math.round(nodes.reduce((acc, n) => acc + n.ram, 0) / (totalNodes || 1));
+  const avgDisk = Math.round(nodes.reduce((acc, n) => acc + n.disk, 0) / (totalNodes || 1));
+  const totalTraffic = nodes.reduce((acc, n) => acc + (n.traffic?.tcp || 0) + (n.traffic?.udp || 0) + (n.traffic?.agent || 0), 0).toFixed(1);
   
   const nodesWithAlerts = nodes.map(n => ({ node: n, alerts: getNodeAlerts(n) })).filter(item => item.alerts.length > 0);
   const criticalCount = nodesWithAlerts.filter(item => item.alerts.some(a => a.level === 'critical')).length;
   const warningCount = nodesWithAlerts.filter(item => !item.alerts.some(a => a.level === 'critical') && item.alerts.some(a => a.level === 'warning')).length;
 
-  const handleSyncNodes = () => {
+  const handleSyncNodes = async () => {
     setIsSyncing(true);
-    setTimeout(() => {
-      // Simulate dynamic fluctuations
-      setNodes(prev => prev.map(n => {
-        const delta = (Math.random() - 0.5) * 4;
-        const newCpu = Math.min(99, Math.max(15, Math.round(n.cpu + delta)));
-        const newRam = Math.min(98, Math.max(25, Math.round(n.ram + (Math.random() - 0.5) * 2)));
-        const newStatus = newCpu >= thresholds.cpuCritical || newRam >= thresholds.ramCritical ? 'Warning' : 'Online';
-        return {
-          ...n,
-          cpu: newCpu,
-          ram: newRam,
-          status: newStatus
-        };
-      }));
+    try {
+      const res = await fetch('/api/v1/platform-performance/nodes/sync', { method: 'POST' });
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.nodes)) {
+        setNodes(data.nodes);
+        showToast(isZh ? '已完成所有叢集節點即時指標同步！' : 'All cluster node metrics refreshed successfully.', 'success');
+      } else {
+        showToast(data?.message || '同步失敗', 'error');
+      }
+    } catch {
+      showToast(isZh ? '連線錯誤，無法同步節點' : 'Network error syncing nodes', 'error');
+    } finally {
       setIsSyncing(false);
-      showToast(isZh ? '已完成所有叢集節點即時指標同步！' : 'All cluster node metrics refreshed successfully.', 'success');
-    }, 800);
+    }
   };
 
-  const handleSaveThresholds = () => {
-    setThresholds(tempThresholds);
-    localStorage.setItem('platform_performance_thresholds', JSON.stringify(tempThresholds));
-    setShowConfigModal(false);
-    showToast(isZh ? '效能指標與管理者告警門檻設定已成功儲存！' : 'Performance thresholds and notification settings saved successfully.', 'success');
+  const handleSaveThresholds = async () => {
+    try {
+      const res = await fetch('/api/v1/platform-performance/thresholds', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tempThresholds)
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setThresholds(data.thresholds || tempThresholds);
+        localStorage.setItem('platform_performance_thresholds', JSON.stringify(data.thresholds || tempThresholds));
+        setShowConfigModal(false);
+        showToast(isZh ? '效能指標與管理者告警門檻設定已成功儲存至後端系統！' : 'Performance thresholds and notification settings saved successfully.', 'success');
+      } else {
+        showToast(data?.message || '儲存失敗', 'error');
+      }
+    } catch {
+      showToast(isZh ? '連線錯誤，無法儲存門檻設定' : 'Network error saving thresholds', 'error');
+    }
   };
 
-  const handleResetThresholds = () => {
-    setTempThresholds(DEFAULT_THRESHOLDS);
-    showToast(isZh ? '已重置為系統預設指標閥值。' : 'Reset to default metrics thresholds.', 'info');
+  const handleResetThresholds = async () => {
+    try {
+      const res = await fetch('/api/v1/platform-performance/thresholds/reset', { method: 'POST' });
+      const data = await res.json();
+      if (data?.success && data.thresholds) {
+        setTempThresholds(data.thresholds);
+        setThresholds(data.thresholds);
+        showToast(isZh ? '已重置為系統預設指標閥值。' : 'Reset to default metrics thresholds.', 'info');
+      }
+    } catch {
+      setTempThresholds(DEFAULT_THRESHOLDS);
+      showToast(isZh ? '已重置為系統預設指標閥值。' : 'Reset to default metrics thresholds.', 'info');
+    }
   };
 
-  const handleSendTestAlert = () => {
-    setTestAlertSent(true);
-    const now = new Date().toLocaleTimeString();
-    const mockLog = [
-      `[${now}] [INFO] 觸發效能告警模擬程序...`,
-      `[${now}] [METRICS] 模擬 Work-Node-03 CPU 92% (超標 > ${tempThresholds.cpuCritical}%) 且持續超標 3 分鐘`,
-      tempThresholds.enableEmail ? `[${now}] [EMAIL] 成功發送高急迫性通知郵件至: ${tempThresholds.emailRecipients}` : `[${now}] [EMAIL] Email 渠道未啟用 (略過)`,
-      tempThresholds.enableWebhook ? `[${now}] [WEBHOOK] 成功發送 Slack/Teams JSON Payload 至: ${tempThresholds.webhookChannel} (HTTP 200 OK)` : `[${now}] [WEBHOOK] Webhook 渠道未啟用 (略過)`,
-      tempThresholds.enableSyslog ? `[${now}] [SYSLOG] 已轉發 CEF 格式效能告警至 ${tempThresholds.syslogServer}:${tempThresholds.syslogPort}` : `[${now}] [SYSLOG] Syslog 渠道未啟用 (略過)`,
-      `[${now}] [SUCCESS] 效能告警分發完成，管理者可於通訊渠道中檢視完整節點診斷報表！`
-    ];
-    setTestAlertLog(mockLog);
-    showToast(isZh ? '已成功發送效能告警測試通知！' : 'Test performance alert dispatched successfully.', 'success');
+  const handleSendTestAlert = async () => {
+    try {
+      const res = await fetch('/api/v1/platform-performance/test-alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId: selectedNode?.id || 'work-03' })
+      });
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.logs)) {
+        setTestAlertSent(true);
+        setTestAlertLog(data.logs);
+        showToast(isZh ? '已成功發送效能告警測試通知！' : 'Test performance alert dispatched successfully.', 'success');
+      } else {
+        showToast(data?.message || '發送測試告警失敗', 'error');
+      }
+    } catch {
+      showToast(isZh ? '發送測試告警時發生網路錯誤' : 'Network error testing alert', 'error');
+    }
+  };
+
+  const handleNodeAction = async (action: 'restart-service' | 'purge-cache' | 'toggle-drain') => {
+    if (!selectedNode) return;
+    setIsNodeActionLoading(true);
+    try {
+      const res = await fetch(`/api/v1/platform-performance/nodes/${selectedNode.id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      const data = await res.json();
+      if (data?.success) {
+        showToast(data.message, 'success');
+        if (data.node) {
+          setSelectedNode(data.node);
+          setNodes(prev => prev.map(n => n.id === data.node.id ? data.node : n));
+        }
+      } else {
+        showToast(data?.message || '操作失敗', 'error');
+      }
+    } catch {
+      showToast(isZh ? '執行節點處置時發生網路錯誤' : 'Network error executing node action', 'error');
+    } finally {
+      setIsNodeActionLoading(false);
+    }
+  };
+
+  const handleExportReport = async (format: 'json' | 'csv' = 'csv') => {
+    setIsExporting(true);
+    try {
+      const res = await fetch(`/api/v1/platform-performance/export?format=${format}`);
+      if (format === 'csv') {
+        const text = await res.text();
+        const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `platform-infra-performance-report-${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const json = await res.json();
+        const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `platform-infra-performance-report-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      showToast(isZh ? '平台效能診斷報表匯出完成！' : 'Diagnostic report exported successfully.', 'success');
+    } catch {
+      showToast(isZh ? '匯出報表失敗' : 'Failed to export report', 'error');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
@@ -320,6 +495,7 @@ export function PlatformPerformanceView() {
       case 'Online': return 'text-green-400';
       case 'Warning': return 'text-yellow-400';
       case 'Offline': return 'text-red-400';
+      case 'Draining': return 'text-amber-400';
       default: return 'text-gray-400';
     }
   };
@@ -331,23 +507,6 @@ export function PlatformPerformanceView() {
     if (value >= warn) return 'bg-yellow-500';
     return 'bg-blue-500';
   };
-
-  const topologyNodes = [
-    { id: 'INTERNET', label: isZh ? '外部流量' : 'External Traffic', type: 'external', x: 200, y: 50 },
-    { id: 'MASTER', label: isZh ? '主控節點' : 'Master Node', type: 'master', x: 200, y: 150 },
-    { id: 'DASHBOARD', label: isZh ? '儀表板' : 'Dashboard', type: 'dashboard', x: 50, y: 150 },
-    { id: 'WORK-01', label: 'Work-01', type: 'work', x: 50, y: 300 },
-    { id: 'WORK-02', label: 'Work-02', type: 'work', x: 200, y: 300 },
-    { id: 'WORK-03', label: 'Work-03', type: 'work', x: 350, y: 300 },
-  ];
-
-  const topologyLinks = [
-    { from: 'INTERNET', to: 'MASTER' },
-    { from: 'MASTER', to: 'DASHBOARD' },
-    { from: 'MASTER', to: 'WORK-01' },
-    { from: 'MASTER', to: 'WORK-02' },
-    { from: 'MASTER', to: 'WORK-03' },
-  ];
 
   return (
     <div className="space-y-6">
@@ -472,6 +631,16 @@ export function PlatformPerformanceView() {
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{isZh ? '同步節點狀態' : 'Sync Nodes'}</span>
+          </button>
+
+          <button
+            onClick={() => handleExportReport('csv')}
+            disabled={isExporting}
+            className="px-3.5 py-2 bg-gray-800/90 hover:bg-gray-700/90 border border-gray-700/80 hover:border-emerald-500/50 rounded-xl text-xs font-bold text-gray-200 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+            title={isZh ? '匯出平台基礎設施效能診斷報表 (CSV)' : 'Export Platform Diagnostic Report (CSV)'}
+          >
+            <Download className={`w-3.5 h-3.5 text-emerald-400 ${isExporting ? 'animate-bounce' : ''}`} />
+            <span>{isZh ? '匯出報表' : 'Export'}</span>
           </button>
         </div>
       </div>
@@ -605,7 +774,8 @@ export function PlatformPerformanceView() {
                     return (
                       <div 
                         key={node.id} 
-                        className={`bg-[#111114] border rounded-2xl p-5 shadow-lg transition-all group ${
+                        onClick={() => setSelectedNode(node)}
+                        className={`bg-[#111114] border rounded-2xl p-5 shadow-lg transition-all group cursor-pointer hover:border-purple-500/70 hover:shadow-purple-900/20 ${
                           alerts.length > 0 ? 'border-amber-500/50 hover:border-amber-400' : 'border-gray-800 hover:border-gray-700'
                         }`}
                       >
@@ -802,7 +972,8 @@ export function PlatformPerformanceView() {
                 return (
                   <div 
                     key={node.id} 
-                    className={`bg-[#111114] border rounded-2xl p-5 shadow-lg transition-all group ${
+                    onClick={() => setSelectedNode(node)}
+                    className={`bg-[#111114] border rounded-2xl p-5 shadow-lg transition-all group cursor-pointer hover:border-purple-500/70 hover:shadow-purple-900/20 ${
                       alerts.some(a => a.level === 'critical') 
                         ? 'border-red-500/60 bg-red-950/10 hover:border-red-400' 
                         : alerts.length > 0 
@@ -982,7 +1153,11 @@ export function PlatformPerformanceView() {
                   {nodes.map(node => {
                     const alerts = getNodeAlerts(node);
                     return (
-                      <tr key={node.id} className="hover:bg-white/5 transition-colors">
+                      <tr 
+                        key={node.id} 
+                        onClick={() => setSelectedNode(node)}
+                        className="hover:bg-purple-950/20 cursor-pointer transition-colors"
+                      >
                         <td className="py-3.5 px-3 font-bold text-white flex items-center gap-2">
                           <Server size={14} className="text-gray-400" />
                           {node.name}
@@ -1543,6 +1718,242 @@ export function PlatformPerformanceView() {
                     <span>{isZh ? '儲存指標與告警門檻' : 'Save Thresholds'}</span>
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* NODE DIAGNOSTIC & REMEDIATION MODAL */}
+        {selectedNode && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-[#111114] border border-gray-800 rounded-3xl w-full max-w-3xl max-h-[92vh] shadow-2xl flex flex-col overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-gray-800 flex items-center justify-between bg-black/40">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-purple-600/20 border border-purple-500/30 rounded-2xl text-purple-400">
+                    <Server size={22} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <h3 className="text-lg font-black text-white">
+                        {selectedNode.name}
+                      </h3>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase flex items-center gap-1.5 ${
+                        selectedNode.status === 'Online' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                        selectedNode.status === 'Warning' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                        selectedNode.status === 'Draining' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                        'bg-red-500/20 text-red-400 border border-red-500/30'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                          selectedNode.status === 'Online' ? 'bg-emerald-400' :
+                          selectedNode.status === 'Warning' ? 'bg-amber-400' :
+                          selectedNode.status === 'Draining' ? 'bg-purple-400' : 'bg-red-400'
+                        }`} />
+                        {selectedNode.status}
+                      </span>
+                      {selectedNode.cordoned && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          {isZh ? '維護隔離中' : 'Cordoned'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                      {selectedNode.role || selectedNode.type} • IP: <span className="text-purple-300">{selectedNode.ip}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedNode(null)}
+                  className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-xl transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto space-y-6 max-h-[calc(92vh-160px)] custom-scrollbar">
+                {/* 4 Metric Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-black/40 border border-gray-800/80 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span className="text-[10px] font-bold uppercase">CPU 負載</span>
+                      <Cpu size={14} className="text-purple-400" />
+                    </div>
+                    <div className="text-xl font-black text-white">{selectedNode.cpu}%</div>
+                    <div className="text-[10px] text-gray-500 mt-1 font-mono">
+                      Load: {selectedNode.loadAvg ? selectedNode.loadAvg.join(', ') : '0.8, 0.9, 0.8'}
+                    </div>
+                  </div>
+
+                  <div className="bg-black/40 border border-gray-800/80 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span className="text-[10px] font-bold uppercase">記憶體使用</span>
+                      <Database size={14} className="text-cyan-400" />
+                    </div>
+                    <div className="text-xl font-black text-white">{selectedNode.ram}%</div>
+                    <div className="text-[10px] text-gray-500 mt-1 font-mono">
+                      {selectedNode.osInfo ? `總計 ${selectedNode.osInfo.totalRamGB} GB` : 'RAM Capacity'}
+                    </div>
+                  </div>
+
+                  <div className="bg-black/40 border border-gray-800/80 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span className="text-[10px] font-bold uppercase">磁碟佔用</span>
+                      <HardDrive size={14} className="text-blue-400" />
+                    </div>
+                    <div className="text-xl font-black text-white">{selectedNode.disk}%</div>
+                    <div className="text-[10px] text-gray-500 mt-1 font-mono">
+                      IOPS: {selectedNode.iops ? `R:${selectedNode.iops.read}/W:${selectedNode.iops.write}` : 'Normal'}
+                    </div>
+                  </div>
+
+                  <div className="bg-black/40 border border-gray-800/80 rounded-xl p-3.5">
+                    <div className="flex items-center justify-between text-gray-400 mb-1">
+                      <span className="text-[10px] font-bold uppercase">網路吞吐</span>
+                      <Wifi size={14} className="text-emerald-400" />
+                    </div>
+                    <div className="text-xl font-black text-emerald-400">
+                      {(selectedNode.traffic.tcp + selectedNode.traffic.udp + selectedNode.traffic.agent).toFixed(1)}M
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-1 font-mono">
+                      TCP: {selectedNode.traffic.tcp}M / UDP: {selectedNode.traffic.udp}M
+                    </div>
+                  </div>
+                </div>
+
+                {/* System Specs Profile */}
+                <div className="bg-black/30 border border-gray-800/70 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-black text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                    <Terminal size={14} className="text-purple-400" />
+                    {isZh ? '節點底層作業系統與核心規格' : 'Node Hardware & OS Kernel Specifications'}
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <span className="text-gray-500 block text-[10px] uppercase font-bold">OS Distribution</span>
+                      <span className="text-gray-200 font-mono font-medium">{selectedNode.osInfo?.os || 'Linux Enterprise x64'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[10px] uppercase font-bold">Linux Kernel</span>
+                      <span className="text-gray-200 font-mono font-medium">{selectedNode.osInfo?.kernel || '5.15.0-generic'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[10px] uppercase font-bold">Architecture</span>
+                      <span className="text-gray-200 font-mono font-medium">{selectedNode.osInfo?.arch || 'x86_64'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[10px] uppercase font-bold">vCPU Cores</span>
+                      <span className="text-gray-200 font-mono font-medium">{selectedNode.osInfo?.vCpu || 16} Cores</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[10px] uppercase font-bold">Uptime</span>
+                      <span className="text-gray-200 font-mono font-medium">
+                        {selectedNode.uptimeSeconds ? `${Math.floor(selectedNode.uptimeSeconds / 86400)}d ${Math.floor((selectedNode.uptimeSeconds % 86400) / 3600)}h` : '4d 12h'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-[10px] uppercase font-bold">Active Processes</span>
+                      <span className="text-gray-200 font-mono font-medium">{selectedNode.processCount || 198} tasks</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Subsystem Services */}
+                <div className="bg-black/30 border border-gray-800/70 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-black text-gray-300 uppercase tracking-wider flex items-center gap-2">
+                    <Zap size={14} className="text-amber-400" />
+                    {isZh ? '常駐系統與微服務狀態' : 'Resident Services & Microservice Status'}
+                  </h4>
+                  <div className="space-y-2">
+                    {(selectedNode.services || [
+                      { name: 'node_exporter', status: 'running', pid: 1045, uptime: '4d 12h' },
+                      { name: 'semor-agent', status: 'running', pid: 1088, uptime: '4d 12h' }
+                    ]).map((svc, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-2.5 bg-black/40 rounded-xl border border-gray-800/60 text-xs">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="font-mono font-bold text-gray-200">{svc.name}</span>
+                          <span className="text-[10px] text-gray-500 font-mono">PID {svc.pid}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] text-gray-400 font-mono">{svc.uptime}</span>
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400">
+                            {svc.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Remediation & Maintenance Actions */}
+                <div className="border border-purple-500/30 bg-purple-950/10 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                      <Wrench size={14} className="text-purple-400" />
+                      {isZh ? '基礎設施運維與應急處置指令' : 'Node Remediation & Operational Maintenance'}
+                    </h4>
+                    <span className="text-[10px] text-purple-400/80 font-mono">Live Control</span>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    {isZh 
+                      ? '直接向後端底層監控守護程式分發維運指令，支援無損重啟 Agent、核心頁快取釋放與排程維護隔離。' 
+                      : 'Dispatch real-time maintenance commands directly to the backend performance daemon.'}
+                  </p>
+                  <div className="flex flex-wrap gap-2.5 pt-1">
+                    <button
+                      onClick={() => handleNodeAction('restart-service')}
+                      disabled={isNodeActionLoading}
+                      className="px-3.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-purple-900/30 disabled:opacity-50"
+                    >
+                      <RotateCcw size={13} className={isNodeActionLoading ? 'animate-spin' : ''} />
+                      <span>{isZh ? '重啟監控 Agent / Exporter' : 'Restart Agent'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleNodeAction('purge-cache')}
+                      disabled={isNodeActionLoading}
+                      className="px-3.5 py-2 bg-cyan-700 hover:bg-cyan-600 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-cyan-900/30 disabled:opacity-50"
+                    >
+                      <Database size={13} />
+                      <span>{isZh ? '釋放快取記憶體 (Drop Caches)' : 'Purge RAM Cache'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleNodeAction('toggle-drain')}
+                      disabled={isNodeActionLoading}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md disabled:opacity-50 ${
+                        selectedNode.cordoned
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          : 'bg-amber-600 hover:bg-amber-500 text-white'
+                      }`}
+                    >
+                      <ShieldAlert size={13} />
+                      <span>
+                        {selectedNode.cordoned 
+                          ? (isZh ? '解除維護隔離 (Uncordon)' : 'Uncordon Node') 
+                          : (isZh ? '維護隔離節點 (Cordon/Drain)' : 'Cordon/Drain Node')}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-gray-800 flex items-center justify-between bg-black/40 text-xs">
+                <span className="text-[11px] text-gray-500 font-mono">
+                  Last Telemetry Sync: {selectedNode.lastSync || new Date().toISOString()}
+                </span>
+                <button
+                  onClick={() => setSelectedNode(null)}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl font-bold transition-colors"
+                >
+                  {isZh ? '關閉診斷視窗' : 'Close'}
+                </button>
               </div>
             </motion.div>
           </div>
