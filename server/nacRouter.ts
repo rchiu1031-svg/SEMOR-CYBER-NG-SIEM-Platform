@@ -369,5 +369,18 @@ export function createNacRouter() {
     }
   });
 
+  // 11. POST /api/v1/nac/purge - Purge simulated NAC nodes, alerts, and guest requests
+  router.post('/purge', (_req: Request, res: Response) => {
+    try {
+      globalNacEngine.purgeData();
+      res.json({
+        success: true,
+        message: 'NAC 模擬終端設備、隔離警報、訪客申請與連線已全數清空，就緒於實體 802.1X/RADIUS 設備接入'
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 }

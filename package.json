@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
+    "clean:system": "tsx scripts/clean_system.ts",
     "lint": "tsc --noEmit",
     "test": "jest --config jest.config.cjs"
   },

@@ -191,6 +191,7 @@ import AlertSettingsView from './components/AlertSettingsView';
 import NDRAlertRulesSettingsView from './components/NDRAlertRulesSettingsView';
 import DecoderView from './components/DecoderView';
 import { PlatformPerformanceView } from './components/PlatformPerformanceView';
+import { LicenseManagementView } from './components/LicenseManagementView';
 import NetworkMonitorView from './components/NetworkMonitorView';
 import TrafficAnalysisNDRView from './components/TrafficAnalysisNDRView';
 import NDRAlertAnalyticsView from './components/NDRAlertAnalyticsView';
@@ -1753,7 +1754,7 @@ export default function App() {
       case 'ueba-investigation':
         return <UEBASystemView />;
       case 'license':
-        return <LicenseView license={license} />;
+        return <LicenseManagementView />;
       case 'correlation':
         return (
           <div className="space-y-8">

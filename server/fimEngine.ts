@@ -478,6 +478,12 @@ export class FimEngine {
     }
     return item;
   }
+
+  // Purge simulated Fim events and audit logs for clean environment
+  public purgeData(): void {
+    this.events = [];
+    this.auditLogs = [];
+  }
 }
 
 export const globalFimEngine = new FimEngine();

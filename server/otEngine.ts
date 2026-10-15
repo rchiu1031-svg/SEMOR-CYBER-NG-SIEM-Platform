@@ -816,6 +816,16 @@ export class OTSecurityEngine {
     this.saveToDisk();
     return this.rules[idx];
   }
+
+  // Purge simulated OT assets, DPI anomalies, and incidents for production clean state
+  public purgeData(): void {
+    this.assets = [];
+    this.dpiCommands = [];
+    this.incidents = [];
+    this.sensors = [];
+    this.esdActive = false;
+    this.saveToDisk();
+  }
 }
 
 // Global Singleton Instance

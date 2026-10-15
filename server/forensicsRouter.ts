@@ -31,6 +31,12 @@ export function createForensicsRouter() {
     res.json({ success: true, dossier });
   });
 
+  // Purge all simulated cases, evidence and reports for clean environment
+  router.post('/purge', (_req: Request, res: Response) => {
+    forensicsEngine.purgeData();
+    res.json({ success: true, message: '數位鑑識案件、證物與歷史報告已全數清空' });
+  });
+
   // 2. Evidence APIs
   router.get('/evidence', (req: Request, res: Response) => {
     const caseId = req.query.caseId as string | undefined;

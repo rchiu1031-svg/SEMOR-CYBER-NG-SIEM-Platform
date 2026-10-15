@@ -64,11 +64,11 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
   const [criticalIncidents, setCriticalIncidents] = useState<CriticalIncidentRecord[]>(CRITICAL_INCIDENTS);
   const [collectorStatus, setCollectorStatus] = useState({
     status: 'ONLINE',
-    eps: 1486,
-    bufferDepth: 32,
-    totalIngestedEvents: 128400000,
+    eps: 0,
+    bufferDepth: 0,
+    totalIngestedEvents: 0,
     queueDepth: 0,
-    compressionRatio: '11.85x'
+    compressionRatio: '1.00x'
   });
 
   // Modals state

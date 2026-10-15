@@ -529,6 +529,16 @@ export function createNdrRouter() {
     });
   });
 
+  // Purge simulated traffic sessions and Suricata alerts
+  router.post('/clear-traffic', (_req: Request, res: Response) => {
+    sessions = [];
+    suricataAlerts = [];
+    res.json({
+      success: true,
+      message: 'NDR 全流量深包會話與 Suricata 模擬警報已全數清空，就緒於實體鏡像流量採集'
+    });
+  });
+
   // 2.1 Export Filtered Sessions as CSV or PCAP
   router.get('/export', (req: Request, res: Response) => {
     const { format = 'csv', query, proto, threat_level, ids, filename } = req.query;

@@ -262,5 +262,15 @@ export function createHoneypotRouter() {
     });
   });
 
+  // Purge simulated live attack events and decoy counters
+  router.post('/purge', (_req: Request, res: Response) => {
+    tpotEngine.purgeData();
+    decoys = [];
+    res.json({
+      success: true,
+      message: '蜜罐誘捕模擬攻擊數據、俘獲憑證與樣本計數已全數清空'
+    });
+  });
+
   return router;
 }

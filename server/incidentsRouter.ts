@@ -1011,5 +1011,19 @@ export function createIncidentsRouter(
     });
   });
 
+  // 14. POST /api/v1/incidents/clear (Purge all critical incidents for clean state)
+  router.post('/clear', (_req: Request, res: Response) => {
+    criticalIncidents = [];
+    if (broadcastUpdate) {
+      broadcastUpdate({ type: 'incidents_cleared' });
+    }
+    res.json({
+      success: true,
+      message: '嚴重資安事件資料庫已全數清空，就緒於實體即時關聯警報',
+      incidents: criticalIncidents,
+      stats: getStats()
+    });
+  });
+
   return router;
 }

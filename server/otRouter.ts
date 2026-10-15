@@ -363,5 +363,18 @@ export function createOtRouter() {
     }
   });
 
+  // 19. POST /api/v1/ot/purge - Purge all simulated OT assets and incidents
+  router.post('/purge', (_req: Request, res: Response) => {
+    try {
+      otSecurityEngine.purgeData();
+      res.json({
+        success: true,
+        message: '工控/OT 模擬資產、DPI 異常用量與事件已全數清除，就緒於實體 Purdue 探針探索'
+      });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
   return router;
 }

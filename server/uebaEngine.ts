@@ -767,6 +767,13 @@ class UEBAEngine {
       timestamp: new Date().toISOString()
     };
   }
+
+  // Purge simulated entity anomalies and logs for clean environment
+  public purgeData(): void {
+    this.entities = [];
+    this.activityLogs = [];
+    this.playbookAuditLogs = [];
+  }
 }
 
 export const uebaEngine = new UEBAEngine();

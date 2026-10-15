@@ -247,5 +247,14 @@ export function createUebaRouter() {
     res.json(result);
   });
 
+  // Purge simulated UEBA entity anomalies and logs for clean environment
+  router.post('/purge', (_req: Request, res: Response) => {
+    uebaEngine.purgeData();
+    res.json({
+      success: true,
+      message: 'UEBA 實體異常軌跡、模擬風險分數與日誌已全數清除'
+    });
+  });
+
   return router;
 }

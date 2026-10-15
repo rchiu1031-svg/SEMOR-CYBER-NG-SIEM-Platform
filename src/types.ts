@@ -155,9 +155,35 @@ export const MODULES: ModuleInfo[] = [
 ];
 
 export interface LicenseInfo {
-  status: 'Active' | 'Expired' | 'Trial';
-  type: 'Enterprise' | 'Professional' | 'Community';
+  status: 'Active' | 'Expired' | 'Trial' | 'Warning' | 'GracePeriod' | 'OverQuota' | 'Invalid' | 'Tampered';
+  type: 'Enterprise' | 'Professional' | 'Community' | 'Ultimate';
   expiryDate: string;
   maxNodes: number;
   currentNodes: number;
+  licenseKey?: string;
+  tierDisplayName?: string;
+  hardwareFingerprint?: string;
+  daysRemaining?: number;
+  maxEps?: number;
+  currentEps?: number;
+  customer?: {
+    organization: string;
+    department: string;
+    contactEmail: string;
+    contractId: string;
+    country: string;
+  };
+  entitledModules?: string[];
+  addons?: {
+    aiInferenceCore?: boolean;
+    purdueOtdpi?: boolean;
+    soarPlaybooksPro?: boolean;
+    haClustering?: boolean;
+    vansCompliance?: boolean;
+    microsegmentation?: boolean;
+  };
+  issuer?: string;
+  certificateSerial?: string;
+  digitalSignature?: string;
+  lastVerifiedAt?: string;
 }

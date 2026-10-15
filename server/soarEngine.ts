@@ -1050,6 +1050,16 @@ export class SoarEngine {
       }
     ];
   }
+
+  // Purge execution logs and reset execution counters for clean environment
+  public purgeData(): void {
+    this.executionLogs = [];
+    this.forensicArtifacts = [];
+    this.playbooks.forEach(p => {
+      p.executions24h = 0;
+      p.lastRun = 'Never';
+    });
+  }
 }
 
 // Singleton instance for in-memory persistence during server lifecycle

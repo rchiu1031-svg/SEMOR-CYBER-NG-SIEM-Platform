@@ -233,6 +233,15 @@ export function createVulnRouter() {
     });
   });
 
+  // Purge simulated scan jobs and reports for clean environment
+  router.post('/purge-jobs', (_req: Request, res: Response) => {
+    scanJobs = [];
+    res.json({
+      success: true,
+      message: '弱點掃描工作與歷史報告已全數清空'
+    });
+  });
+
   return router;
 }
 

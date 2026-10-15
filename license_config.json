@@ -1,0 +1,136 @@
+{
+  "savedAt": "2026-10-14T05:53:16.247Z",
+  "license": {
+    "licenseKey": "SEMOR-ENT-2026-8841-9923-SEC8",
+    "tier": "Enterprise",
+    "tierDisplayName": "Enterprise SecOps Suite (企業旗艦版)",
+    "status": "Active",
+    "customer": {
+      "organization": "國防級國家關鍵基礎設施數位防禦中心",
+      "department": "資通安全處 / 核心 SOC 運籌中心",
+      "contactEmail": "soc-admin@gov.internal.tw",
+      "contractId": "CTR-2026-TW-CIP-9011",
+      "country": "Taiwan (ROC)"
+    },
+    "hardwareFingerprint": "HWID-E5FC-C0D1-98EB-EE81",
+    "isNodeLocked": false,
+    "issuedDate": "2026-01-01T00:00:00Z",
+    "expiryDate": "2028-12-31T23:59:59.000Z",
+    "gracePeriodDays": 14,
+    "daysRemaining": 730,
+    "maxNodes": 500,
+    "currentNodes": 142,
+    "nodeBreakdown": {
+      "masterNodes": {
+        "active": 1,
+        "max": 2,
+        "description": "主控中樞 HA 集群節點"
+      },
+      "workerNodes": {
+        "active": 4,
+        "max": 8,
+        "description": "日誌解析與關聯運算 Worker"
+      },
+      "flowSensors": {
+        "active": 12,
+        "max": 25,
+        "description": "全流量深包檢測 (DPI) 探針"
+      },
+      "endpointAgents": {
+        "active": 110,
+        "max": 400,
+        "description": "EDR/FIM 主機微代理"
+      },
+      "otProbes": {
+        "active": 15,
+        "max": 65,
+        "description": "工控 Purdue 隔離邊界安全探針"
+      }
+    },
+    "maxEps": 25000,
+    "currentEps": 4850,
+    "entitledModules": [
+      "ai-analyst",
+      "apm",
+      "case-management",
+      "correlation-summary",
+      "discovery",
+      "endpoint",
+      "fim",
+      "flow",
+      "gateway",
+      "honeypot-map",
+      "industrial",
+      "intel",
+      "malware-analysis",
+      "ndr-analytics",
+      "soar",
+      "ueba-investigation",
+      "vulnerability",
+      "wargaming"
+    ],
+    "addons": {
+      "aiInferenceCore": true,
+      "purdueOtdpi": true,
+      "soarPlaybooksPro": true,
+      "haClustering": true,
+      "vansCompliance": true,
+      "microsegmentation": true
+    },
+    "issuer": "SEMOR GLOBAL ENTITLEMENT ROOT CA",
+    "certificateSerial": "CERT-SN-89F1-44B7-A189",
+    "lastVerifiedAt": "2026-10-14T05:53:16.247Z",
+    "lastSyncAt": "2026-10-14T05:53:16.247Z",
+    "digitalSignature": "D1926AA27616609C81D7CA24745CAE8FBC141C3B2BD7806AA9CC6E71B202D913"
+  },
+  "auditLogs": [
+    {
+      "id": "AUD-1791957196247",
+      "timestamp": "2026-10-14T05:53:16.247Z",
+      "action": "INITIALIZE",
+      "operator": "Admin",
+      "details": "重置授權為初始企業旗艦版出廠設定",
+      "status": "SUCCESS"
+    },
+    {
+      "id": "AUD-1791957191024",
+      "timestamp": "2026-10-14T05:53:11.024Z",
+      "action": "EXPORT",
+      "operator": "Admin",
+      "details": "匯出具數位簽章之離線憑證檔案 [SEMOR_LICENSE_ULTIMATE_2026-10-14.lic]",
+      "status": "SUCCESS"
+    },
+    {
+      "id": "AUD-1791957187398",
+      "timestamp": "2026-10-14T05:53:07.397Z",
+      "action": "ACTIVATE",
+      "operator": "SecOps Lead",
+      "details": "成功啟用新授權 [SEMOR-ULT-2026-7712-4418-SEC9]，升級為 Ultimate MSSP Sovereign Defense (國家級尊榮國防版)，節點上限 2000，EPS 上限 100000。",
+      "status": "SUCCESS"
+    },
+    {
+      "id": "AUD-1791957181706",
+      "timestamp": "2026-10-14T05:53:01.706Z",
+      "action": "VERIFY",
+      "operator": "Security Engine",
+      "details": "授權完整性檢查通過 (Enterprise SecOps Suite (企業旗艦版))",
+      "status": "SUCCESS"
+    },
+    {
+      "id": "AUD-1791957178846",
+      "timestamp": "2026-10-14T05:52:58.846Z",
+      "action": "QUOTA_SYNC",
+      "operator": "Sync Agent",
+      "details": "與叢集底層同步節點數量：目前活躍 142 / 配額上限 500",
+      "status": "SUCCESS"
+    },
+    {
+      "id": "AUD-1791957175126-01",
+      "timestamp": "2026-10-14T05:52:55.126Z",
+      "action": "INITIALIZE",
+      "operator": "System Kernel",
+      "details": "平台授權引擎初始化成功，載入企業旗艦版 (Enterprise) 憑證，簽章校驗通過。",
+      "status": "SUCCESS"
+    }
+  ]
+}

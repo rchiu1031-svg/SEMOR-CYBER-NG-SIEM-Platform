@@ -42,6 +42,11 @@ export class CasesEngine {
     this.versions = JSON.parse(JSON.stringify(INITIAL_VERSIONS));
   }
 
+  // Purge simulated test cases
+  public purgeData(): void {
+    this.cases = [];
+  }
+
   // --- CASES QUERY & CRUD ---
 
   public getCases(filters?: {

@@ -910,6 +910,16 @@ export class NacEngine {
       }
     }
   }
+
+  // Purge simulated endpoint devices, alerts, guests and sessions for clean environment
+  public purgeData(): void {
+    this.nodes.clear();
+    this.alerts.clear();
+    this.guestRequests.clear();
+    this.activeSessions.clear();
+    this.blocklist.clear();
+    this.auditLog = [];
+  }
 }
 
 export const globalNacEngine = new NacEngine();

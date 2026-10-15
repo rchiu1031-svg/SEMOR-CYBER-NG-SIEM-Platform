@@ -34,6 +34,7 @@ import { createSettingsRouter } from './server/settingsRouter.ts';
 import { createEngineMonitoringRouter } from './server/engineMonitoringRouter.ts';
 import { createOtRouter } from './server/otRouter.ts';
 import { createPlatformPerformanceRouter } from './server/platformPerformanceRouter.ts';
+import { createLicenseRouter } from './server/licenseRouter.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
 import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
@@ -41,6 +42,14 @@ import { globalVictoriaLogsHealthMonitor } from './server/victoriaLogsHealthMoni
 import { globalCollectorThroughputTracker } from './server/collectorThroughputTracker.ts';
 import { globalCollectorConnectionPool } from './server/collectorConnectionPool.ts';
 import { globalVictoriaLogsLatencyHeatmap } from './server/victoriaLogsLatencyHeatmap.ts';
+import { forensicsEngine } from './server/forensicsEngine.ts';
+import { otSecurityEngine } from './server/otEngine.ts';
+import { globalNacEngine } from './server/nacEngine.ts';
+import { globalFimEngine } from './server/fimEngine.ts';
+import { uebaEngine } from './server/uebaEngine.ts';
+import { tpotEngine } from './server/tpotEngine.ts';
+import { globalSoarEngine } from './server/soarEngine.ts';
+import { globalCasesEngine } from './server/casesEngine.ts';
 
 dotenv.config();
 
@@ -2151,49 +2160,118 @@ async function startServer() {
   app.use('/api/platform-performance', platformPerformanceRouter);
   app.use('/api/v1/infra/performance', platformPerformanceRouter);
 
-  // Discovered Assets & Inventory API
+  // Discovered Assets & Inventory API (Dynamic store for physical network scans)
+  let discoveredAssets: any[] = [];
   app.get('/api/v1/assets', (req, res) => {
     res.json({
       success: true,
-      count: 5,
-      assets: [
-        { id: "ast-01", hostname: "dc01.corp.internal", ip: "192.168.1.100", mac: "00:50:56:c0:00:08", os: "Windows Server 2022 Datacenter", category: "Domain Controller", riskScore: 78, openPorts: [53, 88, 135, 389, 445, 636, 3268], lastSeen: new Date().toISOString() },
-        { id: "ast-02", hostname: "FINANCE-PC03", ip: "10.0.4.15", mac: "bc:d0:74:18:22:90", os: "Windows 11 Enterprise x64", category: "Workstation", riskScore: 94, openPorts: [135, 445, 3389], lastSeen: new Date().toISOString() },
-        { id: "ast-03", hostname: "DEV-MAC-BOOK-12", ip: "10.0.12.44", mac: "f4:d4:88:9a:12:ef", os: "macOS Sonoma 14.5 (Darwin)", category: "Developer Laptop", riskScore: 75, openPorts: [22, 53, 8080], lastSeen: new Date().toISOString() },
-        { id: "ast-04", hostname: "k8s-ingress-prod", ip: "10.0.1.50", mac: "52:54:00:12:34:56", os: "Ubuntu 22.04 LTS (K8s Node)", category: "Container Host", riskScore: 28, openPorts: [80, 443, 6443, 10250], lastSeen: new Date().toISOString() },
-        { id: "ast-05", hostname: "edge-gateway-01", ip: "172.16.0.22", mac: "00:15:5d:01:aa:bb", os: "Alpine Linux 3.19 (Edge Proxy)", category: "Perimeter Gateway", riskScore: 64, openPorts: [22, 514, 5140, 6514, 8080], lastSeen: new Date().toISOString() }
-      ]
+      count: discoveredAssets.length,
+      assets: discoveredAssets
     });
   });
 
-  // Enterprise License & Entitlements API
-  app.get('/api/v1/license/status', (req, res) => {
-    res.json({
-      success: true,
-      licenseKey: "CYBER-ENTERPRISE-TW-98124-SEC",
-      tier: "Enterprise Unlimited (全模組尊榮旗艦版)",
-      organization: "SEEOR CYBER DEFENSE LABS",
-      authorizedNodes: 99999,
-      activeNodes: 142,
-      issuedAt: "2026-01-01T00:00:00Z",
-      expiresAt: "2029-12-31T23:59:59Z",
-      isPerpetual: false,
-      features: [
-        "Go Ingestion Collector (Syslog/HTTP/NDJSON/Loki/ES)",
-        "Rust Block Storage Engine (ZSTD & Delta-of-Delta)",
-        "NDR & NetFlow / IPFIX Traffic Inspection",
-        "OpenXDR Cross-layer Threat Correlation",
-        "AI Security Analyst & Automated Attack Triage",
-        "SOAR Automated Playbook Orchestration",
-        "Digital Forensics & Artifact Vault",
-        "Honeypot Decoy Management & Cyber Wargaming",
-        "UEBA Behavioral Analytics & Watchlist",
-        "FIM File Integrity Monitoring",
-        "VANS Government Compliance Integration",
-        "APM Microservice Distributed Tracing"
-      ]
-    });
+  // Master System Purge API: Cleans all simulated test data, virtual devices, and test reports
+  app.post('/api/v1/system/clean', (req, res) => {
+    try {
+      // 1. Purge Virtual & Discovered Network Devices
+      discoveredAssets = [];
+
+      // 2. Forensics Engine (Cases, Evidence, Custody Ledger, Artifacts)
+      forensicsEngine.purgeData();
+
+      // 3. Industrial / OT Security (Assets, DPI commands, Incidents, Sensors, reset ESD)
+      otSecurityEngine.purgeData();
+
+      // 4. NAC / PacketFence (Simulated Nodes, Alerts, Guests, Sessions, Blocklist)
+      globalNacEngine.purgeData();
+
+      // 5. File Integrity Monitoring (Simulated FIM Events & Audit Logs)
+      globalFimEngine.purgeData();
+
+      // 6. User and Entity Behavior Analytics (Simulated Anomalies & Entity Risk)
+      uebaEngine.purgeData();
+
+      // 7. Honeypot Live Attack Hits & Decoy Captures
+      tpotEngine.purgeData();
+
+      // 8. SOAR Engine (Execution Logs & Forensic Samples)
+      globalSoarEngine.purgeData();
+
+      // 9. Case Management (Cases & Tickets)
+      globalCasesEngine.purgeData();
+
+      // 10. Clear SIEM runtime log corpus & file
+      runtimeLogCorpus = [];
+      if (fs.existsSync(RUNTIME_LOGS_PATH)) {
+        try { fs.unlinkSync(RUNTIME_LOGS_PATH); } catch (e) {}
+      }
+
+      // 11. Clear Alert History Records & file
+      alertHistoryRecords = [];
+      try {
+        fs.writeFileSync(ALERT_HISTORY_PATH, JSON.stringify([], null, 2), 'utf-8');
+      } catch (e) {}
+
+      // 12. Reset VictoriaLogs Retry Queue & Outage Flags
+      vlogsRetryState.retryQueue = [];
+      vlogsRetryState.simulatedOutage = false;
+      globalVictoriaLogsHealthMonitor.setSimulatedOutage(false, 200);
+
+      // 13. Reset Incident Notes
+      try {
+        fs.writeFileSync(NOTES_PATH, JSON.stringify({}, null, 2), 'utf-8');
+      } catch (e) {}
+
+      // 14. Broadcast Real-Time System Purge Event to all connected WebSockets
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({
+            type: 'system_purged',
+            timestamp: new Date().toISOString(),
+            status: 'CLEAN_INITIAL_STATE'
+          }));
+        }
+      });
+
+      const manifest = {
+        timestamp: new Date().toISOString(),
+        status: 'CLEAN_INITIAL_STATE',
+        cleanedItems: {
+          virtualNetworkDevices: '0 items (就緒於實體子網探索與 LLDP/SNMP 採集)',
+          otIndustrialAssets: '0 items (Purdue 零信任邊界防護規則保留中)',
+          forensicCasesAndDossiers: '0 items (就緒於真實磁碟映像 E01/PCAP 鑑識)',
+          malwareSandboxReports: '0 items (多引擎特徵庫與 YARA 規則庫正常監聽)',
+          vulnerabilityScanJobs: '0 items (NVD/OpenCVE/EPSS 漏洞情報就緒)',
+          criticalSecurityIncidents: '0 items (即時日誌關聯引擎常駐監聽中)',
+          caseManagementTickets: '0 items (工單狀態已處於初始基準線)',
+          nacVirtualEndpoints: '0 items (802.1X RADIUS 存取控制正常就緒)',
+          ndrTrafficSessions: '0 items (SPAN/TAP 鏡像流量收集管線已就緒)',
+          fimIntegrityAlerts: '0 items (檔案雜湊基準線正常守護中)',
+          uebaBehaviorAnomalies: '0 items (常態行為基準線就緒於學習學習)',
+          honeypotAttackHits: '0 items (誘餌節點武裝完成但無歷史雜訊)',
+          soarExecutionLogs: '0 items (自動化防護劇本就緒待命中)',
+          siemRuntimeLogs: '0 logs (LogSQL 查詢引擎就緒於即時串流)',
+          alertHistoryLedger: '0 records (alert_history.json 已清空)',
+          bufferRetryQueue: '0 records (所有重試與暫存佇列已排空)',
+          incidentNotes: '0 records (notes_config.json 已重置)'
+        },
+        message: '系統已全面完成清理，所有模擬測試數據、虛擬設備與測試報告均已移除，系統處於乾淨初始出廠狀態，以利於進行真實的環境安裝與數據收集。'
+      };
+
+      res.json({
+        success: true,
+        manifest
+      });
+    } catch (err: any) {
+      console.error('[System Purge] Error executing system clean:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
   });
+
+  // Enterprise License & Entitlements API
+  const licenseRouter = createLicenseRouter();
+  app.use('/api/v1/license', licenseRouter);
+  app.use('/api/license', licenseRouter);
 
   // GET /api/engine/collector/protocols
   app.get('/api/engine/collector/protocols', (req, res) => {

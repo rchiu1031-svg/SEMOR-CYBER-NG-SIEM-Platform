@@ -1225,6 +1225,23 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
     });
   });
 
+  // 11. POST /api/v1/network/clear-devices (Purge all simulated virtual devices & topology)
+  router.post('/clear-devices', (_req: Request, res: Response) => {
+    networkDevices = [];
+    networkConnections = [];
+    switches = [];
+    if (broadcastUpdate) {
+      broadcastUpdate({ type: 'network_devices_cleared' });
+    }
+    res.json({
+      success: true,
+      message: '虛擬拓撲與模擬網路設備已全數清除，就緒於實體網路探索與設備採集',
+      devices: networkDevices,
+      connections: networkConnections,
+      kpiStats: calculateKpiStats()
+    });
+  });
+
   // ==========================================
   // Backward compatibility for Switch & NAC APIs
   // ==========================================

@@ -969,6 +969,15 @@ class ForensicsEngine {
       }
     };
   }
+
+  // Purge simulated test cases, evidence and artifacts for production clean state
+  public purgeData(): void {
+    this.cases = [];
+    this.evidence = [];
+    this.custodyLedger = [];
+    this.carvedArtifacts = {};
+    this.superTimeline = [];
+  }
 }
 
 

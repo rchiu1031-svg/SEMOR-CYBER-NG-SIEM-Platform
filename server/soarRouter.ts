@@ -271,5 +271,18 @@ export function createSoarRouter() {
     }
   });
 
+  // Purge simulated SOAR execution logs and reset metrics
+  router.post('/purge', (_req: Request, res: Response) => {
+    try {
+      globalSoarEngine.purgeData();
+      res.json({
+        success: true,
+        message: 'SOAR 劇本執行日誌與採樣特徵已全數清空'
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 }

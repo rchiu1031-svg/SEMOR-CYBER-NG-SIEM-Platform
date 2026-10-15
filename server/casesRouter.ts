@@ -244,5 +244,15 @@ export function createCasesRouter() {
     }
   });
 
+  // Purge simulated cases
+  router.post('/purge', (_req: Request, res: Response) => {
+    try {
+      globalCasesEngine.purgeData();
+      res.json({ success: true, message: '案件管理所有案件已清空' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   return router;
 }

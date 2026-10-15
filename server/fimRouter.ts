@@ -226,5 +226,14 @@ export function createFimRouter() {
     res.json({ success: true, message: '已承認檔案變更並將當前特徵更新為正式合規基準', path: item });
   });
 
+  // Purge simulated FIM events and audit logs for clean environment
+  router.post('/purge', (_req: Request, res: Response) => {
+    globalFimEngine.purgeData();
+    res.json({
+      success: true,
+      message: 'FIM 模擬檔案異動事件與審計紀錄已全數清空'
+    });
+  });
+
   return router;
 }

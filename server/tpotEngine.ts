@@ -793,6 +793,22 @@ class TPotEngine {
       }))
     }, null, 2);
   }
+
+  // Purge simulated live attack events and counters for clean environment
+  public purgeData(): void {
+    if (this.attackIntervalId) {
+      clearInterval(this.attackIntervalId);
+      this.attackIntervalId = null;
+    }
+    this.liveAttacks = [];
+    this.blockedAttackers.clear();
+    this.attackCounterToday = 0;
+    this.uniqueIpsCount = 0;
+    this.malwareSamplesCount = 0;
+    this.credentialsHarvestedCount = 0;
+    this.sensorNodes.forEach(n => { n.attacksCapturedCount = 0; });
+    this.containers.forEach(c => { c.capturedEventsCount = 0; });
+  }
 }
 
 export const tpotEngine = new TPotEngine();
