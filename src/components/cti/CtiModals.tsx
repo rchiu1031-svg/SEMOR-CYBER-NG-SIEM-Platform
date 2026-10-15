@@ -22,6 +22,26 @@ interface EnrichmentModalProps {
 export function CtiEnrichmentModal({ isOpen, query, onClose, onPushToFirewall, isZh }: EnrichmentModalProps) {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'whois' | 'malware' | 'stix'>('overview');
+  const [loading, setLoading] = useState(false);
+  const [enrichment, setEnrichment] = useState<any>(null);
+
+  React.useEffect(() => {
+    if (!isOpen || !query) return;
+    setLoading(true);
+    fetch('/api/v1/cti/enrich', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query.trim() })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.enrichment) {
+          setEnrichment(data.enrichment);
+        }
+      })
+      .catch(err => console.warn('CTI enrichment API fallback:', err))
+      .finally(() => setLoading(false));
+  }, [isOpen, query]);
 
   if (!isOpen) return null;
 
@@ -35,8 +55,17 @@ export function CtiEnrichmentModal({ isOpen, query, onClose, onPushToFirewall, i
   const isHash = /^[a-fA-F0-9]{32,64}$/.test(query);
   const isCve = /^CVE-\d{4}-\d{4,7}$/i.test(query);
 
-  const reputationScore = isCve ? 98 : isIp ? 92 : 88;
-  const vtScore = isCve ? 'N/A (CVE KEV Active)' : isIp ? '64/72 Security Vendors Flagged' : '58/70 Vendors Flagged';
+  const reputationScore = enrichment?.reputationScore ?? (isCve ? 98 : isIp ? 92 : 88);
+  const vtScore = enrichment?.vtScore ?? (isCve ? 'N/A (CVE KEV Active)' : isIp ? '64/72 Security Vendors Flagged' : '58/70 Vendors Flagged');
+  const threatActor = enrichment?.threatActor ?? 'APT28 (Fancy Bear)';
+  const stixCode = enrichment?.stixJson ?? JSON.stringify({
+    type: "indicator",
+    spec_version: "2.1",
+    id: `indicator--query-${Math.random().toString(36).substring(7)}`,
+    pattern: `[network-traffic:dst_ref.value = '${query}']`,
+    pattern_type: "stix",
+    confidence: reputationScore
+  }, null, 2);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -590,6 +619,128 @@ export function CtiReportReaderModal({ report, onClose, isZh }: ReportModalProps
             </button>
           </div>
         </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ==========================================
+// 4. IMPORT STIX 2.1 BUNDLE MODAL
+// ==========================================
+interface ImportStixModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onImport: (bundle: any) => void;
+  isZh: boolean;
+}
+
+export function CtiImportStixModal({ isOpen, onClose, onImport, isZh }: ImportStixModalProps) {
+  const [jsonText, setJsonText] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!parsed || (parsed.type !== 'bundle' && !Array.isArray(parsed.objects))) {
+        throw new Error(isZh ? '格式錯誤：必須是包含 objects 陣列的 STIX 2.1 bundle 物件' : 'Invalid format: Must be STIX 2.1 bundle with objects array');
+      }
+      onImport(parsed);
+      setJsonText('');
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'JSON 解析失敗');
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const text = evt.target?.result as string;
+        setJsonText(text);
+        setError(null);
+      } catch (err: any) {
+        setError('讀取檔案失敗: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="bg-[#111114] border border-gray-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4"
+      >
+        <div className="flex items-center justify-between border-b border-gray-800 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-600/20 border border-blue-500/30 rounded-xl">
+              <Download className="w-5 h-5 text-blue-400 rotate-180" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">
+                {isZh ? '匯入 STIX 2.1 情資封裝檔 (Bundle)' : 'Import STIX 2.1 Intelligence Bundle'}
+              </h3>
+              <p className="text-xs text-gray-400">
+                {isZh ? '支援標準 OASIS STIX 2.1 JSON 結構解析與批次 IOC 入庫' : 'Standard OASIS STIX 2.1 JSON bundle parsing and observable ingestion'}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div>
+            <label className="block text-gray-400 font-bold mb-1.5">
+              {isZh ? '選擇本地 STIX 2.1 JSON 檔案或直接貼上 JSON 代碼' : 'Upload local STIX 2.1 JSON file or paste JSON code'}
+            </label>
+            <input 
+              type="file" 
+              accept=".json" 
+              onChange={handleFileUpload} 
+              className="block w-full text-xs text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 mb-3 cursor-pointer"
+            />
+            <textarea
+              rows={10}
+              placeholder="Paste STIX 2.1 JSON Bundle here..."
+              value={jsonText}
+              onChange={e => setJsonText(e.target.value)}
+              className="w-full bg-black/60 border border-gray-800 rounded-xl p-3 text-white font-mono text-[11px] outline-none focus:border-blue-500 custom-scrollbar"
+              required
+            />
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 text-xs font-mono">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-800">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-gray-300 rounded-xl font-bold"
+            >
+              {isZh ? '取消' : 'Cancel'}
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-lg shadow-blue-600/25"
+            >
+              <Check size={14} />
+              {isZh ? '開始解析並匯入' : 'Parse & Ingest'}
+            </button>
+          </div>
+        </form>
       </motion.div>
     </div>
   );

@@ -13,6 +13,8 @@ interface CtiConnectorsTabProps {
   onToggleStatus: (id: string) => void;
   onSyncNow: (id: string) => void;
   onAddConnector: (conn: Partial<CtiConnector>) => void;
+  onDeleteConnector?: (id: string) => void;
+  onSeedBaseline?: () => void;
 }
 
 export function CtiConnectorsTab({
@@ -21,6 +23,8 @@ export function CtiConnectorsTab({
   onToggleStatus,
   onSyncNow,
   onAddConnector,
+  onDeleteConnector,
+  onSeedBaseline,
 }: CtiConnectorsTabProps) {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -178,6 +182,15 @@ export function CtiConnectorsTab({
                 >
                   {conn.status === 'Paused' ? <Play size={14} className="text-green-400" /> : <Pause size={14} />}
                 </button>
+                {onDeleteConnector && (
+                  <button
+                    onClick={() => onDeleteConnector(conn.id)}
+                    className="p-2 bg-gray-900 hover:bg-red-500/20 text-gray-400 hover:text-red-400 border border-gray-800 rounded-xl transition-colors"
+                    title="Delete Connector"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
           );

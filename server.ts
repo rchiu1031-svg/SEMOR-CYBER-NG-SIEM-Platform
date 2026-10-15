@@ -50,6 +50,7 @@ import { uebaEngine } from './server/uebaEngine.ts';
 import { tpotEngine } from './server/tpotEngine.ts';
 import { globalSoarEngine } from './server/soarEngine.ts';
 import { globalCasesEngine } from './server/casesEngine.ts';
+import { globalCtiEngine } from './server/ctiEngine.ts';
 
 dotenv.config();
 
@@ -2106,8 +2107,10 @@ async function startServer() {
   const networkRouter = createNetworkRouter(broadcastOverviewUpdate);
   app.use('/api/v1/network', networkRouter);
   app.use('/api/network', networkRouter);
-  app.use('/api/v1/cti', createCtiRouter());
-  app.use('/api/v1/threat-intel', createCtiRouter());
+  const ctiRouter = createCtiRouter(broadcastOverviewUpdate);
+  app.use('/api/v1/cti', ctiRouter);
+  app.use('/api/v1/threat-intel', ctiRouter);
+  app.use('/api/cti', ctiRouter);
   const malwareRouter = createMalwareRouter();
   app.use('/api/v1/malware', malwareRouter);
   app.use('/api/malware', malwareRouter);
@@ -2199,6 +2202,9 @@ async function startServer() {
 
       // 9. Case Management (Cases & Tickets)
       globalCasesEngine.purgeData();
+
+      // 10. Cyber Threat Intelligence (CTI Indicators & Enforcement)
+      globalCtiEngine.purgeData();
 
       // 10. Clear SIEM runtime log corpus & file
       runtimeLogCorpus = [];

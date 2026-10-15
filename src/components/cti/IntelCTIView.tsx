@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Activity, Globe, Search, RefreshCw, Zap, Shield, ShieldAlert, 
-  Layers, Database, FileText, Target, Server, Check, ArrowUpRight 
+  Layers, Database, FileText, Target, Server, Check, ArrowUpRight,
+  ShieldCheck, Trash2, Upload, Plus, AlertCircle, Info, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  INITIAL_INDICATORS, 
-  INITIAL_CONNECTORS, 
   CtiIndicator, 
   CtiConnector, 
-  CtiReport 
+  CtiReport,
+  INITIAL_INDICATORS,
+  INITIAL_CONNECTORS,
+  CTI_REPORTS
 } from '../../data/ctiIntelData';
 import { CtiDashboardTab } from './CtiDashboardTab';
 import { CtiGraphTab } from './CtiGraphTab';
@@ -21,7 +23,8 @@ import { CtiReportsTab } from './CtiReportsTab';
 import { 
   CtiEnrichmentModal, 
   CtiAddIndicatorModal, 
-  CtiReportReaderModal 
+  CtiReportReaderModal,
+  CtiImportStixModal
 } from './CtiModals';
 import { cn } from '../../lib/utils';
 
@@ -37,18 +40,96 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
   const [enrichQuery, setEnrichQuery] = useState('');
   const [isEnrichOpen, setIsEnrichOpen] = useState(false);
   const [isAddIocOpen, setIsAddIocOpen] = useState(false);
+  const [isImportStixOpen, setIsImportStixOpen] = useState(false);
   const [readingReport, setReadingReport] = useState<CtiReport | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Dynamic state for Indicators & Connectors
-  const [indicators, setIndicators] = useState<CtiIndicator[]>(INITIAL_INDICATORS);
-  const [connectors, setConnectors] = useState<CtiConnector[]>(INITIAL_CONNECTORS);
+  // Backend CTI dynamic state
+  const [indicators, setIndicators] = useState<CtiIndicator[]>([]);
+  const [connectors, setConnectors] = useState<CtiConnector[]>([]);
+  const [reports, setReports] = useState<CtiReport[]>([]);
+  const [overviewStats, setOverviewStats] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+    setTimeout(() => setToastMessage(null), 4000);
+  }, []);
 
+  // Fetch all CTI state from backend APIs
+  const fetchCtiData = useCallback(async (quiet: boolean = false) => {
+    if (!quiet) setIsRefreshing(true);
+    try {
+      const [indRes, connRes, repRes, statRes] = await Promise.all([
+        fetch('/api/v1/cti/indicators?limit=300').then(r => r.json()).catch(() => ({ indicators: [] })),
+        fetch('/api/v1/cti/connectors').then(r => r.json()).catch(() => ({ connectors: [] })),
+        fetch('/api/v1/cti/reports').then(r => r.json()).catch(() => ({ reports: [] })),
+        fetch('/api/v1/cti/overview').then(r => r.json()).catch(() => ({ stats: null }))
+      ]);
+
+      if (Array.isArray(indRes?.indicators)) {
+        setIndicators(indRes.indicators);
+      }
+      if (Array.isArray(connRes?.connectors)) {
+        setConnectors(connRes.connectors);
+      }
+      if (Array.isArray(repRes?.reports)) {
+        setReports(repRes.reports);
+      }
+      if (statRes?.stats) {
+        setOverviewStats(statRes.stats);
+      }
+    } catch (err: any) {
+      console.warn('CTI API polling notice:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchCtiData();
+  }, [fetchCtiData]);
+
+  // Real-time WebSocket event listener
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (
+            msg.type === 'system_purged' ||
+            msg.type === 'cti_purged' ||
+            msg.type === 'cti_seeded' ||
+            msg.type === 'cti_indicator_added' ||
+            msg.type === 'cti_indicator_deleted' ||
+            msg.type === 'cti_connector_synced' ||
+            msg.type === 'cti_connector_added' ||
+            msg.type === 'cti_connector_deleted' ||
+            msg.type === 'cti_connector_toggled' ||
+            msg.type === 'cti_firewall_enforced' ||
+            msg.type === 'cti_stix_imported' ||
+            msg.type?.startsWith('cti_')
+          ) {
+            fetchCtiData(true);
+          }
+        } catch (e) {}
+      };
+    } catch (e) {}
+
+    return () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, [fetchCtiData]);
+
+  // 1. Enrich search submit
   const handleEnrich = (queryVal: string) => {
     if (!queryVal.trim()) return;
     setEnrichQuery(queryVal.trim());
@@ -62,81 +143,198 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
     }
   };
 
-  const handlePushToFirewall = (val: string) => {
-    showToast(isZh ? `已成功將指標 [${val}] 推送至次世代防火牆 (NGFW) 阻斷黑名單！` : `Successfully pushed [${val}] to NGFW blocklist!`);
-  };
-
-  const handleToggleConnector = (id: string) => {
-    setConnectors(prev => prev.map(c => {
-      if (c.id === id) {
-        return {
-          ...c,
-          status: (c.status === 'Paused' ? 'Active' : 'Paused') as CtiConnector['status']
-        };
+  // 2. Edge Firewall & EDR push
+  const handlePushToFirewall = async (val: string, vendor: string = 'Palo Alto NGFW') => {
+    try {
+      const res = await fetch('/api/v1/cti/push-to-firewall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: [val], targetVendor: vendor })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh 
+          ? `已成功將指標 [${val}] 推送至 ${vendor} 邊界阻斷黑名單！`
+          : `Successfully pushed [${val}] to ${vendor} blocklist!`
+        );
+        fetchCtiData(true);
+      } else {
+        showToast(data.error || '推送失敗');
       }
-      return c;
-    }));
+    } catch (err: any) {
+      showToast('API 通訊異常: ' + err.message);
+    }
   };
 
-  const handleSyncConnector = (id: string) => {
-    setConnectors(prev => prev.map(c => {
-      if (c.id === id) {
-        const currentCount = c.ingestedCount ?? parseInt(c.count?.replace(/[^0-9]/g, '') || '0');
-        const newCount = currentCount + Math.floor(Math.random() * 40 + 5);
-        return {
-          ...c,
-          lastSync: 'Just now',
-          ingestedCount: newCount,
-          count: `${newCount.toLocaleString()} Observables`
-        };
+  // 3. Connectors Sync
+  const handleSyncConnector = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/cti/connectors/${id}/sync`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh 
+          ? `TAXII 2.1 增量同步完成！自節點接收 ${data.newObservables} 筆觀測特徵`
+          : `TAXII sync completed! Received ${data.newObservables} observables.`
+        );
+        fetchCtiData(true);
+      } else {
+        showToast(data.message || '同步失敗');
       }
-      return c;
-    }));
-    showToast(isZh ? `已向 TAXII 2.1 節點發起全量增量拉取` : `Triggered TAXII 2.1 incremental poll`);
+    } catch (err: any) {
+      showToast('連線失敗: ' + err.message);
+    }
   };
 
-  const handleAddIndicator = (newIoc: Partial<CtiIndicator>) => {
-    const created: CtiIndicator = {
-      id: `IOC-${Date.now().toString().slice(-4)}`,
-      stixId: `indicator--${Math.random().toString(36).substring(7)}`,
-      type: newIoc.type || 'IPv4-Addr',
-      value: newIoc.value || '',
-      score: newIoc.score || 80,
-      tlp: newIoc.tlp || 'TLP:AMBER',
-      actor: newIoc.actor || 'Unknown Threat Actor',
-      campaign: newIoc.campaign || 'Custom Intelligence',
-      firstSeen: newIoc.firstSeen || new Date().toISOString().split('T')[0],
-      lastSeen: newIoc.lastSeen || new Date().toISOString().split('T')[0],
-      sightings: newIoc.sightings || 1,
-      killChainPhase: newIoc.killChainPhase || 'C2',
-      status: 'Active',
-      vtDetectionRatio: newIoc.vtDetectionRatio || '42/70',
-      tags: newIoc.tags || ['User-Added']
-    };
-    setIndicators(prev => [created, ...prev]);
-    showToast(isZh ? `已成功建立 STIX 2.1 指標 [${created.value}]` : `Created STIX 2.1 indicator [${created.value}]`);
+  // 4. Toggle Connector Status
+  const handleToggleConnector = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/cti/connectors/${id}/toggle`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || '狀態切換成功');
+        fetchCtiData(true);
+      }
+    } catch (err: any) {
+      showToast('切換失敗: ' + err.message);
+    }
   };
 
-  const handleAddConnector = (newConn: Partial<CtiConnector>) => {
-    const created: CtiConnector = {
-      id: `conn-${Date.now().toString().slice(-4)}`,
-      name: newConn.name || 'New Threat Feed',
-      vendor: newConn.vendor || 'Custom CTI Provider',
-      type: newConn.type || 'Ingestion',
-      protocol: newConn.protocol || 'TAXII 2.1',
-      endpoint: newConn.endpoint || 'https://cti.local',
-      status: 'Active',
-      lastSync: 'Just now',
-      count: '0 Observables',
-      ingestedCount: 0,
-      tlpFloor: newConn.tlpFloor || 'TLP:AMBER',
-      pullInterval: newConn.pullInterval || 'Every 15m',
-      tlsStatus: 'TLS 1.3 Verified',
-      errorRate: '0.0%'
-    };
-    setConnectors(prev => [...prev, created]);
-    showToast(isZh ? `已成功建立連接器管線 [${created.name}]` : `Created connector [${created.name}]`);
+  // 5. Add Connector
+  const handleAddConnector = async (newConn: Partial<CtiConnector>) => {
+    try {
+      const res = await fetch('/api/v1/cti/connectors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConn)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh ? `已成功建立連接器管線 [${data.connector.name}]` : `Created connector [${data.connector.name}]`);
+        fetchCtiData(true);
+      } else {
+        showToast(data.error || '建立失敗');
+      }
+    } catch (err: any) {
+      showToast('建立失敗: ' + err.message);
+    }
   };
+
+  // 6. Delete Connector
+  const handleDeleteConnector = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/cti/connectors/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || '連接器已刪除');
+        fetchCtiData(true);
+      }
+    } catch (err: any) {
+      showToast('刪除失敗: ' + err.message);
+    }
+  };
+
+  // 7. Add Indicator (STIX 2.1)
+  const handleAddIndicator = async (newIoc: Partial<CtiIndicator>) => {
+    try {
+      const res = await fetch('/api/v1/cti/indicators', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newIoc)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh ? `已成功建立 STIX 2.1 指標 [${data.indicator.value}]` : `Created STIX 2.1 indicator [${data.indicator.value}]`);
+        fetchCtiData(true);
+      } else {
+        showToast(data.error || '新增失敗');
+      }
+    } catch (err: any) {
+      showToast('新增失敗: ' + err.message);
+    }
+  };
+
+  // 8. Delete Indicator
+  const handleDeleteIndicator = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/cti/indicators/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || '指標已刪除');
+        fetchCtiData(true);
+      }
+    } catch (err: any) {
+      showToast('刪除失敗: ' + err.message);
+    }
+  };
+
+  // 9. Purge Simulated Data for Clean State
+  const handlePurgeAll = async () => {
+    if (!window.confirm(isZh ? '確定要清除所有在系統中的模擬測試情資指標與報告，回復乾淨初始狀態嗎？' : 'Purge all simulated CTI test indicators and reports for clean state?')) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/v1/cti/purge', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh ? '所有模擬情資數據已清除完畢，系統處於乾淨初始狀態！' : 'Purged simulated intelligence! System is now clean.');
+        setIndicators([]);
+        setReports([]);
+        fetchCtiData(true);
+      }
+    } catch (err: any) {
+      showToast('清除失敗: ' + err.message);
+    }
+  };
+
+  // 10. Seed Baseline Data
+  const handleSeedBaseline = async () => {
+    try {
+      const res = await fetch('/api/v1/cti/seed', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(isZh ? '已成功重新載入基準威脅特徵與 APT 組織情報！' : 'Loaded benchmark STIX 2.1 intelligence baseline.');
+        fetchCtiData(true);
+      }
+    } catch (err: any) {
+      showToast('載入失敗: ' + err.message);
+    }
+  };
+
+  // 11. Import STIX 2.1 Bundle
+  const handleImportStix = async (bundle: any) => {
+    try {
+      const res = await fetch('/api/v1/cti/import/stix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bundle)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || 'STIX 2.1 封裝匯入成功！');
+        fetchCtiData(true);
+      } else {
+        showToast(data.error || '匯入失敗');
+      }
+    } catch (err: any) {
+      showToast('匯入異常: ' + err.message);
+    }
+  };
+
+  // 12. Delete Report
+  const handleDeleteReport = async (id: string) => {
+    try {
+      const res = await fetch(`/api/v1/cti/reports/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || '報告已刪除');
+        fetchCtiData(true);
+      }
+    } catch (err: any) {
+      showToast('刪除失敗: ' + err.message);
+    }
+  };
+
+  const isCleanState = indicators.length === 0;
 
   const tabs = [
     { id: 'dashboard', label: isZh ? '情資態勢總覽' : 'Intelligence Dashboard', icon: <Activity size={15} /> },
@@ -156,7 +354,7 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
 
         <div className="relative z-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6">
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="p-2.5 bg-blue-600/20 border border-blue-500/30 rounded-2xl">
                 <ShieldAlert className="w-6 h-6 text-blue-400" />
@@ -167,8 +365,24 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
               <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold tracking-wider uppercase">
                 STIX 2.1 / TAXII 2.1
               </span>
+              {isCleanState ? (
+                <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold tracking-wider flex items-center gap-1">
+                  <ShieldCheck size={12} />
+                  {isZh ? '乾淨初始狀態 (CLEAN)' : 'CLEAN SLATE'}
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 font-bold tracking-wider">
+                  {indicators.length} {isZh ? '筆指標' : 'IOCs'}
+                </span>
+              )}
+              {isRefreshing && (
+                <span className="text-[10px] font-mono text-gray-400 flex items-center gap-1">
+                  <RefreshCw size={11} className="animate-spin text-blue-400" />
+                  {isZh ? '同步中' : 'Syncing'}
+                </span>
+              )}
             </div>
-            <p className="text-xs text-gray-400 max-w-3xl">
+            <p className="text-xs text-gray-400 max-w-3xl leading-relaxed">
               {isZh 
                 ? '全天候即時匯流全球國家級 APT 組織情資、暗網威脅走廊、零日漏洞利用與 MITRE ATT&CK 戰術矩陣，提供自動化情資研判與防火牆/EDR 一鍵規則下發能力。'
                 : 'Enterprise-grade Cyber Threat Intelligence (CTI) engine delivering real-time STIX 2.1 observables, adversarial knowledge graphs, geopolitical attack telemetry, and automated mitigation enforcement.'
@@ -176,26 +390,36 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
             </p>
           </div>
 
-          {/* Quick IOC Enrichment Input Bar */}
-          <form onSubmit={handleGlobalSearchSubmit} className="flex items-center gap-2 w-full xl:w-auto">
-            <div className="relative flex-1 xl:w-80">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder={isZh ? '貼上 IP / 網域名稱 / 雜湊 / CVE 即刻研判...' : 'Paste IP, Domain, Hash, or CVE to enrich...'}
-                value={globalSearch}
-                onChange={e => setGlobalSearch(e.target.value)}
-                className="w-full bg-black/60 border border-gray-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono shadow-inner"
-              />
-            </div>
+          {/* Quick IOC Enrichment Input Bar & Quick Action */}
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+            <form onSubmit={handleGlobalSearchSubmit} className="flex items-center gap-2 w-full sm:w-auto flex-1">
+              <div className="relative flex-1 sm:w-72">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder={isZh ? '貼上 IP / 網域名稱 / 雜湊 / CVE 即刻研判...' : 'Paste IP, Domain, Hash, or CVE to enrich...'}
+                  value={globalSearch}
+                  onChange={e => setGlobalSearch(e.target.value)}
+                  className="w-full bg-black/60 border border-gray-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 font-mono shadow-inner"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+              >
+                <Zap size={14} />
+                {isZh ? '即時研判' : 'Enrich'}
+              </button>
+            </form>
+
             <button
-              type="submit"
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 shadow-lg shadow-blue-600/20"
+              onClick={() => fetchCtiData(false)}
+              className="p-2.5 bg-gray-900 border border-gray-800 hover:bg-gray-800 text-gray-300 rounded-2xl text-xs transition-colors"
+              title="Refresh CTI State"
             >
-              <Zap size={14} />
-              {isZh ? '即時研判' : 'Enrich'}
+              <RefreshCw size={15} className={cn(isRefreshing && "animate-spin text-blue-400")} />
             </button>
-          </form>
+          </div>
         </div>
 
         {/* Tab Navigation Pill Bar */}
@@ -226,7 +450,15 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
         {activeTab === 'dashboard' && (
           <CtiDashboardTab 
             isZh={isZh} 
-            onEnrichQuery={handleEnrich} 
+            onEnrichQuery={handleEnrich}
+            stats={overviewStats}
+            indicators={indicators}
+            connectors={connectors}
+            reports={reports}
+            onSyncConnector={connectors[0]?.id ? handleSyncConnector : undefined}
+            onAddIndicatorClick={() => setIsAddIocOpen(true)}
+            onSeedBaseline={handleSeedBaseline}
+            onPurgeAll={handlePurgeAll}
           />
         )}
 
@@ -251,6 +483,11 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
             onAddIndicatorClick={() => setIsAddIocOpen(true)}
             onEnrichQuery={handleEnrich}
             onPushToFirewall={handlePushToFirewall}
+            onDeleteIndicator={handleDeleteIndicator}
+            onPurgeAll={handlePurgeAll}
+            onSeedBaseline={handleSeedBaseline}
+            onImportStixClick={() => setIsImportStixOpen(true)}
+            onSyncFirstConnector={connectors[0]?.id ? () => handleSyncConnector(connectors[0].id) : undefined}
           />
         )}
 
@@ -268,14 +505,19 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
             onToggleStatus={handleToggleConnector}
             onSyncNow={handleSyncConnector}
             onAddConnector={handleAddConnector}
+            onDeleteConnector={handleDeleteConnector}
+            onSeedBaseline={handleSeedBaseline}
           />
         )}
 
         {activeTab === 'reports' && (
           <CtiReportsTab 
             isZh={isZh}
+            reports={reports}
             onReadReport={(r) => setReadingReport(r)}
             onEnrichQuery={handleEnrich}
+            onSeedBaseline={handleSeedBaseline}
+            onDeleteReport={handleDeleteReport}
           />
         )}
       </div>
@@ -293,6 +535,13 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
         isOpen={isAddIocOpen}
         onClose={() => setIsAddIocOpen(false)}
         onAdd={handleAddIndicator}
+        isZh={isZh}
+      />
+
+      <CtiImportStixModal
+        isOpen={isImportStixOpen}
+        onClose={() => setIsImportStixOpen(false)}
+        onImport={handleImportStix}
         isZh={isZh}
       />
 
@@ -321,4 +570,5 @@ export function IntelCTIView({ isZh = true }: IntelCTIViewProps) {
     </div>
   );
 }
+
 export default IntelCTIView;

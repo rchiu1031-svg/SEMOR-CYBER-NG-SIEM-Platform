@@ -15,25 +15,39 @@ import {
   APT_RADAR_DATA, VULNERABILITY_TREND_DATA, LIVE_SIGHTING_STREAM 
 } from '../../data/ctiIntelData';
 import { cn } from '../../lib/utils';
+import { CtiIndicator, CtiConnector, CtiReport } from '../../data/ctiIntelData';
 
 interface CtiDashboardTabProps {
   isZh: boolean;
   onEnrichQuery: (val: string) => void;
+  stats?: any;
+  indicators?: CtiIndicator[];
+  connectors?: CtiConnector[];
+  reports?: CtiReport[];
+  onSyncConnector?: (id: string) => void;
+  onAddIndicatorClick?: () => void;
+  onSeedBaseline?: () => void;
+  onPurgeAll?: () => void;
 }
 
-export function CtiDashboardTab({ isZh, onEnrichQuery }: CtiDashboardTabProps) {
+export function CtiDashboardTab({ isZh, onEnrichQuery, stats, indicators, connectors, reports, onSyncConnector, onAddIndicatorClick, onSeedBaseline, onPurgeAll }: CtiDashboardTabProps) {
   const [timeRange, setTimeRange] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>(['Financial & Banking', 'Critical Infrastructure & Energy', 'Government & Defense', 'Healthcare & Pharma', 'Semiconductor & Tech']);
   const [selectedMalware, setSelectedMalware] = useState<string[]>(['Ransomware & Cryptors', 'Stealers & Credential Harvesters', 'Remote Access Trojans (RAT)', 'Botnets & DDoS Droppers', 'Destructive Wipers']);
   const [streamFilter, setStreamFilter] = useState<'ALL' | 'CRITICAL' | 'C2'>('ALL');
 
+  const activeIocCount = indicators ? indicators.length : (stats?.totalIndicators ?? 0);
+  const activeReportCount = reports ? reports.length : (stats?.totalReports ?? 0);
+  const activeConnCount = connectors ? connectors.length : (stats?.totalConnectors ?? 0);
+  const isCleanState = activeIocCount === 0;
+
   const stixEntities = [
-    { name: isZh ? '威脅組織 (Threat Actors)' : 'Threat Actors', value: 142, icon: <Users className="text-red-400" />, change: '+4 this week', bg: 'bg-red-500/10' },
-    { name: isZh ? '惡意軟體家族 (Malware)' : 'Malware Families', value: 856, icon: <Bug className="text-orange-400" />, change: '+18 samples', bg: 'bg-orange-500/10' },
-    { name: isZh ? 'C2 中繼節點 (Infra)' : 'C2 Infrastructure', value: 2431, icon: <Server className="text-blue-400" />, change: '+94 nodes', bg: 'bg-blue-500/10' },
-    { name: isZh ? '攻擊手法 (TTPs)' : 'Attack Patterns', value: 520, icon: <Target className="text-purple-400" />, change: 'MITRE v14', bg: 'bg-purple-500/10' },
-    { name: isZh ? '情資指標 (Active IOCs)' : 'Active IOCs', value: 184920, icon: <Activity className="text-green-400" />, change: '+4.2k ingested', bg: 'bg-green-500/10' },
-    { name: isZh ? '研判報告 (STIX Reports)' : 'Threat Reports', value: 342, icon: <FileSearch className="text-cyan-400" />, change: '3 unread', bg: 'bg-cyan-500/10' },
+    { name: isZh ? '威脅組織 (Threat Actors)' : 'Threat Actors', value: isCleanState ? 0 : (stats?.totalThreatActors ?? 4), icon: <Users className="text-red-400" />, change: isCleanState ? 'Clean' : 'MITRE v14', bg: 'bg-red-500/10' },
+    { name: isZh ? '惡意軟體家族 (Malware)' : 'Malware Families', value: isCleanState ? 0 : 856, icon: <Bug className="text-orange-400" />, change: isCleanState ? 'Clean' : 'Samples', bg: 'bg-orange-500/10' },
+    { name: isZh ? 'C2 中繼節點 (Infra)' : 'C2 Infrastructure', value: isCleanState ? 0 : 2431, icon: <Server className="text-blue-400" />, change: isCleanState ? 'Clean' : 'Online', bg: 'bg-blue-500/10' },
+    { name: isZh ? '情資連接器 (Feeds)' : 'Feed Connectors', value: activeConnCount, icon: <Server className="text-purple-400" />, change: `${connectors?.filter(c => c.status === 'Active').length ?? 0} Active`, bg: 'bg-purple-500/10' },
+    { name: isZh ? '情資指標 (Active IOCs)' : 'Active IOCs', value: activeIocCount, icon: <Activity className="text-green-400" />, change: isCleanState ? '乾淨狀態' : `${activeIocCount} Items`, bg: 'bg-green-500/10' },
+    { name: isZh ? '研判報告 (STIX Reports)' : 'Threat Reports', value: activeReportCount, icon: <FileSearch className="text-cyan-400" />, change: isCleanState ? '0 Reports' : `${activeReportCount} Reports`, bg: 'bg-cyan-500/10' },
   ];
 
   const COLORS = ['#3b82f6', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#06b6d4'];
@@ -104,6 +118,64 @@ export function CtiDashboardTab({ isZh, onEnrichQuery }: CtiDashboardTabProps) {
           </div>
         ))}
       </div>
+
+      {/* Clean Initial State Banner */}
+      {isCleanState && (
+        <div className="bg-gradient-to-r from-emerald-950/40 via-[#111114] to-blue-950/30 border border-emerald-500/30 rounded-2xl p-6 shadow-xl space-y-4">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-2xl text-emerald-400 shrink-0 mt-0.5">
+                <CheckCircle2 size={24} />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                    {isZh ? '系統狀態：乾淨初始狀態 (Clean Slate Initialized)' : 'System Status: Clean Initial State'}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    PRODUCTION READY
+                  </span>
+                </div>
+                <p className="text-xs text-gray-300 leading-relaxed max-w-2xl">
+                  {isZh 
+                    ? '已成功執行系統清理，所有模擬測試數據、虛擬設備與測試報告均已清空。系統處於乾淨的初始狀態，隨時可進行實體環境安裝 (Live Deployment)、接取實體 SPAN/TAP 鏡像網路流量與同步真實 TAXII 2.1 節點。'
+                    : 'System purge completed. All simulated test metrics, virtual devices, and mock reports have been removed. Platform is in pristine condition ready for live production sensor ingestion.'
+                  }
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {onSyncConnector && connectors && connectors.length > 0 && (
+                <button
+                  onClick={() => onSyncConnector(connectors[0].id)}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20"
+                >
+                  <RefreshCw size={14} />
+                  {isZh ? '同步 TAXII 2.1 饋送' : 'Sync TAXII Feed'}
+                </button>
+              )}
+              {onAddIndicatorClick && (
+                <button
+                  onClick={onAddIndicatorClick}
+                  className="px-4 py-2.5 bg-gray-900 hover:bg-gray-800 text-gray-200 border border-gray-800 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                >
+                  <Plus size={14} />
+                  {isZh ? '手動新增指標' : 'Add IOC'}
+                </button>
+              )}
+              {onSeedBaseline && (
+                <button
+                  onClick={onSeedBaseline}
+                  className="px-4 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-2"
+                >
+                  <RefreshCw size={14} />
+                  {isZh ? '載入基準情資 (Demo/Testing)' : 'Seed Demo Data'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Primary Chart: Ingestion Volume & False Positive Suppression */}
       <div className="bg-[#111114] border border-gray-800 rounded-2xl p-6">
@@ -326,7 +398,19 @@ export function CtiDashboardTab({ isZh, onEnrichQuery }: CtiDashboardTabProps) {
         </div>
 
         <div className="space-y-2.5 max-h-72 overflow-y-auto custom-scrollbar">
-          {filteredStream.map(s => (
+          {isCleanState ? (
+            <div className="py-10 text-center space-y-2 bg-black/40 rounded-xl border border-dashed border-gray-800/80">
+              <div className="w-10 h-10 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <CheckCircle2 size={18} />
+              </div>
+              <p className="text-xs font-mono text-gray-400">
+                {isZh ? '目前系統處於乾淨初始狀態，尚未產生即時威脅目擊事件' : 'System in clean state. Awaiting live telemetry sightings.'}
+              </p>
+              <p className="text-[10px] text-gray-500">
+                {isZh ? '連線實體網路 SPAN 流量或點擊上方「同步 TAXII 2.1 饋送」開始監聽' : 'Connect real-world SPAN network traffic or sync TAXII feed to begin streaming'}
+              </p>
+            </div>
+          ) : filteredStream.map(s => (
             <div 
               key={s.id} 
               className="p-3.5 bg-black/50 border border-gray-800/80 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 hover:border-blue-500/40 transition-all group"

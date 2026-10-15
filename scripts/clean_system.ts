@@ -246,7 +246,8 @@ async function run() {
     callAuxiliaryPurgeApi('/api/v1/ueba/purge', 'UEBA Risk'),
     callAuxiliaryPurgeApi('/api/v1/honeypot/purge', 'Honeypot Decoys'),
     callAuxiliaryPurgeApi('/api/v1/soar/purge', 'SOAR Logs'),
-    callAuxiliaryPurgeApi('/api/v1/cases/purge', 'Case Tickets')
+    callAuxiliaryPurgeApi('/api/v1/cases/purge', 'Case Tickets'),
+    callAuxiliaryPurgeApi('/api/v1/cti/purge', 'CTI Indicators')
   ]);
 
   // Add individual component confirmation to results table
