@@ -64,25 +64,46 @@
   "auth": {
     "ad": {
       "enabled": true,
+      "serverUrl": "ldaps://ad.corp.internal:636",
+      "backupServerUrl": "ldaps://dc02.corp.internal:636",
+      "domain": "corp.internal",
+      "netbiosDomain": "CORP",
+      "baseDn": "dc=corp,dc=internal",
+      "userSearchBase": "OU=Users,OU=Enterprise,DC=corp,DC=internal",
+      "groupSearchBase": "OU=Groups,OU=Enterprise,DC=corp,DC=internal",
+      "bindDn": "svc_siem_ldap@corp.internal",
+      "bindPassword": "••••••••••••••••",
+      "encryption": "ldaps",
+      "userFilter": "(&(objectClass=user)(sAMAccountName={username}))",
+      "groupFilter": "(&(objectClass=group)(member={userdn}))",
+      "usernameAttribute": "sAMAccountName",
+      "mailAttribute": "mail",
+      "displayNameAttribute": "displayName",
+      "departmentAttribute": "department",
+      "roleAttribute": "memberOf",
+      "autoSyncUsers": true,
+      "syncInterval": "20",
+      "timeout": 5,
       "server": "ad.corp.internal",
       "port": 636,
-      "domain": "corp.internal",
-      "baseDn": "dc=corp,dc=internal",
       "bindUser": "svc_siem_ldap@corp.internal",
       "ssl": true,
       "tls": false,
-      "allowSelfSigned": false,
-      "syncInterval": "15",
-      "timeout": 5,
-      "userFilter": "(&(objectClass=user)(sAMAccountName={username}))"
+      "allowSelfSigned": false
     },
     "ldap": {
       "enabled": false,
       "serverUrl": "ldap://ldap.enterprise.local:389",
       "baseDn": "ou=accounts,dc=enterprise,dc=local",
       "bindDn": "cn=admin,dc=enterprise,dc=local",
+      "bindPassword": "••••••••••••••••",
       "encryption": "starttls",
       "userSearchFilter": "(uid={username})",
+      "groupSearchFilter": "(memberUid={username})",
+      "usernameAttr": "uid",
+      "emailAttr": "mail",
+      "nameAttr": "cn",
+      "followReferrals": false,
       "timeout": 5
     },
     "radius": {
@@ -90,9 +111,14 @@
       "primaryServer": "192.168.10.50",
       "authPort": 1812,
       "acctPort": 1813,
+      "sharedSecret": "••••••••••••••••",
       "secondaryServer": "192.168.10.51",
+      "secondaryAuthPort": 1812,
       "authProtocol": "MS-CHAPv2",
-      "timeout": 5
+      "timeout": 5,
+      "retries": 3,
+      "nasIdentifier": "SEMOR-SIEM-SOC-01",
+      "nasIpAddress": "192.168.10.200"
     },
     "sso": {
       "enabled": true,
@@ -101,10 +127,18 @@
       "entityId": "https://siem.corp.internal/saml/metadata",
       "ssoLoginUrl": "https://login.microsoftonline.com/a1b2c3d4-e5f6-7890-abcd-ef1234567890/saml2",
       "ssoLogoutUrl": "https://login.microsoftonline.com/a1b2c3d4-e5f6-7890-abcd-ef1234567890/saml2/logout",
+      "certificate": "-----BEGIN CERTIFICATE-----\nMIIDvzCCAqegAwIBAgIUeQ+lP+d4UMEt3Hgt/5CqY+lqWfQwDQYJKoZIhvcNAQEL\nBQAwbzELMAkGA1UEBhMCVFcxDzANBgNVBAgMBlRhaXBlaTEYMBYGA1UECgwPU0VN\nT1IgQ1lCRVIgU09DMRgwFgYDVQQLDA9TZWNPcHMgSWRlbnRpdHkxGzAZBgNVBAMM\nEnNpZW0uY29ycC5pbnRlcm5hbDAeFw0yNjEwMTUwOTAyMzRaFw0yODEwMTQwOTAy\nMzRaMG8xCzAJBgNVBAYTAlRXMQ8wDQYDVQQIDAZUYWlwZWkxGDAWBgNVBAoMD1NF\nTU9SIENZQkVSIFNPQzEYMBYGA1UECwwPU2VjT3BzIElkZW50aXR5MRswGQYDVQQD\nDBJzaWVtLmNvcnAuaW50ZXJuYWwwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK\nAoIBAQDNUwIC+kawxNYYBJa7aL7WmntAm7Cy0ErTAnar7hqYmC6NZciGwSgBw7pP\n3DL/4FatHKBmZaD3Cwl8nCrMVVBXVyU/y4VNGPP1/mJXIv6XDvZPmZ/4DpWNsal6\n00ayvbFYJYLLVHB5q/ENblUzJuetpzEwiRGaUjkn1FmCjdhFM67u8imwfQC1hLOj\nxCwlI0BrB+81DI42E8xM4kIh4gAxFOwrAH2mEsd2m/HrMopRMx5qnFDo7t1JrSp3\nAwUTOESUWksKyD18FsI7KPqMnIWqXYFE9hmrSBGj41nXAbWEsw+zOvf/d1g8OMv2\nTVneIA4ULJl1A4zGqi+Fbcz3QKLfAgMBAAGjUzBRMB0GA1UdDgQWBBS/EYRhF7Uy\nA8FYyZdyP9cL/VfrPTAfBgNVHSMEGDAWgBS/EYRhF7UyA8FYyZdyP9cL/VfrPTAP\nBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQCm81/1UtOAHTo0wu5d\nl6dCIimTe+oARXuLBGW+HTNsMjBLi0dNIe6C3oKzZpeKF0YnKLKUBOvFu2rz4pAB\nv/bfP0OkjAY5kKZD1ltJ6mmw4ZTxcPVnQhXa2Fb1nQq+sSk/MwOFB6tM6OxBQL0y\nWC6YR+SjRK3zOe8gyjMc5Tv+MLitfuIG0L84IRaSpHO67GDvB0PAkcU4ojflPdlx\nAZFrkk5q9tpGSfB/uwQ5w4bo7aDyjy3zM6N4FGx/l0cOgwVDpA4ALbMzPlY9DkpT\nRJxu/91O3Tc+T4MSTDzOD4PG5GbzxgWsTkBYCdYgdC7g3dUeEbuCZcMUhpfjc9xO\nz5B8\n-----END CERTIFICATE-----",
       "clientId": "siem-enterprise-client-id-9988",
+      "clientSecret": "••••••••••••••••",
       "issuer": "https://login.microsoftonline.com/a1b2c3d4-e5f6-7890-abcd-ef1234567890/v2.0",
       "autoProvisionUsers": true,
-      "defaultRole": "viewer"
+      "defaultRole": "viewer",
+      "attributeMapping": {
+        "username": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+        "email": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+        "displayName": "http://schemas.microsoft.com/identity/claims/displayname",
+        "roles": "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
+      }
     },
     "mfa": {
       "enforceMfa": true,
@@ -119,11 +153,33 @@
         "admin",
         "auditor"
       ],
-      "gracePeriodDays": 7
+      "gracePeriodDays": 7,
+      "allowRememberDevice": true,
+      "rememberDeviceDays": 30
     },
     "policy": {
-      "sessionTimeout": 30,
+      "sessionTimeoutMinutes": 30,
       "maxConcurrentSessions": 3,
+      "passwordPolicy": {
+        "minLength": 12,
+        "requireUppercase": true,
+        "requireLowercase": true,
+        "requireNumbers": true,
+        "requireSpecialChars": true,
+        "passwordExpiryDays": 90,
+        "preventPasswordReuseCount": 5
+      },
+      "lockoutPolicy": {
+        "enabled": true,
+        "maxFailedAttempts": 5,
+        "lockoutDurationMinutes": 15,
+        "resetFailedCountMinutes": 30
+      },
+      "ipAllowlist": {
+        "enabled": false,
+        "cidrs": "192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12"
+      },
+      "sessionTimeout": 30,
       "ipWhitelist": {
         "enabled": true,
         "cidrs": "192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12"

@@ -191,13 +191,59 @@ export const siemService = {
     return response.data;
   },
 
-  async testAuthConnection(params: { type: string; host?: string; port?: number; domain?: string }) {
+  async testAuthConnection(params: { type: string; host?: string; port?: number; domain?: string; encryption?: string; protocol?: string }) {
     const response = await axios.post('/api/v1/settings/auth/test-connection', params);
     return response.data;
   },
 
-  async simulateAuthLogin(username: string) {
-    const response = await axios.post('/api/v1/settings/auth/simulate-login', { username });
+  async simulateAuthLogin(params: { username: string; password?: string; provider?: string; mfaCode?: string } | string) {
+    const payload = typeof params === 'string' ? { username: params } : params;
+    const response = await axios.post('/api/v1/settings/auth/simulate-login', payload);
+    return response.data;
+  },
+
+  async syncAuthDirectory(provider: 'ad' | 'ldap' = 'ad') {
+    const response = await axios.post('/api/v1/settings/auth/sync', { provider });
+    return response.data;
+  },
+
+  async getAuthSyncedUsers() {
+    const response = await axios.get('/api/v1/settings/auth/synced-users');
+    return response.data;
+  },
+
+  async getAuthAuditLogs() {
+    const response = await axios.get('/api/v1/settings/auth/audit-logs');
+    return response.data;
+  },
+
+  async clearAuthLockouts() {
+    const response = await axios.post('/api/v1/settings/auth/clear-lockouts');
+    return response.data;
+  },
+
+  async getSamlSpMetadata() {
+    const response = await axios.get('/api/v1/settings/auth/sp-metadata');
+    return response.data;
+  },
+
+  async generateSpSigningCert(commonName?: string) {
+    const response = await axios.post('/api/v1/settings/auth/generate-sp-cert', { commonName });
+    return response.data;
+  },
+
+  async validateCertificate(certificate: string) {
+    const response = await axios.post('/api/v1/settings/auth/validate-certificate', { certificate });
+    return response.data;
+  },
+
+  async resetAuthDefaults() {
+    const response = await axios.post('/api/v1/settings/auth/reset-defaults');
+    return response.data;
+  },
+
+  async getAuthStatus() {
+    const response = await axios.get('/api/v1/settings/auth/status');
     return response.data;
   },
 

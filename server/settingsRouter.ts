@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
+import { globalAuthEngine } from './authEngine.ts';
 
 const Router = express.Router;
 
@@ -672,77 +673,113 @@ export function createSettingsRouter() {
 
   // GET /api/v1/settings/auth - Get Authentication & Directory Settings
   router.get('/auth', (_req: Request, res: Response) => {
-    // Return config with masked passwords/secrets
-    const safeAuth = JSON.parse(JSON.stringify(currentSettings.auth));
-    if (safeAuth.ad?.bindPassword) safeAuth.ad.bindPassword = '••••••••••••••••';
-    if (safeAuth.ldap?.bindPassword) safeAuth.ldap.bindPassword = '••••••••••••••••';
-    if (safeAuth.radius?.sharedSecret) safeAuth.radius.sharedSecret = '••••••••••••••••';
-    if (safeAuth.sso?.clientSecret) safeAuth.sso.clientSecret = '••••••••••••••••';
     res.json({
       success: true,
-      auth: safeAuth
+      auth: globalAuthEngine.getMaskedConfig()
     });
   });
 
   // PUT /api/v1/settings/auth - Update Authentication & Directory Settings
   router.put('/auth', (req: Request, res: Response) => {
-    const updates = req.body;
-    currentSettings.auth = {
-      ...currentSettings.auth,
-      ...updates
-    };
-    saveSettingsToDisk();
-    res.json({
-      success: true,
-      message: '身分認證管理與 SSO 單一登入配置已套用至 Auth Daemon',
-      auth: currentSettings.auth
-    });
+    const result = globalAuthEngine.updateConfig(req.body);
+    currentSettings.auth = globalAuthEngine.getConfig() as any;
+    res.json(result);
   });
 
   // POST /api/v1/settings/auth/test-connection - Test AD/LDAP/RADIUS/SSO connection
-  router.post('/auth/test-connection', (req: Request, res: Response) => {
-    const { type, host, port, domain } = req.body;
-    const latency = Math.floor(Math.random() * 30) + 12;
-
-    const sampleLogs = [
-      `[${new Date().toLocaleTimeString()}] 開始發起連線至認證端點 ${host || '192.168.10.10'}:${port || 636}...`,
-      `[${new Date().toLocaleTimeString()}] DNS 解析成功 -> ${host || 'ad.corp.internal'} (IP: 192.168.10.10)`,
-      `[${new Date().toLocaleTimeString()}] TLS 1.3 憑證交握成功 (Cipher: TLS_AES_256_GCM_SHA384)`,
-      `[${new Date().toLocaleTimeString()}] 驗證伺服器 CA 信任鏈：Valid (Issuer: Enterprise-Root-CA)`,
-      `[${new Date().toLocaleTimeString()}] 執行 Bind 授權驗證: SUCCESS (回應耗時: ${latency}ms)`,
-      `[${new Date().toLocaleTimeString()}] 查詢 Directory 樹狀結構: 成功檢索到目錄物件 (${domain || 'corp.internal'})`,
-      `[${new Date().toLocaleTimeString()}] 狀態總結: 所有認證鏈路運作正常 (Roundtrip: ${latency}ms)`
-    ];
-
-    res.json({
-      success: true,
-      type: type || 'Active Directory',
-      latencyMs: latency,
-      status: 'SUCCESS',
-      message: `${type || 'Active Directory'} 連線測試成功！已通過 TLS 握手與服務帳號授權驗證。`,
-      logs: sampleLogs,
-      timestamp: new Date().toISOString()
-    });
+  router.post('/auth/test-connection', async (req: Request, res: Response) => {
+    try {
+      const result = await globalAuthEngine.testConnection(req.body);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({
+        success: false,
+        error: err.message || 'Connection test failed'
+      });
+    }
   });
 
   // POST /api/v1/settings/auth/simulate-login - Simulate user sign-in verification
   router.post('/auth/simulate-login', (req: Request, res: Response) => {
-    const { username } = req.body;
+    const { username, password, provider, mfaCode } = req.body;
     if (!username) {
       return res.status(400).json({ error: 'Username required' });
     }
+    const result = globalAuthEngine.simulateLogin({ username, password, provider, mfaCode });
+    res.json(result);
+  });
 
+  // POST /api/v1/settings/auth/sync - Sync Directory Users & Groups
+  router.post('/auth/sync', (req: Request, res: Response) => {
+    const provider = req.body?.provider || 'ad';
+    const result = globalAuthEngine.syncDirectory(provider);
+    res.json(result);
+  });
+
+  // GET /api/v1/settings/auth/synced-users - Get Synced Directory Users
+  router.get('/auth/synced-users', (_req: Request, res: Response) => {
     res.json({
       success: true,
-      status: 'authenticated',
-      username,
-      matchedProvider: 'Active Directory (corp.internal)',
-      distinguishedName: `CN=${username},OU=SecOps,OU=Enterprise,DC=corp,DC=internal`,
-      resolvedGroups: ['SOC_Tier2_Analysts', 'SIEM_Admins'],
-      mappedRole: 'ADMIN (系統管理員)',
-      mfaVerified: true,
-      sessionToken: `sim_token_${Date.now()}`,
-      message: `使用者【${username}】身分驗證成功！\n- 匹配來源：Active Directory (corp.internal)\n- 識別 DN：CN=${username},OU=SecOps,OU=Enterprise,DC=corp,DC=internal\n- 解析群組：SOC_Tier2_Analysts, SIEM_Admins\n- 映射權限層級：ADMIN (系統管理員)\n- MFA 要求：已通過 TOTP 驗證`
+      users: globalAuthEngine.getSyncedUsers(),
+      count: globalAuthEngine.getSyncedUsers().length
+    });
+  });
+
+  // GET /api/v1/settings/auth/audit-logs - Get Auth Audit Trail & Logs
+  router.get('/auth/audit-logs', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      logs: globalAuthEngine.getAuditLogs()
+    });
+  });
+
+  // POST /api/v1/settings/auth/clear-lockouts - Clear All Account Lockouts
+  router.post('/auth/clear-lockouts', (_req: Request, res: Response) => {
+    const result = globalAuthEngine.clearLockouts();
+    res.json(result);
+  });
+
+  // GET /api/v1/settings/auth/sp-metadata - Get SAML 2.0 SP Metadata
+  router.get('/auth/sp-metadata', (req: Request, res: Response) => {
+    const xml = globalAuthEngine.getSamlSpMetadata();
+    if (req.query.format === 'xml' || req.headers.accept?.includes('application/xml')) {
+      res.setHeader('Content-Type', 'application/xml');
+      res.setHeader('Content-Disposition', 'attachment; filename="sp-metadata.xml"');
+      return res.send(xml);
+    }
+    res.json({
+      success: true,
+      entityId: globalAuthEngine.getConfig().sso.entityId,
+      metadataXml: xml
+    });
+  });
+
+  // POST /api/v1/settings/auth/generate-sp-cert - Generate New SP X.509 Signing Certificate
+  router.post('/auth/generate-sp-cert', (req: Request, res: Response) => {
+    const commonName = req.body?.commonName || 'siem.corp.internal';
+    const result = globalAuthEngine.generateSpSigningCert(commonName);
+    res.json(result);
+  });
+
+  // POST /api/v1/settings/auth/validate-certificate - Validate X.509 Certificate
+  router.post('/auth/validate-certificate', (req: Request, res: Response) => {
+    const cert = req.body?.certificate || req.body?.certPem || '';
+    const result = globalAuthEngine.validateCertificate(cert);
+    res.json(result);
+  });
+
+  // POST /api/v1/settings/auth/reset-defaults - Reset Auth Settings to Factory Defaults
+  router.post('/auth/reset-defaults', (_req: Request, res: Response) => {
+    const result = globalAuthEngine.resetDefaults();
+    currentSettings.auth = globalAuthEngine.getConfig() as any;
+    res.json(result);
+  });
+
+  // GET /api/v1/settings/auth/status - Get Real-time Auth Daemon Status
+  router.get('/auth/status', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      status: globalAuthEngine.getStatus()
     });
   });
 
