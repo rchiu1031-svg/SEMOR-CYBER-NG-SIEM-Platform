@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 const Router = express.Router;
 import fs from 'fs';
 import path from 'path';
-import { globalAttackSignatureEngine } from './attackSignatureEngine';
+import { globalAttackSignatureEngine } from './attackSignatureEngine.ts';
 
 export interface TrafficSessionData {
   id: number;
