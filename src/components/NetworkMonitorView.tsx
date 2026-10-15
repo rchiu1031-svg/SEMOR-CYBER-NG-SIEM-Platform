@@ -93,7 +93,8 @@ export interface NetworkConnection {
   utilization: number;
 }
 
-const INITIAL_DEVICES: NetworkDevice[] = [
+const INITIAL_DEVICES: NetworkDevice[] = [];
+const _templateDevices: NetworkDevice[] = [
   { 
     id: 'fw-01', 
     name: 'Gateway-Firewall-PA', 
@@ -422,7 +423,8 @@ const INITIAL_DEVICES: NetworkDevice[] = [
   }))
 ];
 
-const INITIAL_CONNECTIONS: NetworkConnection[] = [
+const INITIAL_CONNECTIONS: NetworkConnection[] = [];
+const _templateConnections: NetworkConnection[] = [
   { from: 'fw-01', to: 'core-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 34 },
   { from: 'core-sw-01', to: 'srv-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 42 },
   { from: 'core-sw-01', to: 'edge-sw-01', speed: '10 Gbps', type: 'fiber', utilization: 28 },

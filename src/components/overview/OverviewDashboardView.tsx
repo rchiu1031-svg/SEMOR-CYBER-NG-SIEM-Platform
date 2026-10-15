@@ -59,9 +59,9 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
   const [trafficData, setTrafficData] = useState<TrafficDataPoint[]>(HOURLY_TRAFFIC_DATA);
   const [clusterNodes, setClusterNodes] = useState<CcsClusterNode[]>(CCS_CLUSTER_NODES);
   const [mitreTactics, setMitreTactics] = useState<MitreTacticItem[]>(MITRE_TACTIC_DISTRIBUTION);
-  const [uebaEntities, setUebaEntities] = useState<UebaHighRiskEntity[]>(UEBA_HIGH_RISK_ENTITIES);
-  const [abnormalLogins, setAbnormalLogins] = useState<AbnormalLoginRecord[]>(ABNORMAL_LOGINS);
-  const [criticalIncidents, setCriticalIncidents] = useState<CriticalIncidentRecord[]>(CRITICAL_INCIDENTS);
+  const [uebaEntities, setUebaEntities] = useState<UebaHighRiskEntity[]>([]);
+  const [abnormalLogins, setAbnormalLogins] = useState<AbnormalLoginRecord[]>([]);
+  const [criticalIncidents, setCriticalIncidents] = useState<CriticalIncidentRecord[]>([]);
   const [collectorStatus, setCollectorStatus] = useState({
     status: 'ONLINE',
     eps: 0,
@@ -94,13 +94,13 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
 
       if (json.success && json.data) {
         const d = json.data;
-        if (Array.isArray(d.metrics) && d.metrics.length > 0) setMetrics(d.metrics);
-        if (Array.isArray(d.traffic) && d.traffic.length > 0) setTrafficData(d.traffic);
-        if (Array.isArray(d.clusterNodes) && d.clusterNodes.length > 0) setClusterNodes(d.clusterNodes);
-        if (Array.isArray(d.mitreTactics) && d.mitreTactics.length > 0) setMitreTactics(d.mitreTactics);
-        if (Array.isArray(d.uebaEntities) && d.uebaEntities.length > 0) setUebaEntities(d.uebaEntities);
-        if (Array.isArray(d.abnormalLogins) && d.abnormalLogins.length > 0) setAbnormalLogins(d.abnormalLogins);
-        if (Array.isArray(d.criticalIncidents) && d.criticalIncidents.length > 0) setCriticalIncidents(d.criticalIncidents);
+        if (Array.isArray(d.metrics)) setMetrics(d.metrics);
+        if (Array.isArray(d.traffic)) setTrafficData(d.traffic);
+        if (Array.isArray(d.clusterNodes)) setClusterNodes(d.clusterNodes);
+        if (Array.isArray(d.mitreTactics)) setMitreTactics(d.mitreTactics);
+        if (Array.isArray(d.uebaEntities)) setUebaEntities(d.uebaEntities);
+        if (Array.isArray(d.abnormalLogins)) setAbnormalLogins(d.abnormalLogins);
+        if (Array.isArray(d.criticalIncidents)) setCriticalIncidents(d.criticalIncidents);
         if (typeof d.isWarMode === 'boolean') setIsWarMode(d.isWarMode);
         if (d.collectorStatus) setCollectorStatus(d.collectorStatus);
         setIsLiveConnected(true);

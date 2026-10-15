@@ -3,7 +3,9 @@ import {
   INITIAL_FIM_EVENTS,
   INITIAL_FIM_PLAYBOOKS,
   INITIAL_FIM_POLICIES,
-  INITIAL_FIM_BASELINES,
+  INITIAL_FIM_BASELINES
+} from '../src/data/soarFimData.ts';
+import type {
   FimEventItem,
   FimPlaybookItem,
   FimPolicyItem,

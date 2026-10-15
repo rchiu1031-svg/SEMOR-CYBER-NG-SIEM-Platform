@@ -1,0 +1,194 @@
+{
+  "victorialogs": {
+    "url": "http://localhost:9428",
+    "accountId": "semor-user",
+    "projectId": "semorcyber",
+    "status": "active"
+  },
+  "filebeat": {
+    "url": "http://localhost:5044",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "logstash": {
+    "url": "http://localhost:9600",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "syslog_ng": {
+    "url": "http://localhost:514",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "metricbeat": {
+    "url": "http://localhost:5066",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "heartbeat": {
+    "url": "http://localhost:5067",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "auditbeat": {
+    "url": "http://localhost:5068",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "inactive"
+  },
+  "fleet": {
+    "url": "http://localhost:8220",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "skywalking": {
+    "url": "http://localhost:11800",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "thehive": {
+    "url": "http://localhost:9000",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "cortex": {
+    "url": "http://localhost:9001",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "misp": {
+    "url": "https://localhost:8443",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "opencti": {
+    "url": "http://localhost:8080",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "mwdb": {
+    "url": "http://localhost:5000",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "arkime": {
+    "url": "http://localhost:8005",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "suricata": {
+    "url": "http://localhost:8006",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "zeek": {
+    "url": "http://localhost:47761",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "snort": {
+    "url": "http://localhost:8007",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "nmap": {
+    "url": "http://localhost:8008",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "traefik": {
+    "url": "http://localhost:8081",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "velociraptor": {
+    "url": "http://localhost:8889",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "zircolite": {
+    "url": "http://localhost:8011",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "n8n": {
+    "url": "http://localhost:5678",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "watchtower": {
+    "url": "http://localhost:8012",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "spiderfoot": {
+    "url": "http://localhost:5001",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "locked"
+  },
+  "codimd": {
+    "url": "http://localhost:3030",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "homer": {
+    "url": "http://localhost:8082",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "opencve": {
+    "url": "http://localhost:8000",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "capa": {
+    "url": "http://localhost:8013",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "secubian": {
+    "url": "http://localhost:8014",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "tpot": {
+    "url": "http://localhost:64297",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  },
+  "lab_dfir_soc": {
+    "url": "http://localhost:8015",
+    "accountId": "admin",
+    "projectId": "default",
+    "status": "active"
+  }
+}

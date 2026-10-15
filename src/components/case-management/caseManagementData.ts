@@ -1,11 +1,11 @@
-import { 
+import type { 
   CaseIncident, 
   CaseCustomField, 
   LayoutBlockConfig, 
   SLAPolicyStage, 
   CaseConfigVersion,
   IngestionMapping
-} from './types';
+} from './types.ts';
 
 export const INITIAL_CASES: CaseIncident[] = [];
 

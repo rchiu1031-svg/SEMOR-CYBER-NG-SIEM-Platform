@@ -92,8 +92,10 @@ export interface NetworkConnection {
 export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
   const router = Router();
 
-  // Initial High-Fidelity Network Devices Dataset
-  let networkDevices: NetworkDevice[] = [
+  // Initial Clean State for Physical Environment Ingestion
+  let networkDevices: NetworkDevice[] = [];
+  let networkConnections: NetworkConnection[] = [];
+  const _templateDevices: NetworkDevice[] = [
     { 
       id: 'fw-01', 
       name: 'Gateway-Firewall-PA', 
@@ -421,7 +423,7 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
     }))
   ];
 
-  let networkConnections: NetworkConnection[] = [
+  const _templateConnections: NetworkConnection[] = [
     { from: 'fw-01', to: 'core-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 34 },
     { from: 'core-sw-01', to: 'srv-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 42 },
     { from: 'core-sw-01', to: 'edge-sw-01', speed: '10 Gbps', type: 'fiber', utilization: 28 },
