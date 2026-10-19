@@ -57,6 +57,7 @@
     "malware-analysis": "惡意程式分析",
     "vulnerability": "漏洞偵測",
     "ai-analyst": "AI 安全分析師",
+    "ai-gateway": "AI Gateway (安全網關)",
     "honeypot-map": "誘捕與攻擊地圖",
     "soar": "自動化響應 (SOAR)",
     "case-management": "案件管理",

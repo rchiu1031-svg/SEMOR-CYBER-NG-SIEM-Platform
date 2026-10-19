@@ -57,6 +57,7 @@
     "malware-analysis": "Malware Analysis",
     "vulnerability": "Vulnerability Detection",
     "ai-analyst": "AI Security Analyst",
+    "ai-gateway": "AI Gateway",
     "honeypot-map": "Honeypot & Attack Map",
     "soar": "SOAR",
     "case-management": "Case Management",

@@ -121,6 +121,14 @@ export const MODULES: ModuleInfo[] = [
     icon: 'Bot'
   },
   {
+    id: 'ai-gateway',
+    name: 'AI Gateway (AI 治理安全網關)',
+    description: 'Enterprise AI Gateway: 統一入口與 SSO 身份控管、動態 DLP 機敏資料遮蔽/阻擋、標準化提示詞工作流與全量審計治理。',
+    category: 'AI',
+    engines: ['SSO-RBAC', 'DLP-Engine', 'Prompt-Auditor', 'Rate-Limiter', 'SOC-Connector'],
+    icon: 'ShieldCheck'
+  },
+  {
     id: 'digital-forensics',
     name: 'Digital Forensics',
     description: 'Combining NetworkMiner\'s "Object Extraction" and Xplico\'s "Protocol Reconstruction" logic with SEMOR CYBER NG-SIEM\'s AI dynamic analysis can address the limitation of traditional SIEMs, which can only view "Logs" but not "Payload."',

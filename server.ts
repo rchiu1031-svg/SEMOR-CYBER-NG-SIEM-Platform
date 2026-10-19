@@ -35,6 +35,7 @@ import { createEngineMonitoringRouter } from './server/engineMonitoringRouter.ts
 import { createOtRouter } from './server/otRouter.ts';
 import { createPlatformPerformanceRouter } from './server/platformPerformanceRouter.ts';
 import { createLicenseRouter } from './server/licenseRouter.ts';
+import { createAiGatewayRouter } from './server/aiGatewayRouter.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
 import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
@@ -2162,6 +2163,15 @@ async function startServer() {
   app.use('/api/v1/platform-performance', platformPerformanceRouter);
   app.use('/api/platform-performance', platformPerformanceRouter);
   app.use('/api/v1/infra/performance', platformPerformanceRouter);
+
+  // AI Gateway & Prompt DLP Compliance Router
+  const aiGatewayRouter = createAiGatewayRouter();
+  app.use('/api/v1/ai-gateway', aiGatewayRouter);
+  app.use('/api/ai-gateway', aiGatewayRouter);
+  app.use('/api/v1/scan-prompt', (req, res, next) => {
+    req.url = '/scan-prompt';
+    aiGatewayRouter(req, res, next);
+  });
 
   // Discovered Assets & Inventory API (Dynamic store for physical network scans)
   let discoveredAssets: any[] = [];

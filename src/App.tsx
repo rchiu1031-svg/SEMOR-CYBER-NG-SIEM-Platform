@@ -201,6 +201,7 @@ import CorrelationSettingView from './components/CorrelationSettingView';
 import CyberWargamingView from './components/CyberWargamingView';
 import CriticalIncidentsView from './components/CriticalIncidentsView';
 import AIAnalystView from './components/AIAnalystView';
+import AIGatewayView from './components/AIGatewayView';
 import SOARViewComponent from './components/SOARView';
 import OTSecurityViewComponent from './components/OTSecurityView';
 import IntelCTIViewComponent from './components/cti/IntelCTIView';
@@ -1741,6 +1742,8 @@ export default function App() {
         return <CaseManagementView />;
       case 'ai-analyst':
         return <AIAnalystView />;
+      case 'ai-gateway':
+        return <AIGatewayView />;
       case 'intel':
         return <IntelCTIView />;
       case 'correlation-summary':
@@ -2131,7 +2134,7 @@ export default function App() {
             isExpanded={expandedGroups['intelligence']}
             onToggle={() => toggleGroup('intelligence')}
           >
-            {MODULES.filter(m => userCanSeeModule(m.id) && ['intel', 'malware-analysis', 'vulnerability', 'ai-analyst', 'honeypot-map', 'digital-forensics'].includes(m.id)).map(module => (
+            {MODULES.filter(m => userCanSeeModule(m.id) && ['ai-gateway', 'intel', 'malware-analysis', 'vulnerability', 'ai-analyst', 'honeypot-map', 'digital-forensics'].includes(m.id)).map(module => (
               <SidebarSubItem 
                 key={module.id}
                 label={t(`modules.${module.id}`)} 
