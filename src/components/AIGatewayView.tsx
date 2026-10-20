@@ -1,3 +1,4 @@
+import AIGatewaySdkView from "./AIGatewaySdkView";
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -46,7 +47,7 @@ export default function AIGatewayView() {
   const currentLang = i18n.language || 'zh';
   const isZh = currentLang.startsWith('zh');
   const isJa = currentLang.startsWith('ja');
-  const [activeTab, setActiveTab] = useState<'kpi' | 'audit' | 'simulator' | 'architecture'>('kpi');
+  const [activeTab, setActiveTab] = useState<'kpi' | 'audit' | 'simulator' | 'architecture' | 'sdk'>('kpi');
   const [metrics, setMetrics] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -258,6 +259,7 @@ async function executeBillingCharge(customerId, amountCents) {
           { id: 'audit', label: isZh ? "全量審計日誌 (3 大測試場景數據)" : isJa ? "全量監査ログ (3大テストシナリオ)" : "Audit Logs (3 Test Scenarios)", icon: <FileText size={15} /> },
           { id: 'simulator', label: isZh ? "提示詞合規審查接口測試 (/api/v1/scan-prompt)" : isJa ? "プロンプトコンプライアンス検査 API (/api/v1/scan-prompt)" : "Prompt Compliance Scanner API (/api/v1/scan-prompt)", icon: <Terminal size={15} /> },
           { id: 'architecture', label: isZh ? "系統架構圖與核心資料流 (Data Flow)" : isJa ? "アーキテクチャとデータフロー (Data Flow)" : "System Architecture & Data Flow", icon: <Layers size={15} /> },
+          { id: 'sdk', label: isZh ? "Go / Rust 雙軌發送模組 (Publisher SDK)" : isJa ? "Go / Rust デュアルトラック送信SDK" : "Go / Rust Dual-Track Publisher SDK", icon: <Code2 size={15} /> },
         ].map(tab => (
           <button
             key={tab.id}
@@ -979,6 +981,18 @@ async function executeBillingCharge(customerId, amountCents) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 5: GO & RUST DUAL-TRACK PUBLISHER SDK */}
+      {activeTab === "sdk" && (
+        <AIGatewaySdkView
+          isZh={isZh}
+          isJa={isJa}
+          onAlertInjected={() => {
+            fetchGatewayData();
+            showToast("成功透過 Webhook 注入一筆高風險告警至 SOC 審計佇列！");
+          }}
+        />
       )}
 
       {/* TAB 4: ARCHITECTURE & DATA FLOW */}

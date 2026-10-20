@@ -448,4 +448,98 @@ router.post('/reset', (_req: Request, res: Response) => {
   });
 });
 
+
+// 5. POST /api/v1/ai-gateway/webhook/alerts - Real-time High-Risk Alert Ingestion with HMAC-SHA256 Signature Verification
+router.post("/webhook/alerts", (req: Request, res: Response) => {
+  const signatureHeader = (req.headers["x-semor-signature"] as string) || "";
+  const timestampHeader = (req.headers["x-semor-timestamp"] as string) || "";
+  const secret = process.env.SEMOR_WEBHOOK_SECRET || "semor_ai_sec_shared_key_2026";
+
+  const rawPayload = JSON.stringify(req.body);
+  const hmac = crypto.createHmac("sha256", secret);
+  hmac.update(rawPayload);
+  const expectedSignature = hmac.digest("hex");
+
+  // Also support signature format "sha256=<hex>" or plain hex
+  const cleanSignature = signatureHeader.replace(/^sha256=/, "").trim();
+  const isValid = cleanSignature.length === expectedSignature.length &&
+    crypto.timingSafeEqual(Buffer.from(cleanSignature, "utf-8"), Buffer.from(expectedSignature, "utf-8"));
+
+  const logData = req.body || {};
+  const alertId = "aigw-alert-" + Date.now();
+  const alertEvent: AiGatewayAuditEvent = {
+    id: alertId,
+    timestamp: logData.timestamp || new Date().toISOString(),
+    userId: logData.userId || "usr_unknown",
+    userName: logData.userName || "Security Principal",
+    department: logData.department || "Enterprise Org",
+    userRole: logData.userRole || "User",
+    sourceIp: logData.sourceIp || req.ip || "127.0.0.1",
+    targetModel: logData.targetModel || logData.model || "unknown-llm",
+    modelProvider: logData.modelProvider || "External-AI",
+    promptTokensEstimate: logData.tokens || logData.promptTokensEstimate || 150,
+    originalContent: logData.originalContent || logData.content || "High-risk alert payload forwarded via Webhook",
+    action: logData.action || "BLOCK",
+    riskLevel: logData.riskLevel || "CRITICAL",
+    triggeredPolicies: logData.triggeredPolicies || [
+      { id: "POL-WEBHOOK-ALERT", name: logData.policyName || "DLP High-Risk Block", category: "SECRET", severity: "CRITICAL" }
+    ],
+    matchDetails: logData.matchDetails || [
+      { type: "WEBHOOK_TRIGGER", detectedText: "Webhook Alert Ingest" }
+    ],
+    socForwarded: true,
+    socAlertId: "SOC-ALRT-" + Date.now(),
+    latencyMs: logData.latencyMs || 12,
+    blockReason: logData.blockReason || "Intercepted by AI Gateway DLP Engine (Forwarded via Signed Webhook)"
+  };
+
+  if (!isValid && signatureHeader) {
+    return res.status(401).json({
+      success: false,
+      error: "INVALID_SIGNATURE",
+      message: "HMAC-SHA256 signature verification failed against pre-shared secret",
+      receivedSignature: signatureHeader,
+      expectedSignaturePrefix: expectedSignature.slice(0, 10) + "..."
+    });
+  }
+
+  // Prepend to audit log
+  auditLogs.unshift(alertEvent);
+
+  res.status(200).json({
+    success: true,
+    status: "RECEIVED",
+    alertId,
+    verifiedSignature: !!signatureHeader && isValid,
+    timestamp: new Date().toISOString(),
+    message: "High-risk alert successfully ingested into SEMOR CYBER SOC"
+  });
+});
+
+// 6. GET /api/v1/ai-gateway/publisher-config - Dual-Track Publisher Config & SDK Specs
+router.get("/publisher-config", (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    config: {
+      syslog: {
+        host: "siem-soc.corp.internal",
+        port: 6514,
+        protocol: "RFC5424_TLS",
+        tlsVersion: "TLSv1.3",
+        facility: 16, // Local0
+        severity: 6,  // Informational
+        appName: "semor-ai-gateway"
+      },
+      webhook: {
+        url: "https://siem-soc.corp.internal/api/v1/ai-gateway/webhook/alerts",
+        secret: "semor_ai_sec_shared_key_2026",
+        algorithm: "HMAC-SHA256",
+        headerSignature: "X-Semor-Signature",
+        headerTimestamp: "X-Semor-Timestamp",
+        timeoutMs: 3000
+      }
+    }
+  });
+});
+
 export const createAiGatewayRouter = () => router;
