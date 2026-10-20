@@ -220,7 +220,9 @@ const FALLBACK_PLAYBOOKS: PlaybookTemplate[] = [
 
 export default function SOARView() {
   const { i18n } = useTranslation();
-  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
 
   // Sub-tabs
   const [activeSubTab, setActiveSubTab] = useState<'workflows' | 'executions' | 'builder' | 'forensics' | 'correlation' | 'connectors' | 'fim'>('workflows');
@@ -810,13 +812,13 @@ export default function SOARView() {
         {/* PRIMARY SUB-NAVIGATION TABS */}
         <div className="mt-8 flex bg-black/70 p-1.5 rounded-xl border border-gray-800 overflow-x-auto custom-scrollbar gap-1">
           {[
-            { id: 'workflows', label: isZh ? '工作流程與劇本編排' : 'Playbook Canvas', icon: <Workflow size={14} /> },
-            { id: 'fim', label: isZh ? '檔案完整性監控 (FIM 自動化)' : 'File Integrity Monitoring (FIM)', icon: <Fingerprint size={14} /> },
-            { id: 'executions', label: isZh ? '即時處置紀錄與審批' : 'Live Executions & Approvals', icon: <History size={14} />, badgeCount: executionLogs.filter(e => e.status === 'Pending Approval').length },
-            { id: 'builder', label: isZh ? '動作與連接器建構器' : 'Action & Connector Builder', icon: <Code size={14} /> },
-            { id: 'forensics', label: isZh ? '跨據點遠端數位鑑識' : 'Distributed Forensics', icon: <FileSearch size={14} /> },
-            { id: 'correlation', label: isZh ? '事件關聯與擴散溯源' : 'Incident Correlation', icon: <Share2 size={14} /> },
-            { id: 'connectors', label: isZh ? 'SIEM/EDR/FW 整合狀態' : 'Integration Connectors', icon: <Settings size={14} /> },
+            { id: 'workflows', label: isZh ? '工作流程與劇本編排' : isJa ? 'プレイブック編制' : 'Playbook Canvas', icon: <Workflow size={14} /> },
+            { id: 'fim', label: isZh ? '檔案完整性監控 (FIM 自動化)' : isJa ? 'ファイル整合性監視 (FIM)' : 'File Integrity Monitoring (FIM)', icon: <Fingerprint size={14} /> },
+            { id: 'executions', label: isZh ? '即時處置紀錄與審批' : isJa ? '実行ログと承認' : 'Live Executions & Approvals', icon: <History size={14} />, badgeCount: executionLogs.filter(e => e.status === 'Pending Approval').length },
+            { id: 'builder', label: isZh ? '動作與連接器建構器' : isJa ? 'アクションビルダー' : 'Action & Connector Builder', icon: <Code size={14} /> },
+            { id: 'forensics', label: isZh ? '跨據點遠端數位鑑識' : isJa ? 'リモートフォレンジック' : 'Distributed Forensics', icon: <FileSearch size={14} /> },
+            { id: 'correlation', label: isZh ? '事件關聯與擴散溯源' : isJa ? 'インシデント相関・拡散追跡' : 'Incident Correlation', icon: <Share2 size={14} /> },
+            { id: 'connectors', label: isZh ? 'SIEM/EDR/FW 整合狀態' : isJa ? '連携コネクター状態' : 'Integration Connectors', icon: <Settings size={14} /> },
           ].map((tab) => (
             <button
               key={tab.id}

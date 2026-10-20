@@ -189,7 +189,8 @@
       "decoder": "AI Log Decoder",
       "alert": "Alert Configuration",
       "update": "Updates Management",
-      "threat_intel": "Threat Intel Sources (STIX/TAXII)"
+      "threat_intel": "Threat Intel Sources (STIX/TAXII)",
+      "ndr_alerts": "NDR Alert Rules"
     },
     "network": {
       "title": "System Configuration",
@@ -212,7 +213,12 @@
       "ad": "Active Directory",
       "ldap": "LDAP",
       "radius": "RADIUS",
-      "sso": "SSO (SAML/OIDC)"
+      "sso": "SSO (SAML/OIDC)",
+      "mfa": "Multi-Factor Authentication (MFA)",
+      "policy": "Password & Security Policies",
+      "cert": "Certificates & CA Trust Store",
+      "users": "Directory Synced Accounts",
+      "audit": "Authentication Audit Logs"
     }
   },
   "ndr": {

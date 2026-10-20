@@ -210,7 +210,9 @@ const PRESET_PAYLOADS = [
 
 export default function CorrelationSettingView() {
   const { i18n } = useTranslation();
-  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
 
   // Navigation Tabs
   const [activeTab, setActiveTab] = useState<'rules' | 'window' | 'mapping' | 'aggregation' | 'engine'>('rules');
@@ -750,11 +752,11 @@ export default function CorrelationSettingView() {
       {/* Tabs Bar */}
       <div className="flex bg-gray-900 p-1.5 rounded-2xl border border-gray-800 overflow-x-auto custom-scrollbar gap-1">
         {[
-          { id: 'rules', label: isZh ? '關聯規則庫與編排 (Rules)' : 'Rule Catalog & Builder', icon: <FileCode size={15} /> },
-          { id: 'window', label: isZh ? '滑動窗口與 CEP 參數 (Windows)' : 'Sliding Windows & CEP State', icon: <Clock size={15} /> },
-          { id: 'mapping', label: isZh ? '欄位標準化與測試 (Schema)' : 'Schema Mapping & Live Test', icon: <ArrowRightLeft size={15} /> },
-          { id: 'aggregation', label: isZh ? '告警聚合與降噪策略 (Grouping)' : 'Alert Aggregation & Storm Suppression', icon: <Layers size={15} /> },
-          { id: 'engine', label: isZh ? '引擎叢集與狀態監控 (Engine)' : 'Engine Cluster & RocksDB', icon: <Server size={15} /> }
+          { id: 'rules', label: isZh ? '關聯規則庫與編排 (Rules)' : isJa ? '相関ルールライブラリ (Rules)' : 'Rule Catalog & Builder', icon: <FileCode size={15} /> },
+          { id: 'window', label: isZh ? '滑動窗口與 CEP 參數 (Windows)' : isJa ? 'スライディングウィンドウとCEP (Windows)' : 'Sliding Windows & CEP State', icon: <Clock size={15} /> },
+          { id: 'mapping', label: isZh ? '欄位標準化與測試 (Schema)' : isJa ? 'フィールド標準化とテスト (Schema)' : 'Schema Mapping & Live Test', icon: <ArrowRightLeft size={15} /> },
+          { id: 'aggregation', label: isZh ? '告警聚合與降噪策略 (Grouping)' : isJa ? 'アラート集約・ノイズ低減 (Grouping)' : 'Alert Aggregation & Storm Suppression', icon: <Layers size={15} /> },
+          { id: 'engine', label: isZh ? '引擎叢集與狀態監控 (Engine)' : isJa ? 'エンジンクラスタ監視 (Engine)' : 'Engine Cluster & RocksDB', icon: <Server size={15} /> }
         ].map((tab) => (
           <button
             key={tab.id}

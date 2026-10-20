@@ -46,7 +46,9 @@ export default function GeneralSettingsView({
   onSaveGeminiKey
 }: GeneralSettingsViewProps) {
   const { i18n } = useTranslation();
-  const isZh = !i18n.language || i18n.language.startsWith('zh');
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
 
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [testApiStatus, setTestApiStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -579,16 +581,23 @@ export default function GeneralSettingsView({
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-              {isZh ? '介面預設語系 (Default Language)' : 'Language'}
+              {isZh ? '介面預設語系 (Default Language)' : isJa ? 'デフォルト言語 (Default Language)' : 'Default Language'}
             </label>
             <select 
-              value={defaultLanguage}
-              onChange={(e) => setDefaultLanguage(e.target.value)}
+              value={currentLang.startsWith('ja') ? 'ja-JP' : currentLang.startsWith('en') ? 'en-US' : 'zh-TW'}
+              onChange={(e) => {
+                const val = e.target.value;
+                const code = val.startsWith('ja') ? 'ja' : val.startsWith('en') ? 'en' : 'zh';
+                i18n.changeLanguage(code);
+                localStorage.setItem('i18nextLng', code);
+                setDefaultLanguage(val);
+              }}
               disabled={isReadOnly}
               className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 uppercase"
             >
-              <option value="zh-TW">繁體中文 (Traditional Chinese - 台灣)</option>
+              <option value="zh-TW">{isZh ? '繁體中文 (Traditional Chinese - 台灣)' : isJa ? '繁体中国語 (Traditional Chinese - 台湾)' : 'Traditional Chinese (zh-TW)'}</option>
               <option value="en-US">English (US)</option>
+              <option value="ja-JP">{isZh ? '日語 (Japanese - 日本)' : isJa ? '日本語 (Japanese - 日本)' : 'Japanese (ja-JP)'}</option>
             </select>
           </div>
 

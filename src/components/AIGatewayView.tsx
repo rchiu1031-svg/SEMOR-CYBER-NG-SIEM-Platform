@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Shield,
   ShieldAlert,
@@ -12,6 +13,7 @@ import {
   Terminal,
   Copy,
   Check,
+  CheckCircle2,
   RefreshCw,
   AlertTriangle,
   Users,
@@ -40,6 +42,10 @@ import { cn } from '../lib/utils';
 import axios from 'axios';
 
 export default function AIGatewayView() {
+  const { i18n } = useTranslation();
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const [activeTab, setActiveTab] = useState<'kpi' | 'audit' | 'simulator' | 'architecture'>('kpi');
   const [metrics, setMetrics] = useState<any>(null);
   const [logs, setLogs] = useState<any[]>([]);
@@ -239,7 +245,7 @@ async function executeBillingCharge(customerId, amountCents) {
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-600/20"
             >
               <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
-              重新整理數據
+              {isZh ? "重新整理數據" : isJa ? "データ更新" : "Refresh Data"}
             </button>
           </div>
         </div>
@@ -248,10 +254,10 @@ async function executeBillingCharge(customerId, amountCents) {
       {/* Navigation Sub-Tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-gray-800 pb-2">
         {[
-          { id: 'kpi', label: 'AI 治理與即時監控 (5 大核心 KPI)', icon: <BarChart3 size={15} /> },
-          { id: 'audit', label: '全量審計日誌 (3 大測試場景數據)', icon: <FileText size={15} /> },
-          { id: 'simulator', label: '提示詞合規審查接口測試 (/api/v1/scan-prompt)', icon: <Terminal size={15} /> },
-          { id: 'architecture', label: '系統架構圖與核心資料流 (Data Flow)', icon: <Layers size={15} /> },
+          { id: 'kpi', label: isZh ? "AI 治理與即時監控 (5 大核心 KPI)" : isJa ? "AI ガバナンス・リアルタイム監視 (5大KPI)" : "AI Governance & KPI Monitoring (5 Core KPIs)", icon: <BarChart3 size={15} /> },
+          { id: 'audit', label: isZh ? "全量審計日誌 (3 大測試場景數據)" : isJa ? "全量監査ログ (3大テストシナリオ)" : "Audit Logs (3 Test Scenarios)", icon: <FileText size={15} /> },
+          { id: 'simulator', label: isZh ? "提示詞合規審查接口測試 (/api/v1/scan-prompt)" : isJa ? "プロンプトコンプライアンス検査 API (/api/v1/scan-prompt)" : "Prompt Compliance Scanner API (/api/v1/scan-prompt)", icon: <Terminal size={15} /> },
+          { id: 'architecture', label: isZh ? "系統架構圖與核心資料流 (Data Flow)" : isJa ? "アーキテクチャとデータフロー (Data Flow)" : "System Architecture & Data Flow", icon: <Layers size={15} /> },
         ].map(tab => (
           <button
             key={tab.id}

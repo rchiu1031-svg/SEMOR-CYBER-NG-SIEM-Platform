@@ -43,19 +43,21 @@ export interface HostAsset {
 
 export default function DiscoveryView() {
   const { t, i18n } = useTranslation();
-  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const [activeSubTab, setActiveSubTab] = useState<'raw_logs' | 'asset_discovery' | 'soc_dashboard' | 'sql_hunting' | 'fim' | 'active_mitigation' | 'vector_pipeline' | 'victoria_rules'>('raw_logs');
 
   // Multi-Mode Layout Header Navbar
   const tabs = [
-    { id: 'raw_logs', label: '日誌檢索分析', icon: Search },
-    { id: 'asset_discovery', label: '資產與弱點發現', icon: Database },
-    { id: 'soc_dashboard', label: 'SOC 戰情總覽', icon: Activity },
-    { id: 'sql_hunting', label: '即時 SQL 獵捕', icon: Terminal },
-    { id: 'fim', label: '檔案監控 (FIM)', icon: FileCode },
-    { id: 'active_mitigation', label: '回應與隔離', icon: Zap },
-    { id: 'vector_pipeline', label: 'Vector VRL 路由', icon: Share2 },
-    { id: 'victoria_rules', label: 'SIEM 告警規則', icon: ShieldAlert }
+    { id: 'raw_logs', label: isZh ? '日誌檢索分析' : isJa ? 'ログ検索・分析' : 'Raw Log Search', icon: Search },
+    { id: 'asset_discovery', label: isZh ? '資產與弱點發現' : isJa ? '資産・脆弱性検出' : 'Asset & Vuln Discovery', icon: Database },
+    { id: 'soc_dashboard', label: isZh ? 'SOC 戰情總覽' : isJa ? 'SOC ダッシュボード' : 'SOC Dashboard', icon: Activity },
+    { id: 'sql_hunting', label: isZh ? '即時 SQL 獵捕' : isJa ? 'リアルタイム SQL ハンティング' : 'Live SQL Hunting', icon: Terminal },
+    { id: 'fim', label: isZh ? '檔案監控 (FIM)' : isJa ? 'ファイル監視 (FIM)' : 'File Integrity (FIM)', icon: FileCode },
+    { id: 'active_mitigation', label: isZh ? '回應與隔離' : isJa ? '対応と隔離' : 'Mitigation & Isolation', icon: Zap },
+    { id: 'vector_pipeline', label: isZh ? 'Vector VRL 路由' : isJa ? 'Vector VRL パイプライン' : 'Vector VRL Pipeline', icon: Share2 },
+    { id: 'victoria_rules', label: isZh ? 'SIEM 告警規則' : isJa ? 'SIEM アラートルール' : 'SIEM Alert Rules', icon: ShieldAlert }
   ] as const;
 
   return (

@@ -70,7 +70,14 @@
     "correlation-setting": "相関設定",
     "wargaming": "サイバー演習 (兵棋推演)",
     "digital-forensics": "デジタルフォレンジック",
-    "monitor": "ネットワークモニター"
+    "monitor": "ネットワークモニター",
+    "ai-gateway": "AI ゲートウェイ (AI Gateway)",
+    "ueba": "行動分析 (UEBA)",
+    "executive": "経営層インサイト",
+    "compliance_center": "コンプライアンスセンター",
+    "real_time_view": "リアルタイムビュー",
+    "export_report": "レポート出力",
+    "security_health": "セキュリティ健全性スコア"
   },
   "semorcti": {
     "title": "Intel (CTI)",
@@ -79,7 +86,8 @@
       "dashboard": "ダッシュボード",
       "graph": "ナレッジグラフ",
       "indicators": "インジケーター",
-      "connectors": "コネクタ"
+      "connectors": "コネクタ",
+      "map": "グローバル脅威マップ"
     },
     "time": {
       "daily": "毎日",
@@ -181,7 +189,8 @@
       "decoder": "ログデコーダー",
       "alert": "アラートルール設定",
       "update": "アップデート管理",
-      "threat_intel": "脅威インテリジェンス情報源 (STIX/TAXII)"
+      "threat_intel": "脅威インテリジェンス情報源 (STIX/TAXII)",
+      "ndr_alerts": "NDR アラートルール"
     },
     "network": {
       "title": "システム構成",
@@ -199,12 +208,25 @@
       "add_route": "ルートを追加"
     },
     "auth": {
-      "title": "認証構成",
-      "subtitle": "外部認証プロバイダーを管理します。",
-      "ad": "Active Directory",
-      "ldap": "LDAP",
-      "radius": "RADIUS",
-      "sso": "SSO (SAML/OIDC)"
+      "title": "認証管理設定",
+      "subtitle": "Active Directory、LDAP、RADIUS、SSO シングルサインオン連携を管理します。",
+      "ad": "Active Directory ドメイン",
+      "ldap": "標準 LDAP",
+      "radius": "RADIUS 認証",
+      "sso": "シングルサインオン (SSO / SAML / OIDC)",
+      "mfa": "多要素認証 (MFA)",
+      "policy": "パスワードとセキュリティポリシー",
+      "cert": "証明書と CA トラストストア",
+      "users": "同期済みアカウント",
+      "audit": "認証セキュリティ監査ログ"
+    }
+  },
+  "ndr": {
+    "tabs": {
+      "forensics": "ネットワークフォレンジック",
+      "monitoring": "セキュリティ監視",
+      "analysis": "トラフィック分析",
+      "topology": "デバイス通信トポロジー"
     }
   }
 }

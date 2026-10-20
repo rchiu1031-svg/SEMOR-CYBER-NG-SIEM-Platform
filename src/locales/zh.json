@@ -86,7 +86,8 @@
       "dashboard": "儀表板",
       "graph": "知識圖譜",
       "indicators": "指標 (IOCs)",
-      "connectors": "連接器"
+      "connectors": "連接器",
+      "map": "全球威脅地圖"
     },
     "time": {
       "daily": "每日",
@@ -188,7 +189,8 @@
       "decoder": "日誌解碼器",
       "alert": "告警規則設定",
       "update": "更新管理",
-      "threat_intel": "威脅情資來源 (STIX/TAXII)"
+      "threat_intel": "威脅情資來源 (STIX/TAXII)",
+      "ndr_alerts": "NDR 流量告警規則"
     },
     "network": {
       "title": "系統配置",
@@ -213,7 +215,10 @@
       "radius": "RADIUS 認證",
       "sso": "單一登入 (SSO / SAML / OIDC)",
       "mfa": "多因子身分驗證 (MFA)",
-      "policy": "密碼與安全政策"
+      "policy": "密碼與安全政策",
+      "cert": "憑證與 CA 信任庫",
+      "users": "目錄已同步帳號",
+      "audit": "認證安全稽核日誌"
     }
   },
   "ndr": {

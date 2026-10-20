@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Users, 
   UserPlus, 
@@ -50,6 +51,10 @@ const AVAILABLE_MODULES = [
 ];
 
 export default function UserSettingsView({ currentUser, isReadOnly = false }: UserSettingsViewProps) {
+  const { t, i18n } = useTranslation();
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const [users, setUsers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -197,7 +202,7 @@ export default function UserSettingsView({ currentUser, isReadOnly = false }: Us
 
         <div className="p-5 bg-[#0d0d0f] border border-gray-800 rounded-2xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">特權與管理員</span>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{isZh ? "特權與管理員" : isJa ? "特権管理者" : "Privileged & Admin"}</span>
             <span className="text-2xl font-black text-red-400 italic mt-1 block">{adminCount} <span className="text-xs font-normal text-gray-500">個帳號</span></span>
           </div>
           <div className="p-3 bg-red-600/10 rounded-xl border border-red-500/20 text-red-400">
@@ -207,7 +212,7 @@ export default function UserSettingsView({ currentUser, isReadOnly = false }: Us
 
         <div className="p-5 bg-[#0d0d0f] border border-gray-800 rounded-2xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">資安分析與維運專家</span>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{isZh ? "資安分析與維運專家" : isJa ? "セキュリティアナリスト" : "Security Analyst"}</span>
             <span className="text-2xl font-black text-purple-400 italic mt-1 block">{analystCount} <span className="text-xs font-normal text-gray-500">個帳號</span></span>
           </div>
           <div className="p-3 bg-purple-600/10 rounded-xl border border-purple-500/20 text-purple-400">
@@ -217,7 +222,7 @@ export default function UserSettingsView({ currentUser, isReadOnly = false }: Us
 
         <div className="p-5 bg-[#0d0d0f] border border-gray-800 rounded-2xl flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">法遵稽核與檢視員</span>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">{isZh ? "法遵稽核與檢視員" : isJa ? "監査員・閲覧者" : "Auditor & Viewer"}</span>
             <span className="text-2xl font-black text-emerald-400 italic mt-1 block">{auditorCount} <span className="text-xs font-normal text-gray-500">個帳號</span></span>
           </div>
           <div className="p-3 bg-emerald-600/10 rounded-xl border border-emerald-500/20 text-emerald-400">
@@ -238,10 +243,10 @@ export default function UserSettingsView({ currentUser, isReadOnly = false }: Us
               </div>
               <div>
                 <h3 className="text-base font-black text-white italic tracking-wider uppercase">
-                  使用者存取矩陣與 RBAC 角色權限清冊 (User Access Matrix)
+                  {isZh ? "使用者存取矩陣與 RBAC 角色權限清冊 (User Access Matrix)" : isJa ? "ユーザーアクセス行列とRBAC権限一覧 (User Access Matrix)" : "User Access Matrix & RBAC Permissions"}
                 </h3>
                 <p className="text-[10px] text-gray-400 font-bold tracking-wider mt-0.5">
-                  管理本機安全主體、所屬部門、分層角色存取層級 (RBAC) 與功能模組授權範圍。
+                  {isZh ? "管理本機安全主體、所屬部門、分層角色存取層級 (RBAC) 與功能模組授權範圍。" : isJa ? "ローカルプリンシパル、所属部門、RBACロールアクセス権限、モジュール認可範囲を管理します。" : "Manage local security principals, departments, RBAC role privileges, and module access permissions."}
                 </p>
               </div>
             </div>
@@ -254,7 +259,7 @@ export default function UserSettingsView({ currentUser, isReadOnly = false }: Us
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜尋帳號、信箱或部門..."
+                placeholder={isZh ? "搜尋帳號、信箱或部門..." : isJa ? "アカウント、メール、部署を検索..." : "Search account, email or department..."}
                 className="bg-black/50 border border-gray-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-gray-600 outline-none focus:border-blue-500 w-48 sm:w-60 transition-all font-sans"
               />
             </div>
@@ -288,7 +293,7 @@ export default function UserSettingsView({ currentUser, isReadOnly = false }: Us
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-blue-600/20 transition-all active:scale-95 shrink-0"
               >
                 <UserPlus size={14} />
-                <span>新增使用者</span>
+                <span>{isZh ? "新增使用者" : isJa ? "ユーザー新規作成" : "Add User"}</span>
               </button>
             )}
           </div>

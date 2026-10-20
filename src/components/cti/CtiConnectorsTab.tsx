@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Server, RefreshCw, CheckCircle2, AlertTriangle, Plus, ExternalLink, 
-  Settings2, Shield, Activity, Lock, Database, Play, Pause, Zap 
+  Settings2, Shield, Activity, Lock, Database, Play, Pause, Zap, Trash2 
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { CtiConnector } from '../../data/ctiIntelData';

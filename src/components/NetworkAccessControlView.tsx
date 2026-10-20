@@ -165,7 +165,9 @@ interface SwitchConfig {
 
 export default function NetworkAccessControlView({ isReadOnly = false }: { isReadOnly?: boolean }) {
   const { i18n } = useTranslation();
-  const isZh = i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
 
   // State Management
   const [activeTab, setActiveTab] = useState<'dashboard' | 'management' | 'policies'>('dashboard');

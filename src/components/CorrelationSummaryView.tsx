@@ -274,7 +274,9 @@ function CorrelationNodeGraph({ data, onSelectNode }: { data: any; onSelectNode?
 
 export default function CorrelationSummaryView() {
   const { i18n } = useTranslation();
-  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
 
   // Navigation Sub-tab Modes
   const [activeMode, setActiveMode] = useState<'overview' | 'heatmap' | 'timeline' | 'topology' | 'telemetry' | 'rules'>('overview');
@@ -579,11 +581,11 @@ export default function CorrelationSummaryView() {
       {/* Sub-Navigation Tabs */}
       <div className="flex bg-gray-900 p-1.5 rounded-2xl border border-gray-800 overflow-x-auto custom-scrollbar gap-1">
         {[
-          { id: 'overview', label: isZh ? '多維度攻擊鏈時序 (Storyline)' : 'Multi-Stage Attack Storyline', icon: <Workflow size={15} /> },
-          { id: 'heatmap', label: isZh ? '24小時事件頻率熱力圖 (Heatmap)' : '24h Incident Intensity Heatmap', icon: <Flame size={15} /> },
-          { id: 'topology', label: isZh ? '動態關聯攻擊拓撲圖 (Graph)' : 'Interactive Attack Graph', icon: <GitBranch size={15} /> },
-          { id: 'rules', label: isZh ? '關聯規則命中率排行榜 (Rules)' : 'Rule Firing & Detection Trends', icon: <BarChart3 size={15} /> },
-          { id: 'telemetry', label: isZh ? '全球情報源與地理分佈 (Geo)' : 'Global Geo Intelligence & Telemetry', icon: <Globe size={15} /> }
+          { id: 'overview', label: isZh ? '多維度攻擊鏈時序 (Storyline)' : isJa ? '攻撃チェーンタイムライン (Storyline)' : 'Multi-Stage Attack Storyline', icon: <Workflow size={15} /> },
+          { id: 'heatmap', label: isZh ? '24小時事件頻率熱力圖 (Heatmap)' : isJa ? '24時間インシデント熱力図 (Heatmap)' : '24h Incident Intensity Heatmap', icon: <Flame size={15} /> },
+          { id: 'topology', label: isZh ? '動態關聯攻擊拓撲圖 (Graph)' : isJa ? 'インタラクティブ攻撃トポロジー (Graph)' : 'Interactive Attack Graph', icon: <GitBranch size={15} /> },
+          { id: 'rules', label: isZh ? '關聯規則命中率排行榜 (Rules)' : isJa ? '相関ルール検知ランキング (Rules)' : 'Rule Firing & Detection Trends', icon: <BarChart3 size={15} /> },
+          { id: 'telemetry', label: isZh ? '全球情報源與地理分佈 (Geo)' : isJa ? 'グローバル脅威インテリジェンス (Geo)' : 'Global Geo Intelligence & Telemetry', icon: <Globe size={15} /> }
         ].map((tab) => (
           <button
             key={tab.id}

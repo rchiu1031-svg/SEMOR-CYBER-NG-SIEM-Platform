@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Key, 
   Shield, 
@@ -46,6 +47,10 @@ interface AuthenticationSettingsViewProps {
 }
 
 export default function AuthenticationSettingsView({ isReadOnly = false }: AuthenticationSettingsViewProps) {
+  const { t, i18n } = useTranslation();
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const [activeTab, setActiveTab] = useState<'ad' | 'ldap' | 'radius' | 'sso' | 'mfa' | 'policy' | 'cert' | 'users' | 'audit'>('ad');
 
   // Show/Hide password toggles
@@ -797,7 +802,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
         {/* Metric 2: SSO */}
         <div className="bg-[#111114] border border-gray-800 rounded-xl p-5 relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">企業單一登入 (SSO)</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{isZh ? "企業單一登入 (SSO)" : isJa ? "企業シングルサインオン (SSO)" : "Enterprise SSO"}</span>
             <span className={cn(
               "px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider",
               ssoConfig.enabled ? "bg-purple-500/10 text-purple-400 border border-purple-500/30" : "bg-gray-800 text-gray-500"
@@ -815,7 +820,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
         {/* Metric 3: MFA */}
         <div className="bg-[#111114] border border-gray-800 rounded-xl p-5 relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">多因子身分驗證 (MFA)</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{isZh ? "多因子身分驗證 (MFA)" : isJa ? "多要素認証 (MFA)" : "Multi-Factor Auth (MFA)"}</span>
             <span className={cn(
               "px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider",
               mfaConfig.enforceMfa ? "bg-red-500/10 text-red-400 border border-red-500/30" : "bg-gray-800 text-gray-500"
@@ -833,7 +838,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
         {/* Metric 4: Synced Users */}
         <div className="bg-[#111114] border border-gray-800 rounded-xl p-5 relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">網域已同步人員</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{isZh ? "網域已同步人員" : isJa ? "同期済みユーザー" : "Directory Synced Users"}</span>
             <span className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
               目錄就緒
             </span>
@@ -848,7 +853,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
         {/* Metric 5: Lockout Monitor */}
         <div className="bg-[#111114] border border-gray-800 rounded-xl p-5 relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">帳號鎖定監控佇列</span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{isZh ? "帳號鎖定監控佇列" : isJa ? "アカウントロック監視キュー" : "Lockout Monitor Queue"}</span>
             <span className={cn(
               "px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider",
               (authStatus?.metrics?.lockedAccountsCount || 0) > 0
@@ -883,15 +888,15 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
         {/* Navigation Sub-Tabs */}
         <div className="border-b border-gray-800 bg-gray-900/40 p-2 flex flex-wrap gap-2">
           {[
-            { id: 'ad', label: 'Active Directory / 網域認證', icon: <Server size={14} /> },
-            { id: 'ldap', label: '標準 LDAP 伺服器', icon: <Database size={14} /> },
-            { id: 'radius', label: 'RADIUS 伺服器', icon: <Key size={14} /> },
-            { id: 'sso', label: '單一登入 (SSO / SAML / OIDC)', icon: <Globe size={14} /> },
-            { id: 'mfa', label: '多因子驗證 (MFA / 2FA)', icon: <Smartphone size={14} /> },
-            { id: 'policy', label: '密碼與安全政策', icon: <Shield size={14} /> },
-            { id: 'cert', label: '憑證與 CA 信任庫', icon: <FileCheck2 size={14} /> },
-            { id: 'users', label: '目錄已同步帳號', icon: <Users size={14} /> },
-            { id: 'audit', label: '認證安全稽核日誌', icon: <Activity size={14} /> },
+            { id: 'ad', label: isZh ? "Active Directory / 網域認證" : isJa ? "Active Directory / ドメイン認証" : "Active Directory / Domain Auth", icon: <Server size={14} /> },
+            { id: 'ldap', label: isZh ? "標準 LDAP 伺服器" : isJa ? "標準 LDAP サーバー" : "Standard LDAP Server", icon: <Database size={14} /> },
+            { id: 'radius', label: isZh ? "RADIUS 伺服器" : isJa ? "RADIUS サーバー" : "RADIUS Server", icon: <Key size={14} /> },
+            { id: 'sso', label: isZh ? "單一登入 (SSO / SAML / OIDC)" : isJa ? "シングルサインオン (SSO / SAML / OIDC)" : "Single Sign-On (SSO / SAML / OIDC)", icon: <Globe size={14} /> },
+            { id: 'mfa', label: isZh ? "多因子驗證 (MFA / 2FA)" : isJa ? "多要素認証 (MFA / 2FA)" : "Multi-Factor Auth (MFA / 2FA)", icon: <Smartphone size={14} /> },
+            { id: 'policy', label: isZh ? "密碼與安全政策" : isJa ? "パスワードとセキュリティポリシー" : "Password & Security Policies", icon: <Shield size={14} /> },
+            { id: 'cert', label: isZh ? "憑證與 CA 信任庫" : isJa ? "証明書と CA トラストストア" : "Certificates & CA Trust Store", icon: <FileCheck2 size={14} /> },
+            { id: 'users', label: isZh ? "目錄已同步帳號" : isJa ? "同期済みアカウント" : "Directory Synced Accounts", icon: <Users size={14} /> },
+            { id: 'audit', label: isZh ? "認證安全稽核日誌" : isJa ? "認証監査ログ" : "Authentication Audit Logs", icon: <Activity size={14} /> },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -2162,7 +2167,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
               {testingStatus === 'testing' ? <RefreshCw size={14} className="animate-spin text-blue-400" /> : 
                testingStatus === 'success' ? <CheckCircle2 size={14} className="text-emerald-400" /> : 
                <Activity size={14} />}
-              {testingStatus === 'testing' ? '正在進行通訊測試...' : '測試伺服器連線'}
+              {testingStatus === 'testing' ? (isZh ? '正在進行通訊測試...' : isJa ? '接続テスト中...' : 'Testing Connection...') : (isZh ? '測試伺服器連線' : isJa ? 'サーバー接続テスト' : 'Test Server Connection')}
             </button>
 
             <button
@@ -2171,7 +2176,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
               className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"
             >
               <Terminal size={14} className="text-purple-400" />
-              查看診斷日誌
+              {isZh ? "查看診斷日誌" : isJa ? "診断ログ表示" : "View Diagnostics"}
             </button>
 
             <button
@@ -2180,7 +2185,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
               className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"
             >
               <LogIn size={14} className="text-blue-400" />
-              模擬帳號認證
+              {isZh ? "模擬帳號認證" : isJa ? "認証シミュレーション" : "Simulate User Auth"}
             </button>
           </div>
 
@@ -2192,7 +2197,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
                 className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all border border-gray-700"
               >
                 <RotateCcw size={14} />
-                恢復出廠預設值
+                {isZh ? "恢復出廠預設值" : isJa ? "初期設定に戻す" : "Reset to Defaults"}
               </button>
               <button
                 type="button"
@@ -2201,7 +2206,7 @@ XXdHDD9mbvriYy/9r66Lrd5c3vRV+wZ4IhQVFeU21iWRqwPTxxr5ocZCWstSVO05
                 className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/20"
               >
                 {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
-                儲存並套用認證配置
+                {isZh ? "儲存並套用認證配置" : isJa ? "設定を保存して適用" : "Save & Apply Config"}
               </button>
             </div>
           )}

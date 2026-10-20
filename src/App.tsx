@@ -1284,7 +1284,9 @@ function CollaborativeNotesPanel({ incidentId, currentUser }: { incidentId: stri
 
 function AttackTopologyOverlay({ incident, onClose }: { incident: any, onClose: () => void }) {
   const { i18n } = useTranslation();
-  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const svgRef = React.useRef<SVGSVGElement>(null);
 
   // WannaCry Infection Topology Data
@@ -2237,44 +2239,44 @@ export default function App() {
           >
             {canAccessEngineMonitor && (
               <SidebarSubItem 
-                label={t('settings.tabs.engine_monitoring') || "引擎監控 (Engine Monitoring)"} 
+                label={t('settings.tabs.engine_monitoring')} 
                 active={activeTab === 'settings' && activeSettingsTab === 'engine_monitoring'} 
                 onClick={() => { setActiveTab('settings'); setActiveSettingsTab('engine_monitoring'); }}
                 collapsed={!isSidebarOpen}
               />
             )}
             <SidebarSubItem 
-              label={t('settings.tabs.collection') || "資料採集設定 (Data Collection)"} 
+              label={t('settings.tabs.collection')} 
               active={activeTab === 'settings' && activeSettingsTab === 'collection'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('collection'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
-              label={isZh ? "NDR 流量告警規則" : "NDR Alert Rules"} 
+              label={t('settings.tabs.ndr_alerts')} 
               active={activeTab === 'settings' && activeSettingsTab === 'ndr_alerts'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('ndr_alerts'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
-              label={t('settings.tabs.update') || "更新管理"} 
+              label={t('settings.tabs.update')} 
               active={activeTab === 'settings' && activeSettingsTab === 'update'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('update'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
-              label={t('settings.tabs.threat_intel') || (isZh ? "威脅情資來源 (STIX/TAXII)" : "Threat Intel Sources")} 
+              label={t('settings.tabs.threat_intel')} 
               active={activeTab === 'settings' && activeSettingsTab === 'threat_intel'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('threat_intel'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
-              label={t('settings.tabs.nac') || "網路存取控制 (NAC)"} 
+              label={t('settings.tabs.nac')} 
               active={activeTab === 'settings' && activeSettingsTab === 'nac'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('nac'); }}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
-              label={t('settings.tabs.remotelog') || "遠端日誌伺服器"} 
+              label={t('settings.tabs.remotelog')} 
               active={activeTab === 'settings' && activeSettingsTab === 'remotelog'} 
               onClick={() => { setActiveTab('settings'); setActiveSettingsTab('remotelog'); }}
               collapsed={!isSidebarOpen}
@@ -2362,7 +2364,7 @@ export default function App() {
               >
                 <Globe className="w-3.5 h-3.5 text-blue-400" />
                 <span className="text-gray-300">
-                  {i18n.language === 'en' ? 'ENGLISH' : i18n.language === 'zh' ? 'CHINESE' : 'JAPANESE'}
+                  {i18n.language?.startsWith("en") ? "English" : i18n.language?.startsWith("ja") ? "日本語" : "繁體中文"}
                 </span>
                 <ChevronDown className={cn("w-3 h-3 text-gray-500 transition-transform", isLangOpen && "rotate-180")} />
               </button>
@@ -2379,29 +2381,32 @@ export default function App() {
                     >
                       <div className="p-1.5 space-y-0.5">
                         {[
-                          { code: 'en', label: 'English', native: 'English' },
-                          { code: 'zh', label: 'Traditional Chinese', native: 'CHINESE' },
-                          { code: 'ja', label: 'Japanese', native: 'JAPANESE' }
-                        ].map((lang) => (
-                          <button 
-                            key={lang.code}
-                            onClick={() => {
-                              i18n.changeLanguage(lang.code);
-                              localStorage.setItem('i18nextLng', lang.code);
-                              setIsLangOpen(false);
-                            }} 
-                            className={cn(
-                              "w-full text-left px-3 py-2 rounded-lg text-[11px] transition-colors flex items-center justify-between group",
-                              i18n.language === lang.code ? "bg-blue-600/10 text-blue-400" : "text-gray-400 hover:bg-gray-800 hover:text-white"
-                            )}
-                          >
-                            <div className="flex flex-col">
-                              <span className="font-bold">{lang.native}</span>
-                              <span className="text-[9px] opacity-50 group-hover:opacity-100">{lang.label}</span>
-                            </div>
-                            {i18n.language === lang.code && <CheckCircle2 className="w-3.5 h-3.5" />}
-                          </button>
-                        ))}
+                          { code: "zh", label: "Traditional Chinese", native: "繁體中文" },
+                          { code: "en", label: "English (US)", native: "English" },
+                          { code: "ja", label: "Japanese", native: "日本語" }
+                        ].map((lang) => {
+                          const isCurrent = (i18n.language || "zh").startsWith(lang.code);
+                          return (
+                            <button 
+                              key={lang.code}
+                              onClick={() => {
+                                i18n.changeLanguage(lang.code);
+                                localStorage.setItem("i18nextLng", lang.code);
+                                setIsLangOpen(false);
+                              }} 
+                              className={cn(
+                                "w-full text-left px-3 py-2 rounded-lg text-[11px] transition-colors flex items-center justify-between group",
+                                isCurrent ? "bg-blue-600/10 text-blue-400" : "text-gray-400 hover:bg-gray-800 hover:text-white"
+                              )}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-bold">{lang.native}</span>
+                                <span className="text-[9px] opacity-50 group-hover:opacity-100">{lang.label}</span>
+                              </div>
+                              {isCurrent && <CheckCircle2 className="w-3.5 h-3.5" />}
+                            </button>
+                          );
+                        })}
                       </div>
                     </motion.div>
                   </>
@@ -7595,7 +7600,9 @@ function UEBAInvestigationView() {
 
 function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
   const { i18n } = useTranslation();
-  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const [username, setUsername] = useState('supervisor');
   const [password, setPassword] = useState('password123');
   const [isLoading, setIsLoading] = useState(false);
@@ -7659,15 +7666,39 @@ function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
             SEMOR CYBER<br />
             <span className="text-sm font-bold text-gray-500 tracking-[0.3em] ml-1">NG-SIEM Platform</span>
           </h1>
-          <p className="text-xs text-gray-400 mt-2 font-mono">
-            {isZh ? '新世代威脅管理與資安事件指揮中心' : 'Next-Gen Threat Management & Incident Center'}
+          <div className="flex items-center gap-1.5 mt-2 mb-1 bg-black/40 p-1 border border-white/10 rounded-xl">
+            {[
+              { code: "zh", label: "繁體中文" },
+              { code: "en", label: "English" },
+              { code: "ja", label: "日本語" }
+            ].map(l => (
+              <button
+                key={l.code}
+                type="button"
+                onClick={() => {
+                  i18n.changeLanguage(l.code);
+                  localStorage.setItem("i18nextLng", l.code);
+                }}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all",
+                  (i18n.language || "zh").startsWith(l.code)
+                    ? "bg-blue-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                )}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-1 font-mono">
+            {isZh ? '新世代威脅管理與資安事件指揮中心' : isJa ? '次世代脅威管理・セキュリティ指令センター' : 'Next-Gen Threat Management & Incident Center'}
           </p>
         </div>
 
         {/* Quick Demo Access Bar */}
         <div className="mb-6 p-3 bg-white/[0.03] border border-white/10 rounded-2xl">
           <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest text-center mb-2">
-            {isZh ? '快速體驗登入' : 'Quick Demo Access'}
+            {isZh ? '快速體驗登入' : isJa ? 'クイックデモログイン' : 'Quick Demo Access'}
           </p>
           <div className="grid grid-cols-3 gap-2">
             <button
@@ -7675,21 +7706,21 @@ function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
               onClick={() => handleQuickLogin('supervisor')}
               className="px-2 py-2 bg-red-600/20 border border-red-500/30 hover:bg-red-600/30 rounded-xl text-[10px] font-bold text-red-400 uppercase tracking-wider transition-all"
             >
-              {isZh ? '主管' : 'Supervisor'}
+              {isZh ? '主管' : isJa ? '責任者' : 'Supervisor'}
             </button>
             <button
               type="button"
               onClick={() => handleQuickLogin('admin')}
               className="px-2 py-2 bg-blue-600/20 border border-blue-500/30 hover:bg-blue-600/30 rounded-xl text-[10px] font-bold text-blue-400 uppercase tracking-wider transition-all"
             >
-              {isZh ? '管理員' : 'Admin'}
+              {isZh ? '管理員' : isJa ? '管理者' : 'Admin'}
             </button>
             <button
               type="button"
               onClick={() => handleQuickLogin('auditor')}
               className="px-2 py-2 bg-green-600/20 border border-green-500/30 hover:bg-green-600/30 rounded-xl text-[10px] font-bold text-green-400 uppercase tracking-wider transition-all"
             >
-              {isZh ? '稽核員' : 'Auditor'}
+              {isZh ? '稽核員' : isJa ? '監査員' : 'Auditor'}
             </button>
           </div>
         </div>
@@ -7697,7 +7728,7 @@ function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
         <form onSubmit={handleSubmit} className="space-y-5 text-left">
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">
-              {isZh ? '使用者帳號' : 'System Principal'}
+              {isZh ? '使用者帳號' : isJa ? 'ユーザーアカウント' : 'System Principal'}
             </label>
             <div className="relative">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600" size={16} />
@@ -7713,7 +7744,7 @@ function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest pl-2">
-              {isZh ? '安全權限金鑰' : 'Security Token'}
+              {isZh ? '安全權限金鑰' : isJa ? 'セキュリティトークン' : 'Security Token'}
             </label>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600" size={16} />
@@ -7739,13 +7770,13 @@ function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
             className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl transition-all shadow-xl shadow-blue-600/20 flex items-center justify-center gap-2"
           >
             {isLoading ? <Activity size={16} className="animate-spin" /> : <Fingerprint size={16} />}
-            {isZh ? '驗證並進入系統' : 'Authenticate Access'}
+            {isZh ? '驗證並進入系統' : isJa ? '認証してログイン' : 'Authenticate Access'}
           </button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-[9px] text-gray-600 font-bold uppercase tracking-widest italic">
-            {isZh ? 'SEMOR 資安統一管控架構 • 已建立安全連線' : 'AUTHORIZED BY FOCUSECURE SEMOR • IP Logged: 192.168.1.5'}
+            {isZh ? 'SEMOR 資安統一管控架構 • 已建立安全連線' : isJa ? 'SEMOR 統合セキュリティ基盤 • 安全な接続' : 'AUTHORIZED BY FOCUSECURE SEMOR • TLS Secured'}
           </p>
         </div>
       </motion.div>
@@ -7759,7 +7790,9 @@ function LoginView({ onLogin }: { onLogin: (user: any) => void }) {
 
 function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSubTab: 'general' | 'network' | 'auth' | 'users' | 'collection' | 'remotelog' | 'nac' | 'decoder' | 'alert' | 'ndr_alerts' | 'update' | 'ueba' | 'engine_monitoring' | 'threat_intel', setActiveSubTab: (tab: any) => void, currentUser: any }) {
   const { t, i18n } = useTranslation();
-  const isZh = !i18n.language || i18n.language.startsWith('zh');
+  const currentLang = i18n.language || 'zh';
+  const isZh = currentLang.startsWith('zh');
+  const isJa = currentLang.startsWith('ja');
   const [isSyncing, setIsSyncing] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
