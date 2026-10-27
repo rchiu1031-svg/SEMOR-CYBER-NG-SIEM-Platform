@@ -5,7 +5,11 @@
     "complianceStandard": "GDPR/PCI-DSS",
     "oapEncryption": true,
     "maxTraceBufferMB": 2048,
-    "adaptiveSheddingThreshold": 90
+    "adaptiveSheddingThreshold": 90,
+    "slowSqlThresholdMs": 300,
+    "slowEndpointThresholdMs": 500,
+    "alertNotificationWebhook": "https://semor-cyber.internal/api/v1/soc/alerts",
+    "autoProfilingEnabled": true
   },
   "maskingRules": [
     {
@@ -31,6 +35,45 @@
     }
   ],
   "profilingTasks": [
+    {
+      "id": "PROF-1793072443325",
+      "taskName": "Test-Profile",
+      "durationSeconds": 10,
+      "status": "Completed",
+      "time": "2026-10-27 03:40:43",
+      "targetInstance": "auth-service-pod-0x2d1",
+      "sampleCount": 1200,
+      "threadState": "RUNNABLE",
+      "flameGraphData": [
+        {
+          "layer": 1,
+          "method": "java.lang.Thread.run()",
+          "cpuPercent": 100
+        },
+        {
+          "layer": 2,
+          "method": "org.springframework.web.servlet.DispatcherServlet.doService()",
+          "cpuPercent": 92
+        },
+        {
+          "layer": 3,
+          "method": "com.app.auth.BusinessService.executeWorkflow()",
+          "cpuPercent": 82,
+          "isHotspot": true
+        },
+        {
+          "layer": 4,
+          "method": "com.app.auth.repository.DbRepository.findLockedRecords()",
+          "cpuPercent": 64,
+          "isHotspot": true
+        },
+        {
+          "layer": 5,
+          "method": "java.net.SocketInputStream.socketRead0()",
+          "cpuPercent": 38
+        }
+      ]
+    },
     {
       "id": "PROF-101",
       "taskName": "CPU-Profiling-Task-01",
@@ -129,6 +172,42 @@
           "isHotspot": true
         }
       ]
+    }
+  ],
+  "alarms": [
+    {
+      "id": "ALM-102",
+      "service": "payment-service",
+      "time": "10:14:55",
+      "reason": "SLA drops below threshold of 95% (Current: 94.20%)",
+      "level": "Critical",
+      "status": "Active",
+      "metric": "sla_percent",
+      "value": 94.2,
+      "threshold": 95
+    },
+    {
+      "id": "ALM-103",
+      "service": "order-center-service",
+      "time": "10:15:02",
+      "reason": "Error rate spike detected: 1.50% in past 5m",
+      "level": "High",
+      "status": "Active",
+      "metric": "error_rate",
+      "value": 1.5,
+      "threshold": 1
+    },
+    {
+      "id": "ALM-104",
+      "service": "gateway-service",
+      "time": "09:42:15",
+      "reason": "SLA alert - minor latency warning on public auth path",
+      "level": "Warning",
+      "status": "Resolved",
+      "metric": "avg_latency_ms",
+      "value": 48,
+      "threshold": 40,
+      "resolvedAt": "09:55:00"
     }
   ]
 }

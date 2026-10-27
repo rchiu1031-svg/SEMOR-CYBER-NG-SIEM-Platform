@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 // Import our modular models and types
-import { ServiceNode, Trace, Span, ProfilingTask, MaskingRule } from './apm/ApmTypes';
+import { ServiceNode, Trace, Span, ProfilingTask, MaskingRule, CorrelationTimeBlock } from './apm/ApmTypes';
 import { 
   MOCK_SERVICES, 
   MOCK_RELATIONS, 
@@ -75,6 +75,7 @@ export default function SkywalkingApmView() {
   // SRE State Lists (Governance & Diagnostics)
   const [profilingTasks, setProfilingTasks] = useState<ProfilingTask[]>(MOCK_PROFILING_TASKS);
   const [maskingRules, setMaskingRules] = useState<MaskingRule[]>(DEFAULT_MASKING_RULES);
+  const [correlationBlocks, setCorrelationBlocks] = useState<CorrelationTimeBlock[]>(CORRELATION_TIME_BLOCKS);
   const [samplingRate, setSamplingRate] = useState<number>(75);
   const [isEmergencyActive, setIsEmergencyActive] = useState<boolean>(false);
 
@@ -106,10 +107,10 @@ export default function SkywalkingApmView() {
     }
   }, []);
 
-  // 2. Fetch Metrics from Backend
-  const loadMetrics = useCallback(async (currentEnv: string) => {
+  // 2. Fetch Metrics from Backend with timeRange support
+  const loadMetrics = useCallback(async (currentEnv: string, currentTimeRange: string = '15m') => {
     try {
-      const res = await siemService.getApmMetrics(currentEnv);
+      const res = await siemService.getApmMetrics(currentEnv, currentTimeRange);
       if (res && res.success) {
         if (res.stats) setBackendStats(res.stats);
         if (res.rtTrend) setRtTrend(res.rtTrend);
@@ -168,25 +169,38 @@ export default function SkywalkingApmView() {
     }
   }, []);
 
-  // Synchronize all data on mount and environment change
+  // 6. Fetch Correlation Blocks from Backend
+  const loadCorrelationBlocks = useCallback(async () => {
+    try {
+      const res = await siemService.getApmCorrelationBlocks();
+      if (res && res.success && res.blocks) {
+        setCorrelationBlocks(res.blocks);
+      }
+    } catch (err) {
+      console.warn('Backend APM correlation blocks offline', err);
+    }
+  }, []);
+
+  // Synchronize all data on mount and environment / timeRange change
   useEffect(() => {
     loadTopology(env);
-    loadMetrics(env);
+    loadMetrics(env, timeRange);
     loadTraces();
     loadGovernance();
     loadProfilingTasks();
+    loadCorrelationBlocks();
     setLastSyncTime(new Date().toLocaleTimeString());
-  }, [env, loadTopology, loadMetrics, loadTraces, loadGovernance, loadProfilingTasks]);
+  }, [env, timeRange, loadTopology, loadMetrics, loadTraces, loadGovernance, loadProfilingTasks, loadCorrelationBlocks]);
 
   // Auto-refresh interval (30 seconds)
   useEffect(() => {
     const timer = setInterval(() => {
       loadTopology(env);
-      loadMetrics(env);
+      loadMetrics(env, timeRange);
       setLastSyncTime(new Date().toLocaleTimeString());
     }, 30000);
     return () => clearInterval(timer);
-  }, [env, loadTopology, loadMetrics]);
+  }, [env, timeRange, loadTopology, loadMetrics]);
 
   // Calculated Stats
   const environmentalStats = useMemo(() => {
@@ -620,7 +634,7 @@ export default function SkywalkingApmView() {
           {activeTab === 'diagnostics' && (
             <ApmDiagnosticsView
               profilingTasks={profilingTasks}
-              correlationBlocks={CORRELATION_TIME_BLOCKS}
+              correlationBlocks={correlationBlocks}
               onTriggerProfiling={handleTriggerProfiling}
             />
           )}

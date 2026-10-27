@@ -420,16 +420,76 @@ export const siemService = {
     return response.data;
   },
 
-  async getApmMetrics(env: string = 'prod') {
+  async getApmMetrics(env: string = 'prod', timeRange: string = '15m') {
     const response = await axios.get('/api/v1/apm/metrics', {
-      params: { env }
+      params: { env, timeRange }
     });
     return response.data;
   },
 
-  async getApmTraces(query?: string, filter?: 'all' | 'error' | 'success') {
+  async getApmCorrelationBlocks() {
+    const response = await axios.get('/api/v1/apm/diagnostics/correlation-blocks');
+    return response.data;
+  },
+
+  async getApmTraceAnalysis(traceId: string) {
+    const response = await axios.get(`/api/v1/apm/traces/${traceId}/analysis`);
+    return response.data;
+  },
+
+  async simulateApmIncident(params: { env?: string; serviceId: string; incidentType: string; severity?: string }) {
+    const response = await axios.post('/api/v1/apm/topology/simulate-incident', params);
+    return response.data;
+  },
+
+  async recoverApmIncident(params: { env?: string; serviceId?: string }) {
+    const response = await axios.post('/api/v1/apm/topology/recover-incident', params);
+    return response.data;
+  },
+
+  async getApmAlarms() {
+    const response = await axios.get('/api/v1/apm/alarms');
+    return response.data;
+  },
+
+  async acknowledgeApmAlarm(id: string, user: string = 'admin') {
+    const response = await axios.post(`/api/v1/apm/alarms/${id}/acknowledge`, { user });
+    return response.data;
+  },
+
+  async resolveApmAlarm(id: string) {
+    const response = await axios.post(`/api/v1/apm/alarms/${id}/resolve`);
+    return response.data;
+  },
+
+  async getApmThreadDump(instance?: string) {
+    const response = await axios.get('/api/v1/apm/diagnostics/thread-dump', { params: { instance } });
+    return response.data;
+  },
+
+  async getApmJvmRuntime(instance?: string) {
+    const response = await axios.get('/api/v1/apm/diagnostics/jvm-runtime', { params: { instance } });
+    return response.data;
+  },
+
+  async exportApmMaskingRules() {
+    const response = await axios.get('/api/v1/apm/masking-rules/export');
+    return response.data;
+  },
+
+  async importApmMaskingRules(rules: any[], overwrite: boolean = false) {
+    const response = await axios.post('/api/v1/apm/masking-rules/import', { rules, overwrite });
+    return response.data;
+  },
+
+  async ingestApmTrace(trace: any) {
+    const response = await axios.post('/api/v1/apm/ingest/trace', trace);
+    return response.data;
+  },
+
+  async getApmTraces(query?: string, filter?: 'all' | 'error' | 'success', options?: { serviceName?: string; minDuration?: number; maxDuration?: number }) {
     const response = await axios.get('/api/v1/apm/traces', {
-      params: { query, filter }
+      params: { query, filter, ...options }
     });
     return response.data;
   },
@@ -459,7 +519,7 @@ export const siemService = {
     return response.data;
   },
 
-  async addApmMaskingRule(rule: { name: string; regex: string; replacement: string }) {
+  async addApmMaskingRule(rule: { name: string; regex: string; replacement: string; category?: string }) {
     const response = await axios.post('/api/v1/apm/masking-rules', rule);
     return response.data;
   },
