@@ -64,7 +64,7 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
   const [mitreTactics, setMitreTactics] = useState<MitreTacticItem[]>(MITRE_TACTIC_DISTRIBUTION);
   const [uebaEntities, setUebaEntities] = useState<UebaHighRiskEntity[]>([]);
   const [abnormalLogins, setAbnormalLogins] = useState<AbnormalLoginRecord[]>([]);
-  const [criticalIncidents, setCriticalIncidents] = useState<CriticalIncidentRecord[]>([]);
+  const [criticalIncidents, setCriticalIncidents] = useState<CriticalIncidentRecord[]>(CRITICAL_INCIDENTS);
   const [systemHealth, setSystemHealth] = useState<MasterNodeSystemHealth>(INITIAL_MASTER_SYSTEM_HEALTH);
   const [collectorStatus, setCollectorStatus] = useState({
     status: 'ONLINE',

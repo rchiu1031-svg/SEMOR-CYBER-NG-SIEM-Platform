@@ -4,6 +4,8 @@ import { globalCollectorThroughputTracker } from './collectorThroughputTracker.t
 import { globalVictoriaLogsHealthMonitor } from './victoriaLogsHealthMonitor.ts';
 import { globalCollectorMemoryManager } from './collectorMemoryManager.ts';
 import { globalPlatformPerformanceEngine } from './platformPerformanceEngine.ts';
+import { OVERVIEW_DEMO_CRITICAL_INCIDENTS } from '../src/data/incidentsData.ts';
+
 
 export interface OverviewAbnormalLogin {
   id: string;
@@ -156,8 +158,8 @@ export function createOverviewRouter(
   // Abnormal Logins Dataset (Empty for production data collection)
   let abnormalLogins: OverviewAbnormalLogin[] = [];
 
-  // Critical Incidents Dataset (Empty for production data collection)
-  let criticalIncidents: OverviewCriticalIncident[] = [];
+  // Critical Incidents Dataset (Populated with 20 demo records synced with Critical Incident Analysis)
+  let criticalIncidents: OverviewCriticalIncident[] = JSON.parse(JSON.stringify(OVERVIEW_DEMO_CRITICAL_INCIDENTS));
   // High-Risk UEBA Entities Dataset (Empty for production data collection)
   let uebaEntities: OverviewUebaEntity[] = [];
 
@@ -562,6 +564,21 @@ export function createOverviewRouter(
   router.get('/critical-incidents', (req: Request, res: Response) => {
     res.json({
       success: true,
+      incidents: criticalIncidents
+    });
+  });
+
+  // 8b. POST /api/v1/overview/reset-incidents (Restore 20 Demo Critical Incidents)
+  router.post('/reset-incidents', (_req: Request, res: Response) => {
+    criticalIncidents = JSON.parse(JSON.stringify(OVERVIEW_DEMO_CRITICAL_INCIDENTS));
+    containedIncidentIds.clear();
+    if (broadcastOverviewUpdate) {
+      broadcastOverviewUpdate({ type: 'incidents_reset', count: criticalIncidents.length });
+    }
+    res.json({
+      success: true,
+      message: 'Overview critical incidents queue reset to 20 demo items',
+      count: criticalIncidents.length,
       incidents: criticalIncidents
     });
   });

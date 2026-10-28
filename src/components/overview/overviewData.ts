@@ -11,6 +11,8 @@ import {
   AttackTimelineEvent,
   MasterNodeSystemHealth
 } from './types';
+import { OVERVIEW_DEMO_CRITICAL_INCIDENTS } from '../../data/incidentsData';
+
 
 export const OVERVIEW_METRICS: MetricCardData[] = [
   {
@@ -186,7 +188,7 @@ export const UEBA_HIGH_RISK_ENTITIES: UebaHighRiskEntity[] = [];
 
 export const ABNORMAL_LOGINS: AbnormalLoginRecord[] = [];
 
-export const CRITICAL_INCIDENTS: CriticalIncidentRecord[] = [];
+export const CRITICAL_INCIDENTS: CriticalIncidentRecord[] = OVERVIEW_DEMO_CRITICAL_INCIDENTS as unknown as CriticalIncidentRecord[];
 
 export const HOURLY_TRAFFIC_DATA: TrafficDataPoint[] = [];
 
@@ -195,9 +197,90 @@ export const ATTACK_TOPOLOGY_DATA: {
   links: AttackTopologyLink[];
   timeline: AttackTimelineEvent[];
 } = {
-  nodes: [],
-  links: [],
-  timeline: []
+  nodes: [
+    {
+      id: 'attacker-c2',
+      type: 'attacker',
+      labelZh: '外部 C2 威脅源 (RU)',
+      labelEn: 'External C2 Server (RU)',
+      ip: '185.220.101.45',
+      x: 120,
+      y: 190
+    },
+    {
+      id: 'edge-firewall',
+      type: 'gateway',
+      labelZh: '邊界 NGFW 防火牆',
+      labelEn: 'Edge NGFW Cluster',
+      ip: '10.88.88.254',
+      x: 340,
+      y: 190
+    },
+    {
+      id: 'victim-workstation',
+      type: 'infected',
+      labelZh: '財務工作站 (首發感染)',
+      labelEn: 'Patient Zero Workstation',
+      ip: '10.88.88.106',
+      x: 580,
+      y: 130,
+      patientZero: true
+    },
+    {
+      id: 'active-directory',
+      type: 'target',
+      labelZh: '網域控制站 (DC-01)',
+      labelEn: 'Domain Controller (DC-01)',
+      ip: '10.88.88.202',
+      x: 820,
+      y: 130
+    },
+    {
+      id: 'backup-vault',
+      type: 'target',
+      labelZh: '異地冷儲存備份庫',
+      labelEn: 'Air-Gapped Backup Vault',
+      ip: '10.88.88.180',
+      x: 820,
+      y: 270
+    }
+  ],
+  links: [
+    {
+      source: 'attacker-c2',
+      target: 'edge-firewall',
+      labelZh: '惡意載荷傳送 (TCP 443)',
+      labelEn: 'Payload Delivery (TCP 443)',
+      type: 'entry'
+    },
+    {
+      source: 'edge-firewall',
+      target: 'victim-workstation',
+      labelZh: '反向 WebShell 注入',
+      labelEn: 'Reverse Shell Inject',
+      type: 'infection'
+    },
+    {
+      source: 'victim-workstation',
+      target: 'active-directory',
+      labelZh: 'LSASS 雜湊竊取 (Pass-the-Hash)',
+      labelEn: 'Pass-the-Hash (PtH)',
+      type: 'lateral'
+    },
+    {
+      source: 'victim-workstation',
+      target: 'backup-vault',
+      labelZh: 'SMB 陰影備份清毀嘗試',
+      labelEn: 'Shadow Copy Wipe Attempt',
+      type: 'exfil'
+    }
+  ],
+  timeline: [
+    { time: '12:20:00', eventZh: '外部 IP 偵測並建立 SSL 探針連線', eventEn: 'External IP probed edge perimeter', status: 'detected' },
+    { time: '12:22:15', eventZh: 'WS-FINANCE-TAIPEI-02 下載並側載惡意載荷', eventEn: 'Malicious payload DLL side-loaded', status: 'alert' },
+    { time: '12:23:45', eventZh: '呼叫 vssadmin 試圖銷毀本機系統陰影複本', eventEn: 'Attempted to delete volume shadows', status: 'critical' },
+    { time: '12:24:08', eventZh: 'SEMOR SOAR 觸發並完成端點微隔離', eventEn: 'SEMOR SOAR auto-quarantine enforced', status: 'critical' }
+  ]
 };
 
 export const INITIAL_MASTER_SYSTEM_HEALTH: MasterNodeSystemHealth = {

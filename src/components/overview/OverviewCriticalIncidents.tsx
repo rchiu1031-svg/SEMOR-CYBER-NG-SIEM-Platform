@@ -8,7 +8,9 @@ import {
   ExternalLink,
   Search,
   Filter,
-  ArrowRight
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { CriticalIncidentRecord } from './types';
 import { cn } from '../../lib/utils';
@@ -31,6 +33,8 @@ export const OverviewCriticalIncidents: React.FC<OverviewCriticalIncidentsProps>
   const [searchTerm, setSearchTerm] = useState('');
   const [severityFilter, setSeverityFilter] = useState<'ALL' | 'Critical' | 'High'>('ALL');
   const [openDropdownIdx, setOpenDropdownIdx] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const filteredIncidents = incidents.filter((inc) => {
     const matchesSearch =
@@ -41,6 +45,10 @@ export const OverviewCriticalIncidents: React.FC<OverviewCriticalIncidentsProps>
     const matchesSeverity = severityFilter === 'ALL' || inc.risk === severityFilter;
     return matchesSearch && matchesSeverity;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredIncidents.length / pageSize));
+  const validCurrentPage = Math.min(currentPage, totalPages);
+  const pagedIncidents = filteredIncidents.slice((validCurrentPage - 1) * pageSize, validCurrentPage * pageSize);
 
   return (
     <div className="bg-[#111114] border border-red-900/30 rounded-2xl overflow-hidden shadow-xl shadow-red-950/5">
@@ -122,7 +130,7 @@ export const OverviewCriticalIncidents: React.FC<OverviewCriticalIncidentsProps>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-800/60">
-            {filteredIncidents.map((incident, idx) => (
+            {pagedIncidents.map((incident, idx) => (
               <tr
                 key={incident.id}
                 className="hover:bg-red-500/[0.03] transition-colors group"
@@ -266,6 +274,79 @@ export const OverviewCriticalIncidents: React.FC<OverviewCriticalIncidentsProps>
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Pagination Footer */}
+      <div className="p-4 border-t border-gray-800/80 bg-black/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-400">
+        <div className="flex items-center gap-2">
+          <span>
+            {isZh
+              ? `共 ${filteredIncidents.length} 筆重大事件 (顯示第 ${(validCurrentPage - 1) * pageSize + 1}-${Math.min(validCurrentPage * pageSize, filteredIncidents.length)} 筆)`
+              : `Showing ${(validCurrentPage - 1) * pageSize + 1}-${Math.min(validCurrentPage * pageSize, filteredIncidents.length)} of ${filteredIncidents.length} critical incidents`}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Page size toggle */}
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <span className="text-gray-500">{isZh ? '每頁顯示：' : 'Page size:'}</span>
+            {[10, 20].map((sz) => (
+              <button
+                key={sz}
+                onClick={() => {
+                  setPageSize(sz);
+                  setCurrentPage(1);
+                }}
+                className={cn(
+                  "px-2 py-0.5 rounded transition-all",
+                  pageSize === sz
+                    ? "bg-gray-800 text-white font-bold border border-gray-700"
+                    : "text-gray-400 hover:text-gray-200"
+                )}
+              >
+                {sz === 20 ? (isZh ? '20 (全部)' : '20 (All)') : sz}
+              </button>
+            ))}
+          </div>
+
+          {/* Page navigation */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={validCurrentPage <= 1}
+                className="p-1 rounded-md bg-gray-900 border border-gray-800 text-gray-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
+                title={isZh ? '上一頁' : 'Previous page'}
+              >
+                <ChevronLeft size={14} />
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+                <button
+                  key={pg}
+                  onClick={() => setCurrentPage(pg)}
+                  className={cn(
+                    "w-7 h-7 rounded-md text-xs font-semibold transition-all",
+                    validCurrentPage === pg
+                      ? "bg-red-600 text-white font-bold shadow-md shadow-red-600/30"
+                      : "bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:bg-gray-800"
+                  )}
+                >
+                  {pg}
+                </button>
+              ))}
+
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={validCurrentPage >= totalPages}
+                className="p-1 rounded-md bg-gray-900 border border-gray-800 text-gray-300 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
+                title={isZh ? '下一頁' : 'Next page'}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

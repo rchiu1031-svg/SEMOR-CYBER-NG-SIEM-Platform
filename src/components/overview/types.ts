@@ -99,6 +99,12 @@ export interface CriticalIncidentRecord {
   soarStatus: 'Auto-Contained' | 'In-Progress' | 'Pending-Approval' | 'Resolved';
   iocHash?: string;
   affectedAssets: string[];
+  riskScore?: number;
+  payloadHex?: string;
+  rawLog?: string;
+  aiSummary?: string;
+  confidence?: number;
+  cve?: string;
 }
 
 export interface TrafficDataPoint {

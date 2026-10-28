@@ -12,7 +12,7 @@ import {
   ExternalLink,
   Target
 } from 'lucide-react';
-import { CriticalIncidentRecord, AttackTopologyNode, AttackTopologyLink } from './types';
+import { CriticalIncidentRecord, AttackTopologyNode, AttackTopologyLink, AttackTimelineEvent } from './types';
 import { ATTACK_TOPOLOGY_DATA } from './overviewData';
 import { cn } from '../../lib/utils';
 
@@ -32,7 +32,109 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<AttackTopologyNode | null>(null);
   const [isPlayingTimeline, setIsPlayingTimeline] = useState(false);
-  const [activeTimelineStep, setActiveTimelineStep] = useState(ATTACK_TOPOLOGY_DATA.timeline.length - 1);
+
+  const topologyData = React.useMemo(() => {
+    if (!incident) return ATTACK_TOPOLOGY_DATA;
+    const nodes: AttackTopologyNode[] = [
+      {
+        id: 'attacker',
+        type: 'attacker',
+        labelZh: `攻擊來源 (${incident.countryZh || '外部'})`,
+        labelEn: `Attacker (${incident.countryEn || 'External'})`,
+        ip: incident.srcIp,
+        x: 120,
+        y: 190
+      },
+      {
+        id: 'gateway',
+        type: 'gateway',
+        labelZh: '邊界 NGFW 防火牆',
+        labelEn: 'Edge NGFW Cluster',
+        ip: '10.88.88.254',
+        x: 350,
+        y: 190
+      },
+      {
+        id: 'victim',
+        type: 'infected',
+        labelZh: `受害端點 (${incident.host})`,
+        labelEn: `Victim (${incident.host})`,
+        ip: incident.host.includes('.') ? incident.host : (incident.srcIp.startsWith('10.') ? incident.srcIp : '10.88.88.106'),
+        x: 590,
+        y: 140,
+        patientZero: true
+      },
+      {
+        id: 'target',
+        type: 'target',
+        labelZh: `目標 / C2 (${incident.destIp})`,
+        labelEn: `Target / C2 (${incident.destIp})`,
+        ip: incident.destIp,
+        x: 830,
+        y: 190
+      }
+    ];
+
+    if (incident.affectedAssets && incident.affectedAssets.length > 1 && incident.affectedAssets[1] !== incident.host) {
+      nodes.push({
+        id: 'lateral-asset',
+        type: 'target',
+        labelZh: `關聯資產 (${incident.affectedAssets[1]})`,
+        labelEn: `Related Asset (${incident.affectedAssets[1]})`,
+        ip: '10.88.88.202',
+        x: 830,
+        y: 280
+      });
+    }
+
+    const links: AttackTopologyLink[] = [
+      {
+        source: 'attacker',
+        target: 'gateway',
+        labelZh: '外部探針連線 (TCP/SSL)',
+        labelEn: 'Inbound Probe (TCP/SSL)',
+        type: 'entry'
+      },
+      {
+        source: 'gateway',
+        target: 'victim',
+        labelZh: incident.mitreTactic?.substring(0, 20) || '惡意載荷傳輸',
+        labelEn: incident.mitreTactic?.substring(0, 20) || 'Payload Delivery',
+        type: 'infection'
+      },
+      {
+        source: 'victim',
+        target: 'target',
+        labelZh: incident.actionZh?.substring(0, 16) || 'SOAR 微隔離攔截',
+        labelEn: incident.actionEn?.substring(0, 16) || 'SOAR Intercept',
+        type: 'exfil'
+      }
+    ];
+
+    if (nodes.some(n => n.id === 'lateral-asset')) {
+      links.push({
+        source: 'victim',
+        target: 'lateral-asset',
+        labelZh: '內部橫向移動',
+        labelEn: 'Lateral Movement',
+        type: 'lateral'
+      });
+    }
+
+    const timeline: AttackTimelineEvent[] = [
+      { time: '12:20:00', eventZh: '外部來源 IP 建立探針連線與掃描', eventEn: 'Inbound probe & port scan detected', status: 'detected' },
+      { time: '12:22:15', eventZh: `${incident.host} 觸發 ${incident.threatZh.substring(0, 24)}`, eventEn: `Triggered ${incident.threatEn.substring(0, 24)}`, status: 'alert' },
+      { time: '12:24:08', eventZh: `SEMOR SOAR 執行處置：${incident.actionZh}`, eventEn: `SEMOR SOAR executed: ${incident.actionEn}`, status: 'critical' }
+    ];
+
+    return { nodes, links, timeline };
+  }, [incident]);
+
+  const [activeTimelineStep, setActiveTimelineStep] = useState(topologyData.timeline.length - 1);
+
+  useEffect(() => {
+    setActiveTimelineStep(topologyData.timeline.length - 1);
+  }, [topologyData]);
 
   // Timeline playback loop
   useEffect(() => {
@@ -40,7 +142,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
     if (isPlayingTimeline) {
       timer = setInterval(() => {
         setActiveTimelineStep((prev) => {
-          if (prev >= ATTACK_TOPOLOGY_DATA.timeline.length - 1) {
+          if (prev >= topologyData.timeline.length - 1) {
             setIsPlayingTimeline(false);
             return prev;
           }
@@ -49,7 +151,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
       }, 1500);
     }
     return () => clearInterval(timer);
-  }, [isPlayingTimeline]);
+  }, [isPlayingTimeline, topologyData.timeline.length]);
 
   // Render SVG D3 Topology
   useEffect(() => {
@@ -100,9 +202,9 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
     // Draw Links
     const linkGroup = g.append('g').attr('class', 'links');
     const nodeMap = new Map<string, AttackTopologyNode>();
-    ATTACK_TOPOLOGY_DATA.nodes.forEach((n) => nodeMap.set(n.id, n));
+    topologyData.nodes.forEach((n) => nodeMap.set(n.id, n));
 
-    ATTACK_TOPOLOGY_DATA.links.forEach((link) => {
+    topologyData.links.forEach((link) => {
       const sourceNode = nodeMap.get(link.source);
       const targetNode = nodeMap.get(link.target);
       if (!sourceNode || !targetNode) return;
@@ -142,7 +244,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
     // Draw Nodes
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
-    ATTACK_TOPOLOGY_DATA.nodes.forEach((node) => {
+    topologyData.nodes.forEach((node) => {
       const nodeG = nodeGroup.append('g')
         .attr('transform', `translate(${node.x}, ${node.y})`)
         .attr('cursor', 'pointer')
@@ -206,7 +308,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
         .text(node.ip);
     });
 
-  }, [isZh]);
+  }, [isZh, topologyData]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -266,7 +368,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      if (activeTimelineStep >= ATTACK_TOPOLOGY_DATA.timeline.length - 1) {
+                      if (activeTimelineStep >= topologyData.timeline.length - 1) {
                         setActiveTimelineStep(0);
                       }
                       setIsPlayingTimeline(!isPlayingTimeline);
@@ -279,7 +381,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
                   <button
                     onClick={() => {
                       setIsPlayingTimeline(false);
-                      setActiveTimelineStep(ATTACK_TOPOLOGY_DATA.timeline.length - 1);
+                      setActiveTimelineStep(topologyData.timeline.length - 1);
                     }}
                     className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/5"
                   >
@@ -290,7 +392,7 @@ export const OverviewAttackTopologyModal: React.FC<OverviewAttackTopologyModalPr
 
               {/* Steps */}
               <div className="space-y-2">
-                {ATTACK_TOPOLOGY_DATA.timeline.map((step, idx) => {
+                {topologyData.timeline.map((step, idx) => {
                   const isActive = idx <= activeTimelineStep;
                   const isCurrent = idx === activeTimelineStep;
                   return (

@@ -588,3 +588,136 @@ export const DEMO_CRITICAL_INCIDENTS: CriticalIncidentItem[] = [
     ]
   }
 ];
+
+export interface OverviewIncidentRecord {
+  id: string;
+  time: string;
+  threatZh: string;
+  threatEn: string;
+  categoryZh: string;
+  categoryEn: string;
+  srcIp: string;
+  destIp: string;
+  host: string;
+  countryZh: string;
+  countryEn: string;
+  actionZh: string;
+  actionEn: string;
+  risk: 'Critical' | 'High' | 'Medium';
+  mitreTactic: string;
+  soarStatus: 'Auto-Contained' | 'In-Progress' | 'Pending-Approval' | 'Resolved';
+  iocHash?: string;
+  affectedAssets: string[];
+  riskScore?: number;
+  payloadHex?: string;
+  rawLog?: string;
+  aiSummary?: string;
+  confidence?: number;
+  cve?: string;
+}
+
+const THREAT_EN_MAP: Record<string, string> = {
+  'INC-2026-0001': 'LockBit 3.0 Ransomware Volume Shadow Wipe & Mass Encryption',
+  'INC-2026-0002': 'Domain Controller LSASS Memory Dump & Mimikatz Hash Extraction',
+  'INC-2026-0003': 'Cobalt Strike 4.9 Malleable HTTPS Reverse Beacon Channel Established',
+  'INC-2026-0004': 'Volt Typhoon Nation-State LotL Reverse Proxy Perimeter Infiltration',
+  'INC-2026-0005': 'LummaC2 InfoStealer Exfiltrating Browser Credentials & Crypto Wallets',
+  'INC-2026-0006': 'ICS SCADA Modbus TCP Unauthorized Function 0x05 Coil Override',
+  'INC-2026-0007': 'Botnet Distributed SSH Dictionary Brute-Force & Honeypot Interception',
+  'INC-2026-0008': 'SQL Injection UNION SELECT Targeting Core Customer PII Database',
+  'INC-2026-0009': 'Kerberoasting Offline Hash Attack: Malicious SPN RC4 Ticket Requests',
+  'INC-2026-0010': 'Kubernetes Unauthorized Privileged Container & HostPID Breakout',
+  'INC-2026-0011': 'Siemens S7comm Plus Unauthorized Firmware & Ladder Logic Overwrite',
+  'INC-2026-0012': 'Cloud Admin Impossible Travel Anomaly & MFA Fatigue Spamming',
+  'INC-2026-0013': 'High-Entropy DNS Tunneling Covert Channel Exfiltrating Proprietary Source Code',
+  'INC-2026-0014': 'Forged Kerberos Golden Ticket & Pass-the-Hash Lateral Movement',
+  'INC-2026-0015': 'AI Gateway Dynamic DLP: Intercepted Core Source Code & API Keys',
+  'INC-2026-0016': 'Mirai Botnet High-Volume TCP SYN & UDP Reflection DDoS Flood',
+  'INC-2026-0017': 'BloodHound / SharpHound High-Frequency LDAP Domain Reconnaissance',
+  'INC-2026-0018': 'DNP3 Smart Grid Broadcast Injection: Substation Remote Breaker Override',
+  'INC-2026-0019': 'DLL Side-Loading Hijacking Signed Microsoft Process for Malicious Execution',
+  'INC-2026-0020': 'AWS IMDSv1 SSRF Exploitation & Exfiltration of Temporary IAM Role Credentials'
+};
+
+const CATEGORY_MAP: Record<string, { zh: string; en: string }> = {
+  apt: { zh: '進階持續性威脅 (APT)', en: 'Advanced Persistent Threat' },
+  ics: { zh: '工控物聯網安全 (ICS/SCADA)', en: 'ICS/OT & SCADA Threat' },
+  c2: { zh: '命令與控制通訊 (C2)', en: 'Command & Control' },
+  ueba: { zh: '使用者異常行為分析 (UEBA)', en: 'UEBA & Insider Threat' },
+  bruteforce: { zh: '憑證與暴力破解 (Brute-force)', en: 'Credential Brute-Force' },
+  exfil: { zh: '機密數據外洩竊取 (Exfil)', en: 'Data Exfiltration' }
+};
+
+const COUNTRY_MAP: Record<string, { zh: string; en: string }> = {
+  RU: { zh: '俄羅斯 (RU)', en: 'Russia (RU)' },
+  CN: { zh: '中國 (CN)', en: 'China (CN)' },
+  US: { zh: '美國 (US)', en: 'United States (US)' },
+  TW: { zh: '台灣 (TW)', en: 'Taiwan (TW)' },
+  UA: { zh: '烏克蘭 (UA)', en: 'Ukraine (UA)' },
+  NL: { zh: '荷蘭 (NL)', en: 'Netherlands (NL)' },
+  DE: { zh: '德國 (DE)', en: 'Germany (DE)' },
+  IR: { zh: '伊朗 (IR)', en: 'Iran (IR)' },
+  BR: { zh: '巴西 (BR)', en: 'Brazil (BR)' },
+  NG: { zh: '奈及利亞 (NG)', en: 'Nigeria (NG)' }
+};
+
+const SOAR_STATUS_MAP: Record<string, 'Auto-Contained' | 'In-Progress' | 'Pending-Approval' | 'Resolved'> = {
+  contained: 'Auto-Contained',
+  investigating: 'In-Progress',
+  active: 'Pending-Approval',
+  resolved: 'Resolved'
+};
+
+const ACTION_MAP: Record<string, { zh: string; en: string }> = {
+  Contained: { zh: '已執行微隔離與封鎖', en: 'Auto-Contained' },
+  Investigating: { zh: '資安團隊深入調查中', en: 'Under Investigation' },
+  Blocked: { zh: '邊界防火牆攔截阻絕', en: 'Firewall Blocked' },
+  Active: { zh: '待處置通報告警', en: 'Pending Containment' },
+  Isolated: { zh: '主機微隔離中', en: 'Micro-Isolated' }
+};
+
+export function mapIncidentItemToOverviewRecord(item: CriticalIncidentItem): OverviewIncidentRecord {
+  const cat = CATEGORY_MAP[item.category] || { zh: item.category.toUpperCase(), en: item.category.toUpperCase() };
+  const country = COUNTRY_MAP[item.country] || { zh: item.country, en: item.country };
+  const action = ACTION_MAP[item.action] || { zh: item.action, en: item.action };
+  const soarStatus = SOAR_STATUS_MAP[item.status] || 'In-Progress';
+
+  const hostName = item.srcHost || item.dstHost || (item.srcip.startsWith('10.') ? `Host-${item.srcip.replace(/\./g, '-')}` : `Target-Asset-${item.dstip.replace(/\./g, '-')}`);
+
+  const assets: string[] = [];
+  if (item.srcHost) assets.push(item.srcHost);
+  if (item.dstHost && item.dstHost !== item.srcHost) assets.push(item.dstHost);
+  if (assets.length === 0) {
+    assets.push(item.srcip, item.dstip);
+  }
+
+  return {
+    id: item.id,
+    time: item.time,
+    threatZh: item.threat,
+    threatEn: THREAT_EN_MAP[item.id] || item.threat,
+    categoryZh: cat.zh,
+    categoryEn: cat.en,
+    srcIp: item.srcip,
+    destIp: item.dstip,
+    host: hostName,
+    countryZh: country.zh,
+    countryEn: country.en,
+    actionZh: action.zh,
+    actionEn: action.en,
+    risk: item.risk,
+    mitreTactic: item.mitreTTP,
+    soarStatus,
+    iocHash: item.payloadHex ? item.payloadHex.substring(0, 32).replace(/\s/g, '') : undefined,
+    affectedAssets: assets,
+    riskScore: item.riskScore,
+    payloadHex: item.payloadHex,
+    rawLog: item.rawLog,
+    aiSummary: item.aiSummary,
+    confidence: item.confidence,
+    cve: item.cve
+  };
+}
+
+export const OVERVIEW_DEMO_CRITICAL_INCIDENTS: OverviewIncidentRecord[] = DEMO_CRITICAL_INCIDENTS.map(mapIncidentItemToOverviewRecord);
+
