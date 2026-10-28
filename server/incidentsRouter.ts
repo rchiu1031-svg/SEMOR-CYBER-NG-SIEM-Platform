@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 const Router = express.Router;
 import crypto from 'crypto';
 import { globalAttackSignatureEngine } from './attackSignatureEngine.ts';
+import { DEMO_CRITICAL_INCIDENTS } from '../src/data/incidentsData.ts';
 
 export interface PlaybookItem {
   id: string;
@@ -58,8 +59,8 @@ export function createIncidentsRouter(
 ) {
   const router = Router();
 
-  // Initial High-Fidelity Critical Incidents Dataset
-  let criticalIncidents: CriticalIncidentItem[] = [];
+  // Initial High-Fidelity Critical Incidents Dataset (20 Real-World Incidents for Demo)
+  let criticalIncidents: CriticalIncidentItem[] = JSON.parse(JSON.stringify(DEMO_CRITICAL_INCIDENTS));
 
   // Helper to calculate statistics
   const getStats = () => {
@@ -997,15 +998,10 @@ export function createIncidentsRouter(
 
   // 13. POST /api/v1/incidents/reset (Reset to initial data)
   router.post('/reset', (req: Request, res: Response) => {
-    // Reset dataset
-    criticalIncidents.forEach(item => {
-      item.status = 'active';
-      if (item.id === 'INC-2026-0804') item.status = 'contained';
-      if (item.id === 'INC-2026-0802' || item.id === 'INC-2026-0806') item.status = 'investigating';
-    });
+    criticalIncidents = JSON.parse(JSON.stringify(DEMO_CRITICAL_INCIDENTS));
     res.json({
       success: true,
-      message: '嚴重事件資料集已重置回初始高擬真狀態',
+      message: '嚴重事件資料集已重置回初始 20 筆高擬真狀態',
       incidents: criticalIncidents,
       stats: getStats()
     });

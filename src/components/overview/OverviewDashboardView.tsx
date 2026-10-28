@@ -10,7 +10,8 @@ import {
   CcsClusterNode,
   MitreTacticItem,
   AbnormalLoginRecord,
-  TrafficDataPoint
+  TrafficDataPoint,
+  MasterNodeSystemHealth
 } from './types';
 import {
   OVERVIEW_METRICS,
@@ -20,11 +21,13 @@ import {
   ABNORMAL_LOGINS,
   CRITICAL_INCIDENTS,
   HOURLY_TRAFFIC_DATA,
-  SOC_SLA_METRICS
+  SOC_SLA_METRICS,
+  INITIAL_MASTER_SYSTEM_HEALTH
 } from './overviewData';
 import { OverviewHeader } from './OverviewHeader';
 import { OverviewAiThreatAdvisory } from './OverviewAiThreatAdvisory';
 import { OverviewMetricCards } from './OverviewMetricCards';
+import { OverviewSystemHealth } from './OverviewSystemHealth';
 import { OverviewTrafficAnalytics } from './OverviewTrafficAnalytics';
 import { OverviewMitreMatrix } from './OverviewMitreMatrix';
 import { OverviewGlobalClusterMap } from './OverviewGlobalClusterMap';
@@ -62,6 +65,7 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
   const [uebaEntities, setUebaEntities] = useState<UebaHighRiskEntity[]>([]);
   const [abnormalLogins, setAbnormalLogins] = useState<AbnormalLoginRecord[]>([]);
   const [criticalIncidents, setCriticalIncidents] = useState<CriticalIncidentRecord[]>([]);
+  const [systemHealth, setSystemHealth] = useState<MasterNodeSystemHealth>(INITIAL_MASTER_SYSTEM_HEALTH);
   const [collectorStatus, setCollectorStatus] = useState({
     status: 'ONLINE',
     eps: 0,
@@ -101,6 +105,7 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
         if (Array.isArray(d.uebaEntities)) setUebaEntities(d.uebaEntities);
         if (Array.isArray(d.abnormalLogins)) setAbnormalLogins(d.abnormalLogins);
         if (Array.isArray(d.criticalIncidents)) setCriticalIncidents(d.criticalIncidents);
+        if (d.systemHealth) setSystemHealth(d.systemHealth);
         if (typeof d.isWarMode === 'boolean') setIsWarMode(d.isWarMode);
         if (d.collectorStatus) setCollectorStatus(d.collectorStatus);
         setIsLiveConnected(true);
@@ -116,6 +121,29 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
       }
     }
   }, [timeRange, isZh]);
+
+  // 1b. Real-time System Health Poller (every 3s for smooth Recharts live telemetry)
+  useEffect(() => {
+    let active = true;
+    const pollHealth = async () => {
+      try {
+        const res = await fetch('/api/v1/overview/system-health');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (active && json.success && json.data) {
+          setSystemHealth(json.data);
+        }
+      } catch {
+        // Fallback gracefully to current state
+      }
+    };
+
+    const timer = setInterval(pollHealth, 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   // Initial fetch and on timeRange change
   useEffect(() => {
@@ -406,6 +434,14 @@ Telemetry Authority: Go Collector + Rust VictoriaLogs Storage`;
         isZh={isZh}
         selectedMetricId={selectedMetricId}
         onSelectMetric={(id) => setSelectedMetricId(id === selectedMetricId ? undefined : id)}
+      />
+
+      {/* Real-time SIEM Master Node System Health (Recharts CPU, RAM, Disk Utilization) */}
+      <OverviewSystemHealth
+        systemHealth={systemHealth}
+        isZh={isZh}
+        onRefresh={handleManualRefresh}
+        isRefreshing={isRefreshing}
       />
 
       {/* Bento Grid Row 1: Distributed Ingestion Traffic (2/3) + UEBA Risk Entities (1/3) */}

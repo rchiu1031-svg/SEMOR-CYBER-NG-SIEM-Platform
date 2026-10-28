@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-10-15T03:00:08.899Z",
+  "savedAt": "2026-10-27T08:46:28.134Z",
   "license": {
     "licenseKey": "SEMOR-ENT-2026-8841-9923-SEC8",
     "tier": "Enterprise",
@@ -79,14 +79,14 @@
     },
     "issuer": "SEMOR GLOBAL ENTITLEMENT ROOT CA",
     "certificateSerial": "CERT-SN-89F1-44B7-A189",
-    "lastVerifiedAt": "2026-10-15T03:00:08.898Z",
-    "lastSyncAt": "2026-10-15T03:00:08.898Z",
+    "lastVerifiedAt": "2026-10-27T08:46:28.133Z",
+    "lastSyncAt": "2026-10-27T08:46:28.133Z",
     "digitalSignature": "D1926AA27616609C81D7CA24745CAE8FBC141C3B2BD7806AA9CC6E71B202D913"
   },
   "auditLogs": [
     {
-      "id": "AUD-1792033208899-01",
-      "timestamp": "2026-10-15T03:00:08.899Z",
+      "id": "AUD-1793090788134-01",
+      "timestamp": "2026-10-27T08:46:28.134Z",
       "action": "INITIALIZE",
       "operator": "System Kernel",
       "details": "平台授權引擎初始化成功，載入企業旗艦版 (Enterprise) 憑證，簽章校驗通過。",

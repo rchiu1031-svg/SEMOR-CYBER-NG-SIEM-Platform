@@ -52,6 +52,7 @@ import { tpotEngine } from './server/tpotEngine.ts';
 import { globalSoarEngine } from './server/soarEngine.ts';
 import { globalCasesEngine } from './server/casesEngine.ts';
 import { globalCtiEngine } from './server/ctiEngine.ts';
+import { DEMO_LOG_RECORDS } from './src/data/logsData.ts';
 
 dotenv.config();
 
@@ -2751,7 +2752,7 @@ async function startServer() {
   // ==========================================
   const RUNTIME_LOGS_PATH = path.join(process.cwd(), 'runtime_logs.json');
 
-  const initialLogsCorpus: any[] = [];
+  const initialLogsCorpus: any[] = [...DEMO_LOG_RECORDS];
 
   let runtimeLogCorpus: any[] = [...initialLogsCorpus];
 
@@ -4055,7 +4056,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -4071,12 +4072,25 @@ async function startServer() {
     console.log(`SEEOR CYBER NG-SIEM Platform Running on http://localhost:${PORT}`);
   });
 
+  server.on('error', (err: any) => {
+    console.error('[HTTP Server Error]:', err.message);
+  });
+
   // Attach Real-Time WebSocket Server for Multi-User collaboration
   const wss = new WebSocketServer({ server });
+  wss.on('error', (err: any) => {
+    // Ignore WebSocket errors per environment constraints
+    console.warn('[WS Server Warning]:', err.message);
+  });
+
   const rooms = new Map<string, Set<WebSocket>>();
 
   wss.on('connection', (ws) => {
     let currentRoom: string | null = null;
+
+    ws.on('error', (err) => {
+      console.warn('[WS Client Warning]:', err.message);
+    });
 
     ws.on('message', (messageBuffer) => {
       try {

@@ -99,7 +99,9 @@ interface LogsSummary {
   recentLogsSample?: any[];
 }
 
-const DEFAULT_INCIDENTS: CriticalIncidentItem[] = [];
+import { DEMO_CRITICAL_INCIDENTS } from '../data/incidentsData';
+
+const DEFAULT_INCIDENTS: CriticalIncidentItem[] = DEMO_CRITICAL_INCIDENTS;
 
 export default function CriticalIncidentsView({ currentUser }: { currentUser: any }) {
   const { t, i18n } = useTranslation();
@@ -107,8 +109,8 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
 
   // Data state
   const [incidents, setIncidents] = useState<CriticalIncidentItem[]>(DEFAULT_INCIDENTS);
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [selectedIncident, setSelectedIncident] = useState<CriticalIncidentItem | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(DEFAULT_INCIDENTS[0]?.id || null);
+  const [selectedIncident, setSelectedIncident] = useState<CriticalIncidentItem | null>(DEFAULT_INCIDENTS[0] || null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzingAi, setIsAnalyzingAi] = useState(false);

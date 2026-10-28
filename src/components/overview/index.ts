@@ -12,4 +12,5 @@ export * from './OverviewCriticalIncidents';
 export * from './OverviewAttackTopologyModal';
 export * from './OverviewSoarActionModal';
 export * from './OverviewEntityModal';
+export * from './OverviewSystemHealth';
 export { OverviewDashboardView, default } from './OverviewDashboardView';

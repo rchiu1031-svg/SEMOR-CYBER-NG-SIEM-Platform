@@ -135,3 +135,42 @@ export interface AttackTimelineEvent {
   eventEn: string;
   status: 'detected' | 'processing' | 'alert' | 'critical';
 }
+
+export interface MasterNodeUtilizationPoint {
+  time: string;
+  cpu: number;
+  ram: number;
+  disk: number;
+  temperatureC?: number;
+  iops?: number;
+}
+
+export interface MasterNodeSystemHealth {
+  nodeId: string;
+  nodeName: string;
+  role: string;
+  ip: string;
+  status: 'Online' | 'Warning' | 'Offline' | 'Draining';
+  uptime: string;
+  cpu: number;
+  ram: number;
+  disk: number;
+  loadAvg: [number, number, number];
+  vCpu: number;
+  totalRamGB: number;
+  usedRamGB: number;
+  totalDiskGB: number;
+  usedDiskGB: number;
+  processCount: number;
+  networkRxMbps: number;
+  networkTxMbps: number;
+  timeline: MasterNodeUtilizationPoint[];
+  thresholds: {
+    cpuWarning: number;
+    cpuCritical: number;
+    ramWarning: number;
+    ramCritical: number;
+    diskWarning: number;
+    diskCritical: number;
+  };
+}

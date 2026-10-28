@@ -8,7 +8,8 @@ import {
   TrafficDataPoint,
   AttackTopologyNode,
   AttackTopologyLink,
-  AttackTimelineEvent
+  AttackTimelineEvent,
+  MasterNodeSystemHealth
 } from './types';
 
 export const OVERVIEW_METRICS: MetricCardData[] = [
@@ -197,4 +198,47 @@ export const ATTACK_TOPOLOGY_DATA: {
   nodes: [],
   links: [],
   timeline: []
+};
+
+export const INITIAL_MASTER_SYSTEM_HEALTH: MasterNodeSystemHealth = {
+  nodeId: 'master-01',
+  nodeName: 'Master-Node-01',
+  role: 'Kubernetes/Cluster Control Plane & 排程仲裁',
+  ip: '192.168.10.20',
+  status: 'Online',
+  uptime: '5d 04h 18m',
+  cpu: 28,
+  ram: 45,
+  disk: 22,
+  loadAvg: [1.12, 1.05, 0.98],
+  vCpu: 16,
+  totalRamGB: 64,
+  usedRamGB: 28.8,
+  totalDiskGB: 1000,
+  usedDiskGB: 220,
+  processCount: 245,
+  networkRxMbps: 54.8,
+  networkTxMbps: 62.1,
+  timeline: [
+    { time: '10:00:00', cpu: 26, ram: 44, disk: 22, temperatureC: 41, iops: 3100 },
+    { time: '10:00:05', cpu: 27, ram: 44, disk: 22, temperatureC: 41, iops: 3150 },
+    { time: '10:00:10', cpu: 29, ram: 45, disk: 22, temperatureC: 42, iops: 3300 },
+    { time: '10:00:15', cpu: 32, ram: 45, disk: 22, temperatureC: 42, iops: 3450 },
+    { time: '10:00:20', cpu: 30, ram: 45, disk: 22, temperatureC: 42, iops: 3280 },
+    { time: '10:00:25', cpu: 28, ram: 45, disk: 22, temperatureC: 41, iops: 3200 },
+    { time: '10:00:30', cpu: 27, ram: 44, disk: 22, temperatureC: 41, iops: 3180 },
+    { time: '10:00:35', cpu: 28, ram: 45, disk: 22, temperatureC: 42, iops: 3250 },
+    { time: '10:00:40', cpu: 31, ram: 45, disk: 22, temperatureC: 42, iops: 3380 },
+    { time: '10:00:45', cpu: 29, ram: 45, disk: 22, temperatureC: 41, iops: 3220 },
+    { time: '10:00:50', cpu: 28, ram: 45, disk: 22, temperatureC: 41, iops: 3240 },
+    { time: '10:00:55', cpu: 28, ram: 45, disk: 22, temperatureC: 41, iops: 3210 }
+  ],
+  thresholds: {
+    cpuWarning: 75,
+    cpuCritical: 85,
+    ramWarning: 80,
+    ramCritical: 90,
+    diskWarning: 80,
+    diskCritical: 90
+  }
 };
