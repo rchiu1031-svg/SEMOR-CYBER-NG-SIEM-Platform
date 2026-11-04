@@ -14,33 +14,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
-export interface LogRecord {
-  id: string | number;
-  '@timestamp': string;
-  source: string;
-  event: string;
-  event_type?: string;
-  severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Info';
-  src_ip?: string;
-  dst_ip?: string;
-  src_port?: number;
-  dst_port?: number;
-  proto?: string;
-  action: 'Blocked' | 'Allowed' | 'Rate-limited' | 'Trapped' | 'Alerted' | 'Logged' | 'Quarantined';
-  user?: string;
-  host?: string;
-  process?: string;
-  file?: string;
-  hash_sha256?: string;
-  cve_id?: string;
-  geo_country?: string;
-  response_code?: number;
-  latency_ms?: number;
-  full_log: string;
-  mitre_technique?: string;
-  mitre_tactic?: string;
-  ai_analysis?: string;
-}
+import { DEMO_LOG_RECORDS, LogRecord, LogCategory, LogFormat } from '../data/logsData';
+export type { LogRecord, LogCategory, LogFormat };
 
 export interface QueryFilter {
   field: string;
@@ -48,18 +23,44 @@ export interface QueryFilter {
   type: 'include' | 'exclude';
 }
 
-import { DEMO_LOG_RECORDS } from '../data/logsData';
-
 const SAMPLE_LOGS: LogRecord[] = DEMO_LOG_RECORDS;
 
-
 const PRESET_QUERIES = [
-  { label: '🔥 防火牆阻斷日誌 (LogsQL)', query: '_stream: "firewall" action: "deny"', desc: 'VictoriaLogs 流過濾與 FortiGate Drop 動作' },
-  { label: '🚨 關鍵與高風險威脅 (LogsQL)', query: 'severity: "Critical" OR severity: "High"', desc: '篩選所有被評定為嚴重及高危險等級的安全日誌' },
-  { label: '🛡️ 遭主動阻斷/隔離事件 (LogsQL)', query: 'action: "Blocked" OR action: "deny"', desc: '查核邊界防火牆、WAF 及 EDR 成功攔截之攻擊' },
-  { label: '🔑 端點憑證竊取 (EDR LogsQL)', query: '_stream: "edr" process: "mimikatz.exe"', desc: '鎖定 LSASS 記憶體傾印與憑證提取程序' },
-  { label: '📊 動作分佈聚合統計 (LogsQL Stats)', query: '* | stats count() by action', desc: '利用 LogsQL 管道執行聚合分組計算' },
-  { label: '🌐 內部橫向探測 (LogsQL Wildcard)', query: 'src_ip: "10.*"', desc: '追蹤內網網段來源之連線探測' }
+  { 
+    label: '📋 系統日誌 | RFC-5424 / PAN-OS / WAF (SYS Log)', 
+    query: 'log_category: "SYS_LOG"', 
+    desc: '標準 Syslog over TLS、Palo Alto 次世代防火牆、Linux auth.log、Suricata 與 ModSecurity' 
+  },
+  { 
+    label: '🪟 事件日誌 | Windows Security & Sysmon (EVENT Log)', 
+    query: 'log_category: "EVENT_LOG"', 
+    desc: 'Windows 安全稽核 (4625 登入失敗, 4769 Kerberoasting) 與 Sysmon (EventID 10 LSASS, EventID 1 陰影複製清除)' 
+  },
+  { 
+    label: '🌊 網路流日誌 | NetFlow v9 & IPFIX & VPC Flow (FLOW Log)', 
+    query: 'log_category: "FLOW_LOG"', 
+    desc: 'Cisco NetFlow v9、IETF IPFIX (C2 隱密通道)、AWS VPC Flow Logs (S3 資料外洩) 與 Zeek 網路分析' 
+  },
+  { 
+    label: '🚨 關鍵與高風險資安威脅 (Severity Filter)', 
+    query: 'severity: "Critical" OR severity: "High"', 
+    desc: '即時過濾所有評定為嚴重及高危險等級的 SOC 遙測告警' 
+  },
+  { 
+    label: '🔑 憑證存取與 LSASS 傾印 (Sysmon EventID 10)', 
+    query: 'event_id: "10" OR process: "lsass.exe"', 
+    desc: '追蹤 Mimikatz / Procdump 對憑證儲存庫 LSASS 記憶體讀取行為' 
+  },
+  { 
+    label: '🛡️ 邊界阻斷日誌 (Blocked / Deny)', 
+    query: 'action: "Blocked" OR action: "deny"', 
+    desc: '查核邊界 NGFW、WAF 與 EDR 阻絕之惡意連線與掃描' 
+  },
+  { 
+    label: '📊 遙測三大柱聚合統計 (LogsQL Stats)', 
+    query: '* | stats count() by log_category', 
+    desc: '依照 SYS_LOG、EVENT_LOG、FLOW_LOG 進行分類統計' 
+  }
 ];
 
 export default function LogSearchDiscoveryView() {
@@ -67,19 +68,20 @@ export default function LogSearchDiscoveryView() {
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Search & Query States
-  const [searchQuery, setSearchQuery] = useState('_stream: "firewall"');
-  const [appliedQuery, setAppliedQuery] = useState('_stream: "firewall"');
+  const [searchQuery, setSearchQuery] = useState('*');
+  const [appliedQuery, setAppliedQuery] = useState('*');
   const [timeRange, setTimeRange] = useState('Last 15 minutes');
   const [isTimeDropdownOpen, setIsTimeDropdownOpen] = useState(false);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [filters, setFilters] = useState<QueryFilter[]>([
-    { field: 'severity', value: 'Critical', type: 'include' }
-  ]);
+  const [filters, setFilters] = useState<QueryFilter[]>([]);
+  const [telemetryFilter, setTelemetryFilter] = useState<'ALL' | 'SYS_LOG' | 'EVENT_LOG' | 'FLOW_LOG'>('ALL');
+  const [copiedRawId, setCopiedRawId] = useState<string | number | null>(null);
+  const [modalViewTab, setModalViewTab] = useState<'raw' | 'json'>('raw');
 
   // Selected & Available Fields
   const [selectedFields, setSelectedFields] = useState<string[]>([
-    '@timestamp', 'severity', 'source', 'event', 'src_ip', 'dst_ip', 'action'
+    '@timestamp', 'severity', 'log_category', 'source', 'event', 'src_ip', 'dst_ip', 'action'
   ]);
   const [fieldSearchTerm, setFieldSearchTerm] = useState('');
 
@@ -216,11 +218,27 @@ export default function LogSearchDiscoveryView() {
     setFilters(filters.filter((_, i) => i !== index));
   };
 
+  // Three Major Telemetry Pillars Counts
+  const telemetryCounts = useMemo(() => {
+    const counts = { ALL: logRecords.length, SYS_LOG: 0, EVENT_LOG: 0, FLOW_LOG: 0 };
+    for (const log of logRecords) {
+      if (log.log_category && counts[log.log_category] !== undefined) {
+        counts[log.log_category]++;
+      }
+    }
+    return counts;
+  }, [logRecords]);
+
   // Filtered Logs Evaluation
   const filteredLogs = useMemo(() => {
     return logRecords.filter(log => {
+      // 0. Telemetry Category Pillar Filter (SYS_LOG / EVENT_LOG / FLOW_LOG)
+      if (telemetryFilter !== 'ALL' && log.log_category !== telemetryFilter) {
+        return false;
+      }
+
       // 1. Text Query Filter
-      if (searchQuery.trim()) {
+      if (searchQuery.trim() && searchQuery.trim() !== '*') {
         const queryLower = searchQuery.toLowerCase();
         const matchesQuery = Object.values(log).some(val => 
           String(val).toLowerCase().includes(queryLower)
@@ -244,7 +262,7 @@ export default function LogSearchDiscoveryView() {
 
       return true;
     });
-  }, [logRecords, searchQuery, filters]);
+  }, [logRecords, searchQuery, filters, telemetryFilter]);
 
   // Histogram Aggregation Data
   const histogramData = useMemo(() => {
@@ -353,6 +371,100 @@ export default function LogSearchDiscoveryView() {
 
       {/* SEARCH BAR & QUERY ECOSYSTEM */}
       <div className="flex flex-col gap-3.5 bg-[#111114] border border-gray-800/80 rounded-3xl p-5 shadow-2xl backdrop-blur-md">
+        {/* Three Major Telemetry Pillars (SYS Log / EVENT Log / FLOW Log) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 pb-2 border-b border-gray-800/80">
+          {[
+            {
+              id: 'ALL' as const,
+              nameZh: '全部日誌遙測 (All)',
+              nameEn: 'All Telemetry Pillars',
+              desc: 'SYS Log + EVENT Log + FLOW',
+              icon: Layers,
+              count: telemetryCounts.ALL,
+              activeClass: 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-md shadow-cyan-950/30',
+              badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+            },
+            {
+              id: 'SYS_LOG' as const,
+              nameZh: '系統日誌 (SYS Log)',
+              nameEn: 'System Logs (RFC 5424/3164)',
+              desc: 'PAN-OS · Linux auth · WAF · IDS',
+              icon: Terminal,
+              count: telemetryCounts.SYS_LOG,
+              activeClass: 'bg-blue-500/15 border-blue-500/40 text-blue-300 shadow-md shadow-blue-950/30',
+              badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+            },
+            {
+              id: 'EVENT_LOG' as const,
+              nameZh: '事件日誌 (EVENT Log)',
+              nameEn: 'Windows & Sysmon XML',
+              desc: 'EvtID 4625 · Sysmon 10 LSASS',
+              icon: FileCode,
+              count: telemetryCounts.EVENT_LOG,
+              activeClass: 'bg-purple-500/15 border-purple-500/40 text-purple-300 shadow-md shadow-purple-950/30',
+              badgeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+            },
+            {
+              id: 'FLOW_LOG' as const,
+              nameZh: '網路流日誌 (FLOW Log)',
+              nameEn: 'NetFlow v9 · IPFIX · VPC',
+              desc: 'Cisco v9 · IPFIX · Zeek conn',
+              icon: Activity,
+              count: telemetryCounts.FLOW_LOG,
+              activeClass: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-md shadow-emerald-950/30',
+              badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+            }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = telemetryFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setTelemetryFilter(tab.id);
+                  if (tab.id === 'ALL') {
+                    setSearchQuery('*');
+                  } else {
+                    setSearchQuery(`log_category: "${tab.id}"`);
+                  }
+                }}
+                className={cn(
+                  "flex items-center justify-between p-3 rounded-2xl border text-left transition-all group",
+                  isActive 
+                    ? tab.activeClass 
+                    : "bg-[#09090b] border-gray-800/80 hover:border-gray-700 hover:bg-gray-900/60 text-gray-400"
+                )}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={cn(
+                    "p-2 rounded-xl transition-colors",
+                    isActive ? "bg-white/10 text-white" : "bg-gray-800/60 text-gray-400 group-hover:text-gray-200"
+                  )}>
+                    <Icon size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className={cn(
+                      "block text-xs font-black tracking-wide truncate",
+                      isActive ? "text-white" : "text-gray-200"
+                    )}>
+                      {isZh ? tab.nameZh : tab.nameEn}
+                    </span>
+                    <span className="block text-[10px] text-gray-500 truncate font-mono">
+                      {tab.desc}
+                    </span>
+                  </div>
+                </div>
+                <span className={cn(
+                  "px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border shrink-0 ml-2",
+                  isActive ? tab.badgeClass : "bg-gray-900 text-gray-400 border-gray-800"
+                )}>
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         {/* Main Search Row */}
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5">
           {/* Query Input with Prefix Badge */}
@@ -1035,7 +1147,7 @@ export default function LogSearchDiscoveryView() {
                               <ChevronRight className={cn("w-4 h-4 transition-transform mx-auto", isExpanded && "rotate-90 text-blue-400")} />
                             </td>
 
-                            {selectedFields.map(f => (
+                             {selectedFields.map(f => (
                               <td key={f} className="p-3.5 whitespace-nowrap">
                                 {f === 'severity' ? (
                                   <span className={cn(
@@ -1048,6 +1160,31 @@ export default function LogSearchDiscoveryView() {
                                     <span className={cn("w-1.5 h-1.5 rounded-full", log.severity === 'Critical' ? "bg-rose-500" : log.severity === 'High' ? "bg-orange-500" : "bg-blue-500")} />
                                     {log.severity}
                                   </span>
+                                ) : f === 'log_category' ? (
+                                  <span className={cn(
+                                    "px-2 py-0.5 rounded text-[9px] font-bold font-mono border uppercase tracking-wider inline-flex items-center gap-1",
+                                    log.log_category === 'SYS_LOG' ? "bg-blue-950/40 text-blue-300 border-blue-500/30" :
+                                    log.log_category === 'EVENT_LOG' ? "bg-purple-950/40 text-purple-300 border-purple-500/30" :
+                                    "bg-emerald-950/40 text-emerald-300 border-emerald-500/30"
+                                  )}>
+                                    <span>{log.log_category === 'SYS_LOG' ? 'SYS LOG' : log.log_category === 'EVENT_LOG' ? 'EVENT LOG' : 'FLOW LOG'}</span>
+                                    <span className="text-gray-400">· {log.format}</span>
+                                  </span>
+                                ) : f === 'event' ? (
+                                  <div className="flex flex-col">
+                                    <span className="text-gray-200 font-bold block truncate max-w-[240px]" title={log.event}>
+                                      {log.event}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className="text-[9px] font-mono text-cyan-400/90">{log.format}</span>
+                                      {log.event_id && (
+                                        <span className="text-[9px] font-mono text-purple-400 font-bold">#{log.event_id}</span>
+                                      )}
+                                      {log.flow_bytes && (
+                                        <span className="text-[9px] font-mono text-emerald-400">{(log.flow_bytes / 1024 / 1024).toFixed(1)}MB</span>
+                                      )}
+                                    </div>
+                                  </div>
                                 ) : f === 'action' ? (
                                   <span className={cn(
                                     "px-2 py-0.5 rounded-lg text-[10px] font-bold font-mono",
@@ -1071,16 +1208,34 @@ export default function LogSearchDiscoveryView() {
                             ))}
 
                             <td className="p-3.5 text-right whitespace-nowrap">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedLogForModal(log);
-                                }}
-                                className="p-1.5 hover:bg-blue-600/20 text-blue-400 rounded-lg transition-colors"
-                                title="展開全視窗檢視"
-                              >
-                                <ExternalLink size={13} />
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(log.full_log);
+                                    setCopiedRawId(log.id);
+                                    showToast(isZh ? `已複製日誌原始報文 (${log.format}) 至剪貼簿` : `Copied raw log (${log.format})`);
+                                    setTimeout(() => setCopiedRawId(null), 2500);
+                                  }}
+                                  className={cn(
+                                    "p-1.5 rounded-lg transition-colors flex items-center gap-1 text-[10px] font-mono",
+                                    copiedRawId === log.id ? "bg-emerald-600/30 text-emerald-400" : "hover:bg-gray-800 text-gray-400 hover:text-white"
+                                  )}
+                                  title={isZh ? '複製原始真實日誌報文' : 'Copy raw log payload'}
+                                >
+                                  {copiedRawId === log.id ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedLogForModal(log);
+                                  }}
+                                  className="p-1.5 hover:bg-blue-600/20 text-blue-400 rounded-lg transition-colors"
+                                  title={isZh ? '展開全視窗檢視' : 'Open full view'}
+                                >
+                                  <ExternalLink size={13} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
 
@@ -1095,22 +1250,54 @@ export default function LogSearchDiscoveryView() {
                                     exit={{ height: 0, opacity: 0 }}
                                     className="overflow-hidden p-6 space-y-4 border-y border-gray-800"
                                   >
-                                    <div className="flex items-center justify-between border-b border-gray-800 pb-2">
-                                      <div className="flex items-center gap-2">
-                                        <span className="px-2.5 py-0.5 bg-blue-600/20 text-blue-400 text-[10px] font-mono font-black uppercase rounded-lg border border-blue-500/30">
+                                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-3">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="px-2.5 py-1 bg-blue-600/20 text-blue-400 text-[10px] font-mono font-black uppercase rounded-lg border border-blue-500/30">
                                           LOG ID: {log.id}
                                         </span>
-                                        <span className="text-xs font-bold text-white">{log.event}</span>
+                                        <span className={cn(
+                                          "px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold border uppercase tracking-wider",
+                                          log.log_category === 'SYS_LOG' ? "bg-blue-950/40 text-blue-300 border-blue-500/30" :
+                                          log.log_category === 'EVENT_LOG' ? "bg-purple-950/40 text-purple-300 border-purple-500/30" :
+                                          "bg-emerald-950/40 text-emerald-300 border-emerald-500/30"
+                                        )}>
+                                          {log.log_category === 'SYS_LOG' ? '系統日誌 (SYS Log)' : log.log_category === 'EVENT_LOG' ? '事件日誌 (EVENT Log)' : '網路流 (FLOW Log)'} · {log.format}
+                                        </span>
+                                        {log.event_id && (
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-950/40 text-purple-300 border border-purple-500/30">
+                                            Event ID: {log.event_id}
+                                          </span>
+                                        )}
+                                        {log.flow_bytes && (
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950/40 text-emerald-300 border border-emerald-500/30">
+                                            傳輸: {(log.flow_bytes / 1024 / 1024).toFixed(1)} MB ({log.flow_packets?.toLocaleString()} 封包)
+                                          </span>
+                                        )}
+                                        <span className="text-xs font-bold text-white ml-2">{log.event}</span>
                                       </div>
-                                      <button 
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(JSON.stringify(log, null, 2));
-                                          showToast(isZh ? '已複製 JSON 結構至剪貼簿' : 'Copied JSON to clipboard');
-                                        }}
-                                        className="text-xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
-                                      >
-                                        <Copy size={12} /> {isZh ? '複製 JSON' : 'Copy JSON'}
-                                      </button>
+                                      <div className="flex items-center gap-2">
+                                        <button 
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(log.full_log);
+                                            setCopiedRawId(log.id);
+                                            showToast(isZh ? `已複製日誌原始報文 (${log.format}) 至剪貼簿！` : 'Copied raw log payload');
+                                            setTimeout(() => setCopiedRawId(null), 2500);
+                                          }}
+                                          className="text-xs px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/30 rounded-xl flex items-center gap-1.5 transition-all font-mono font-bold"
+                                        >
+                                          {copiedRawId === log.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                          <span>{copiedRawId === log.id ? (isZh ? '已複製原始報文' : 'Copied') : (isZh ? '複製原始日誌報文' : 'Copy Raw Wire Log')}</span>
+                                        </button>
+                                        <button 
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(JSON.stringify(log, null, 2));
+                                            showToast(isZh ? '已複製 JSON 結構至剪貼簿' : 'Copied JSON to clipboard');
+                                          }}
+                                          className="text-xs px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl flex items-center gap-1.5 transition-all font-mono"
+                                        >
+                                          <Copy size={12} /> {isZh ? '複製 JSON' : 'Copy JSON'}
+                                        </button>
+                                      </div>
                                     </div>
 
                                     {/* Key-Value Pairs */}
@@ -1167,10 +1354,31 @@ export default function LogSearchDiscoveryView() {
                                       )}
                                     </div>
 
-                                    {/* Raw Log Text */}
-                                    <div className="space-y-1 bg-[#050507] p-3.5 rounded-2xl border border-gray-800">
-                                      <span className="text-[9px] uppercase tracking-wider text-gray-500 font-bold block">{isZh ? '原始日誌訊息 (Raw Syslog / Message Text)' : 'Raw Message'}</span>
-                                      <p className="text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap break-all font-mono">{log.full_log}</p>
+                                    {/* Authentic Raw Log Text / Wire Payload */}
+                                    <div className="space-y-2 bg-[#050507] p-4 rounded-2xl border border-gray-800">
+                                      <div className="flex items-center justify-between pb-2 border-b border-gray-800/80">
+                                        <div className="flex items-center gap-2">
+                                          <Terminal size={14} className="text-cyan-400" />
+                                          <span className="text-[10px] uppercase tracking-wider text-gray-300 font-bold font-mono">
+                                            {isZh ? '真實原始遙測報文 (Authentic Raw Wire Payload)' : 'Raw Wire Payload'} · <strong className="text-cyan-400">【{log.format}】</strong>
+                                          </span>
+                                        </div>
+                                        <button 
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(log.full_log);
+                                            setCopiedRawId(log.id);
+                                            showToast(isZh ? `已複製日誌原始報文 (${log.format}) 至剪貼簿！` : 'Copied raw log payload');
+                                            setTimeout(() => setCopiedRawId(null), 2500);
+                                          }}
+                                          className="text-[10px] font-mono px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg flex items-center gap-1 transition-colors"
+                                        >
+                                          {copiedRawId === log.id ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                                          <span>{copiedRawId === log.id ? (isZh ? '已複製' : 'Copied') : (isZh ? '複製報文' : 'Copy')}</span>
+                                        </button>
+                                      </div>
+                                      <pre className="text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap break-all font-mono selection:bg-cyan-900/50">
+                                        {log.full_log}
+                                      </pre>
                                     </div>
 
                                     {/* Context Actions */}
@@ -1264,38 +1472,117 @@ export default function LogSearchDiscoveryView() {
                 <X size={18} />
               </button>
 
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-blue-600/10 border border-blue-500/20 text-blue-400 rounded-2xl">
-                  <FileText size={22} />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-blue-600/10 border border-blue-500/20 text-blue-400 rounded-2xl">
+                    <FileText size={22} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-black text-white">{selectedLogForModal.event}</h3>
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-mono font-bold border uppercase tracking-wider",
+                        selectedLogForModal.log_category === 'SYS_LOG' ? "bg-blue-950/40 text-blue-300 border-blue-500/30" :
+                        selectedLogForModal.log_category === 'EVENT_LOG' ? "bg-purple-950/40 text-purple-300 border-purple-500/30" :
+                        "bg-emerald-950/40 text-emerald-300 border-emerald-500/30"
+                      )}>
+                        {selectedLogForModal.log_category} · {selectedLogForModal.format}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">
+                      {selectedLogForModal['@timestamp']} | {selectedLogForModal.source} {selectedLogForModal.event_id ? `| EventID: ${selectedLogForModal.event_id}` : ''}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-lg font-black text-white">{selectedLogForModal.event}</h3>
-                  <p className="text-xs text-gray-400 font-mono">{selectedLogForModal['@timestamp']} | {selectedLogForModal.source}</p>
+
+                {/* Tab Switcher */}
+                <div className="flex bg-[#09090b] p-1 rounded-xl border border-gray-800 text-xs">
+                  <button
+                    onClick={() => setModalViewTab('raw')}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg font-bold font-mono transition-all flex items-center gap-1.5",
+                      modalViewTab === 'raw' ? "bg-cyan-600 text-white shadow" : "text-gray-400 hover:text-white"
+                    )}
+                  >
+                    <Terminal size={12} /> {isZh ? '真實原始報文' : 'Raw Wire Payload'}
+                  </button>
+                  <button
+                    onClick={() => setModalViewTab('json')}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg font-bold font-mono transition-all flex items-center gap-1.5",
+                      modalViewTab === 'json' ? "bg-blue-600 text-white shadow" : "text-gray-400 hover:text-white"
+                    )}
+                  >
+                    <Code size={12} /> {isZh ? '結構化 JSON' : 'Parsed JSON'}
+                  </button>
                 </div>
               </div>
 
-              {/* Raw JSON */}
-              <div className="bg-[#09090b] p-4 rounded-2xl border border-gray-800 font-mono text-xs text-slate-300 max-h-72 overflow-y-auto">
-                <pre>{JSON.stringify(selectedLogForModal, null, 2)}</pre>
-              </div>
+              {/* Viewer Content */}
+              {modalViewTab === 'raw' ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-1 text-[11px] font-mono text-gray-400">
+                    <span className="flex items-center gap-1.5 text-cyan-400 font-bold">
+                      <Terminal size={12} /> 格式標準: {selectedLogForModal.format} ({selectedLogForModal.log_category})
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedLogForModal.full_log);
+                        showToast(isZh ? `已複製原始報文 (${selectedLogForModal.format}) 至剪貼簿！` : 'Copied raw payload to clipboard');
+                      }}
+                      className="px-2.5 py-1 bg-cyan-600/20 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/30 rounded-lg text-[10px] font-mono flex items-center gap-1 transition-all"
+                    >
+                      <Copy size={11} /> {isZh ? '複製原始報文' : 'Copy Raw'}
+                    </button>
+                  </div>
+                  <div className="bg-[#09090b] p-4 rounded-2xl border border-gray-800 font-mono text-xs text-slate-200 max-h-80 overflow-y-auto selection:bg-cyan-900/60 leading-relaxed whitespace-pre-wrap break-all">
+                    {selectedLogForModal.full_log}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between px-1 text-[11px] font-mono text-gray-400">
+                    <span className="flex items-center gap-1.5 text-blue-400 font-bold">
+                      <Code size={12} /> VictoriaLogs ECS 1.12 JSON Schema
+                    </span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(selectedLogForModal, null, 2));
+                        showToast(isZh ? '已複製 JSON 結構至剪貼簿' : 'Copied JSON to clipboard');
+                      }}
+                      className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white border border-blue-500/30 rounded-lg text-[10px] font-mono flex items-center gap-1 transition-all"
+                    >
+                      <Copy size={11} /> {isZh ? '複製 JSON' : 'Copy JSON'}
+                    </button>
+                  </div>
+                  <div className="bg-[#09090b] p-4 rounded-2xl border border-gray-800 font-mono text-xs text-slate-300 max-h-80 overflow-y-auto">
+                    <pre>{JSON.stringify(selectedLogForModal, null, 2)}</pre>
+                  </div>
+                </div>
+              )}
 
               {/* Action buttons */}
-              <div className="flex justify-end gap-3 pt-3 border-t border-gray-800">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(JSON.stringify(selectedLogForModal, null, 2));
-                    showToast(isZh ? '已複製 JSON 結構至剪貼簿' : 'Copied JSON to clipboard');
-                  }}
-                  className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
-                >
-                  {isZh ? '複製 JSON 結構' : 'Copy JSON'}
-                </button>
-                <button
-                  onClick={() => setSelectedLogForModal(null)}
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-colors"
-                >
-                  {isZh ? '關閉' : 'Close'}
-                </button>
+              <div className="flex justify-between items-center pt-3 border-t border-gray-800">
+                <span className="text-[11px] text-gray-500 font-mono">
+                  {selectedLogForModal.flow_bytes ? `流流量: ${(selectedLogForModal.flow_bytes / 1024 / 1024).toFixed(1)} MB | 封包: ${selectedLogForModal.flow_packets?.toLocaleString()}` : `來源主機: ${selectedLogForModal.host || '-'}`}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedLogForModal.full_log);
+                      showToast(isZh ? '已複製原始報文至剪貼簿！' : 'Copied raw payload');
+                    }}
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors font-mono flex items-center gap-1.5"
+                  >
+                    <Copy size={12} /> {isZh ? '複製原始日誌' : 'Copy Raw Wire Log'}
+                  </button>
+                  <button
+                    onClick={() => setSelectedLogForModal(null)}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-colors"
+                  >
+                    {isZh ? '關閉' : 'Close'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

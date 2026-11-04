@@ -119,18 +119,32 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
                     </td>
 
                     <td className="py-3">
-                      <div className="flex items-center gap-1.5">
-                        <Lock size={12} className="text-gray-500" />
-                        <span className="text-xs font-medium text-gray-200 font-mono">
-                          {record.host}
-                        </span>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5">
+                          <Lock size={12} className="text-gray-500" />
+                          <span className="text-xs font-medium text-gray-200 font-mono">
+                            {record.host}
+                          </span>
+                        </div>
+                        {record.authEventDetail && (
+                          <span className="text-[10px] text-gray-400 font-mono truncate max-w-[260px] mt-0.5" title={record.authEventDetail}>
+                            {record.authEventDetail}
+                          </span>
+                        )}
                       </div>
                     </td>
 
                     <td className="py-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-gray-900 border border-gray-800 text-gray-300">
-                        {record.service}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-gray-900 border border-gray-800 text-gray-300 w-fit">
+                          {record.service}
+                        </span>
+                        {record.eventId && (
+                          <span className="text-[9px] font-mono font-semibold text-purple-400">
+                            {typeof record.eventId === 'number' ? `EvtID ${record.eventId}` : record.eventId}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="py-3">

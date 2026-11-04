@@ -137,13 +137,25 @@ export const OverviewCriticalIncidents: React.FC<OverviewCriticalIncidentsProps>
               >
                 {/* ID and Time */}
                 <td className="px-5 py-4">
-                  <div className="flex flex-col">
+                  <div className="flex flex-col gap-1">
                     <span className="text-xs font-bold text-blue-400 font-mono">
                       {incident.id}
                     </span>
-                    <span className="text-[11px] text-gray-400 font-mono mt-0.5">
+                    <span className="text-[11px] text-gray-400 font-mono">
                       {incident.time}
                     </span>
+                    {incident.logCategory && (
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border tracking-wider w-fit mt-0.5",
+                        incident.logCategory === 'SYS_LOG' ? "bg-blue-950/40 text-blue-400 border-blue-500/30" :
+                        incident.logCategory === 'EVENT_LOG' ? "bg-purple-950/40 text-purple-400 border-purple-500/30" :
+                        "bg-emerald-950/40 text-emerald-400 border-emerald-500/30"
+                      )}>
+                        {incident.logCategory === 'SYS_LOG' ? 'SYS' : incident.logCategory === 'EVENT_LOG' ? 'EVENT' : 'FLOW'}
+                        {incident.logFormat ? ` · ${incident.logFormat}` : ''}
+                        {incident.eventId ? ` #${incident.eventId}` : ''}
+                      </span>
+                    )}
                   </div>
                 </td>
 

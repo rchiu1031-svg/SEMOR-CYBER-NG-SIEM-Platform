@@ -186,7 +186,98 @@ export const MITRE_TACTIC_DISTRIBUTION: MitreTacticItem[] = [
 
 export const UEBA_HIGH_RISK_ENTITIES: UebaHighRiskEntity[] = [];
 
-export const ABNORMAL_LOGINS: AbnormalLoginRecord[] = [];
+export const ABNORMAL_LOGINS: AbnormalLoginRecord[] = [
+  {
+    id: 'AL-2026-001',
+    time: '2026-11-02 14:23:40',
+    ip: '194.26.29.114',
+    locationZh: '荷蘭 (NL) / 匿名攻擊代理',
+    locationEn: 'Netherlands (NL) / Bulletproof Proxy',
+    host: 'DC-ActiveDirectory-01',
+    service: 'RDP',
+    attempts: 1420,
+    status: 'BLOCKED',
+    risk: 'Critical',
+    eventId: 4625,
+    logSource: 'Microsoft Windows Security Auditing (EventLog)',
+    authEventDetail: 'EventID: 4625 (Logon Failure) | SubStatus: 0xC000006A (Bad Password) | LogonType: 10 (RemoteInteractive) | TargetUserName: Administrator'
+  },
+  {
+    id: 'AL-2026-002',
+    time: '2026-11-02 14:14:22',
+    ip: '45.33.22.11',
+    locationZh: '中國 (CN) / 殭屍網路節點',
+    locationEn: 'China (CN) / Botnet Node',
+    host: 'DMZ-Bastion-01',
+    service: 'SSH',
+    attempts: 1240,
+    status: 'BLOCKED',
+    risk: 'High',
+    eventId: 'sshd:auth',
+    logSource: 'Linux /var/log/auth.log (Syslog RFC 3164)',
+    authEventDetail: 'sshd[49210]: Failed password for invalid user root from 45.33.22.11 port 52311 ssh2 | Repeated 1,240 times'
+  },
+  {
+    id: 'AL-2026-003',
+    time: '2026-11-02 14:10:18',
+    ip: '10.88.88.102',
+    locationZh: '內部工作站 / SOC-Analyst-WS02',
+    locationEn: 'Internal Subnet / SOC-Analyst-WS02',
+    host: 'DC-ActiveDirectory-01',
+    service: 'Kerberos',
+    attempts: 420,
+    status: 'RATE_LIMITED',
+    risk: 'High',
+    eventId: 4771,
+    logSource: 'Microsoft Windows Kerberos KDC (EventLog)',
+    authEventDetail: 'EventID: 4771 (Kerberos pre-authentication failed) | Failure Code: 0x18 | Target: krbtgt/CORP.SEMOR.INTERNAL'
+  },
+  {
+    id: 'AL-2026-004',
+    time: '2026-11-02 13:55:10',
+    ip: '185.220.101.45',
+    locationZh: '俄羅斯 (RU) / Tor 匿名出口',
+    locationEn: 'Russia (RU) / Tor Exit Node',
+    host: 'WS-FINANCE-TAIPEI-02',
+    service: 'RDP',
+    attempts: 890,
+    status: 'BLOCKED',
+    risk: 'Critical',
+    eventId: 4625,
+    logSource: 'Microsoft Windows Security Auditing (EventLog)',
+    authEventDetail: 'EventID: 4625 (Logon Failure) | SubStatus: 0xC0000234 (Account Locked Out) | TargetUserName: fin_controller'
+  },
+  {
+    id: 'AL-2026-005',
+    time: '2026-11-02 13:41:05',
+    ip: '104.21.32.18',
+    locationZh: '美國 (US) / Cloudflare Relay',
+    locationEn: 'United States (US) / Relay',
+    host: 'VPN-Gateway-Edge01',
+    service: 'VPN',
+    attempts: 340,
+    status: 'MONITORING',
+    risk: 'Medium',
+    eventId: 'FTNT-AUTH-0004',
+    logSource: 'FortiGate FortiOS SSL-VPN (Syslog RFC 5424)',
+    authEventDetail: 'date=2026-11-02 time=13:41:05 devname=FG-HQ-500E logid=0101039424 type=event subtype=vpn msg="SSL VPN authentication failure user=\'alex.chen\'"'
+  },
+  {
+    id: 'AL-2026-006',
+    time: '2026-11-02 13:30:20',
+    ip: '185.191.171.3',
+    locationZh: '荷蘭 (NL) / 外部掃描主機',
+    locationEn: 'Netherlands (NL) / Scanner Host',
+    host: 'App-Kubernetes-Master',
+    service: 'HTTPS',
+    attempts: 2150,
+    status: 'BLOCKED',
+    risk: 'High',
+    eventId: 'HTTP:401',
+    logSource: 'Nginx ModSecurity WAF Access Log (Syslog)',
+    authEventDetail: 'POST /api/v1/auth/token HTTP/1.1 | 401 Unauthorized | ModSec: Rule 949110 Inbound Anomaly Score Exceeded (Score: 25)'
+  }
+];
 
 export const CRITICAL_INCIDENTS: CriticalIncidentRecord[] = OVERVIEW_DEMO_CRITICAL_INCIDENTS as unknown as CriticalIncidentRecord[];
 

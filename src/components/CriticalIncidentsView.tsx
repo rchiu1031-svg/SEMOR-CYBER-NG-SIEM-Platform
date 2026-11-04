@@ -77,12 +77,15 @@ export interface CriticalIncidentItem {
   category: 'ueba' | 'ics' | 'apt' | 'bruteforce' | 'c2' | 'exfil';
   cve?: string;
   mitreTTP: string;
-  mitreStage: 'Recon' | 'Initial Access' | 'Privilege Escalation' | 'Lateral Movement' | 'Exfiltration';
+  mitreStage: 'Recon' | 'Initial Access' | 'Privilege Escalation' | 'Lateral Movement' | 'Exfiltration' | 'Credential Access' | 'Command and Control' | 'Defense Evasion' | 'Impact';
   affectedAssets: number;
   confidence: number;
   payloadHex: string;
   rawLog: string;
   aiSummary: string;
+  logType?: 'SYS_LOG' | 'EVENT_LOG' | 'FLOW_LOG';
+  logFormat?: string;
+  eventId?: string | number;
   recommendedPlaybooks: {
     id: string;
     title: string;

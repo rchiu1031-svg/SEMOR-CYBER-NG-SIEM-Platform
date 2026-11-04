@@ -78,6 +78,9 @@ export interface AbnormalLoginRecord {
   attempts: number;
   status: 'BLOCKED' | 'RATE_LIMITED' | 'MONITORING';
   risk: 'Critical' | 'High' | 'Medium';
+  authEventDetail?: string;
+  eventId?: number | string;
+  logSource?: string;
 }
 
 export interface CriticalIncidentRecord {
@@ -105,6 +108,9 @@ export interface CriticalIncidentRecord {
   aiSummary?: string;
   confidence?: number;
   cve?: string;
+  logCategory?: 'SYS_LOG' | 'EVENT_LOG' | 'FLOW_LOG';
+  logFormat?: string;
+  eventId?: string | number;
 }
 
 export interface TrafficDataPoint {
