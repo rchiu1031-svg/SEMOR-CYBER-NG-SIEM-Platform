@@ -26,6 +26,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { MasterNodeSystemHealth } from './types';
+import { useTheme } from '../../context/ThemeContext';
 
 interface OverviewSystemHealthProps {
   systemHealth?: MasterNodeSystemHealth;
@@ -40,6 +41,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
   onRefresh,
   isRefreshing = false
 }) => {
+  const { isLight } = useTheme();
   const [activeSeries, setActiveSeries] = useState<'all' | 'cpu' | 'ram' | 'disk'>('all');
   const [isLivePolling, setIsLivePolling] = useState(true);
 
@@ -95,10 +97,12 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-[#0b0d13]/95 border border-gray-800 p-3 rounded-xl shadow-2xl backdrop-blur-md text-xs font-mono space-y-1.5 min-w-[190px]">
-          <div className="flex justify-between items-center border-b border-gray-800/80 pb-1.5 text-gray-400">
+        <div className={`p-3 rounded-xl shadow-2xl backdrop-blur-md text-xs font-mono space-y-1.5 min-w-[190px] border ${
+          isLight ? 'bg-white/95 border-slate-200 text-slate-800' : 'bg-[#0b0d13]/95 border-gray-800 text-gray-200'
+        }`}>
+          <div className={`flex justify-between items-center border-b pb-1.5 ${isLight ? 'border-slate-200 text-slate-500' : 'border-gray-800/80 text-gray-400'}`}>
             <span>{isZh ? '採樣時間' : 'Timestamp'}</span>
-            <span className="font-bold text-gray-200">{label}</span>
+            <span className={`font-bold ${isLight ? 'text-slate-900' : 'text-gray-200'}`}>{label}</span>
           </div>
           {payload.map((entry: any, index: number) => {
             const isCpu = entry.dataKey === 'cpu';
@@ -118,21 +122,21 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
               <div key={`item-${index}`} className="flex justify-between items-center gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                  <span className="text-gray-300">{labelName}</span>
+                  <span className={isLight ? 'text-slate-600' : 'text-gray-300'}>{labelName}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="font-black text-white">{val}%</span>
+                  <span className={`font-black ${isLight ? 'text-slate-900' : 'text-white'}`}>{val}%</span>
                   {isWarning && (
-                    <span className="text-[10px] text-amber-400">({isZh ? '偏高' : 'High'})</span>
+                    <span className="text-[10px] text-amber-500 font-bold">({isZh ? '偏高' : 'High'})</span>
                   )}
                 </div>
               </div>
             );
           })}
           {payload[0]?.payload?.temperatureC && (
-            <div className="pt-1 border-t border-gray-850 flex justify-between text-[10px] text-gray-500">
+            <div className={`pt-1 border-t flex justify-between text-[10px] ${isLight ? 'border-slate-200 text-slate-500' : 'border-gray-850 text-gray-500'}`}>
               <span>{isZh ? '核心溫度' : 'Die Temp'}:</span>
-              <span className="text-gray-300">{payload[0].payload.temperatureC} °C</span>
+              <span className={isLight ? 'text-slate-800 font-bold' : 'text-gray-300'}>{payload[0].payload.temperatureC} °C</span>
             </div>
           )}
         </div>
@@ -142,37 +146,41 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
   };
 
   return (
-    <div className="bg-[#0d0f14] border border-gray-800 rounded-2xl p-6 shadow-xl relative overflow-hidden group hover:border-gray-700/80 transition-all text-left">
+    <div className={`border rounded-2xl p-6 shadow-xl relative overflow-hidden transition-all text-left ${
+      isLight 
+        ? 'bg-white border-slate-200 hover:border-slate-300 shadow-slate-100' 
+        : 'bg-[#0d0f14] border-gray-800 hover:border-gray-700/80 group'
+    }`}>
       
       {/* Background ambient mesh glow */}
-      <div className="absolute -top-24 -right-24 w-80 h-80 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -left-24 w-80 h-80 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+      <div className={`absolute -top-24 -right-24 w-80 h-80 rounded-full blur-3xl pointer-events-none ${isLight ? 'bg-blue-500/5' : 'bg-blue-500/5'}`} />
+      <div className={`absolute -bottom-24 -left-24 w-80 h-80 rounded-full blur-3xl pointer-events-none ${isLight ? 'bg-purple-500/5' : 'bg-purple-500/5'}`} />
 
       {/* Header bar: Title, Host Details & Quick Controls */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-850 pb-5">
+      <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-5 ${isLight ? 'border-slate-200' : 'border-gray-850'}`}>
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400 border border-blue-500/20">
+            <div className={`p-2 rounded-xl border ${isLight ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
               <Server size={18} className="animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-black text-white tracking-wide font-sans">
+                <h3 className={`text-base font-black tracking-wide font-sans ${isLight ? 'text-slate-900' : 'text-white'}`}>
                   {isZh ? 'SIEM 主控節點系統健康' : 'SIEM Master Node · System Health'}
                 </h3>
-                <span className="flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="flex items-center gap-1 text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
                   {node.status}
                 </span>
               </div>
-              <p className="text-xs text-gray-400 font-mono mt-0.5 flex flex-wrap items-center gap-2">
-                <span>{node.nodeName} ({node.ip})</span>
-                <span className="text-gray-600">·</span>
+              <p className={`text-xs font-mono mt-0.5 flex flex-wrap items-center gap-2 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
+                <span className="font-semibold">{node.nodeName} ({node.ip})</span>
+                <span className={isLight ? 'text-slate-300' : 'text-gray-600'}>·</span>
                 <span>{isZh ? '控制平面仲裁核心' : 'Cluster Control Plane'}</span>
-                <span className="text-gray-600">·</span>
-                <span className="text-gray-400">{isZh ? '負載均值' : 'Load Avg'}: {node.loadAvg.join(', ')}</span>
-                <span className="text-gray-600">·</span>
-                <span className="text-gray-400">{isZh ? '運行時長' : 'Uptime'}: {node.uptime}</span>
+                <span className={isLight ? 'text-slate-300' : 'text-gray-600'}>·</span>
+                <span>{isZh ? '負載均值' : 'Load Avg'}: {node.loadAvg.join(', ')}</span>
+                <span className={isLight ? 'text-slate-300' : 'text-gray-600'}>·</span>
+                <span>{isZh ? '運行時長' : 'Uptime'}: {node.uptime}</span>
               </p>
             </div>
           </div>
@@ -181,7 +189,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
         {/* Right side filter tabs & action buttons */}
         <div className="flex items-center gap-2.5 shrink-0">
           {/* Series filter segmented control */}
-          <div className="flex bg-[#12141a] p-1 border border-gray-800 rounded-xl font-mono text-[11px]">
+          <div className={`flex p-1 border rounded-xl font-mono text-[11px] ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#12141a] border-gray-800'}`}>
             {[
               { id: 'all', label: isZh ? '全部' : 'All' },
               { id: 'cpu', label: 'CPU' },
@@ -194,7 +202,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
                 className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
                   activeSeries === tab.id
                     ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-400 hover:text-gray-200'
+                    : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
                 {tab.label}
@@ -207,12 +215,12 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             onClick={() => setIsLivePolling(!isLivePolling)}
             className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all ${
               isLivePolling
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                : 'bg-gray-900 text-gray-500 border-gray-800'
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                : isLight ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-gray-900 text-gray-500 border-gray-800'
             }`}
             title={isZh ? '切換即時輪詢狀態' : 'Toggle live telemetry stream'}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${isLivePolling ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+            <span className={`w-1.5 h-1.5 rounded-full ${isLivePolling ? 'bg-emerald-500 animate-pulse' : 'bg-gray-500'}`} />
             <span>{isLivePolling ? 'LIVE 3s' : 'PAUSED'}</span>
           </button>
 
@@ -221,10 +229,14 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             <button
               onClick={onRefresh}
               disabled={isRefreshing}
-              className="p-1.5 bg-[#12141a] hover:bg-gray-900 border border-gray-800 hover:border-gray-700 text-gray-300 rounded-xl transition-all disabled:opacity-50"
+              className={`p-1.5 border rounded-xl transition-all disabled:opacity-50 ${
+                isLight 
+                  ? 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700' 
+                  : 'bg-[#12141a] hover:bg-gray-900 border-gray-800 hover:border-gray-700 text-gray-300'
+              }`}
               title={isZh ? '即時更新節點負載指標' : 'Refresh master telemetry'}
             >
-              <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-blue-400' : ''} />
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin text-blue-500' : ''} />
             </button>
           )}
         </div>
@@ -239,38 +251,40 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             ? 'bg-red-500/5 border-red-500/30' 
             : cpuStatus === 'warning'
             ? 'bg-amber-500/5 border-amber-500/30'
+            : isLight 
+            ? 'bg-slate-50 border-slate-200 hover:border-blue-400' 
             : 'bg-[#12141a] border-gray-800/80 hover:border-blue-500/30'
         }`}>
           <div className="flex justify-between items-start mb-2">
             <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+              <span className={`p-1.5 rounded-lg border ${isLight ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
                 <Cpu size={16} />
               </span>
               <div>
-                <span className="text-[11px] font-mono font-bold text-gray-400 uppercase tracking-wider block">
+                <span className={`text-[11px] font-mono font-bold uppercase tracking-wider block ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
                   {isZh ? 'CPU 核心運算使用率' : 'CPU Utilization'}
                 </span>
-                <span className="text-[10px] text-gray-500 font-mono">
+                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
                   {node.vCpu} vCPU · AMD EPYC 7763
                 </span>
               </div>
             </div>
             <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-              cpuStatus === 'critical' ? 'text-red-400 bg-red-500/10' : cpuStatus === 'warning' ? 'text-amber-400 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10'
+              cpuStatus === 'critical' ? 'text-red-500 bg-red-500/10' : cpuStatus === 'warning' ? 'text-amber-500 bg-amber-500/10' : 'text-emerald-600 bg-emerald-500/10'
             }`}>
               {cpuStatus === 'critical' ? 'CRITICAL' : cpuStatus === 'warning' ? 'WARNING' : 'HEALTHY'}
             </span>
           </div>
 
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl font-black font-mono text-white tracking-tight">{node.cpu}%</span>
-            <span className="text-xs text-gray-400 font-mono">
+            <span className={`text-3xl font-black font-mono tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>{node.cpu}%</span>
+            <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
               / {isZh ? '警戒門檻' : 'Warn threshold'} {node.thresholds.cpuWarning}%
             </span>
           </div>
 
           {/* Progress bar */}
-          <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden mt-3">
+          <div className={`w-full h-1.5 rounded-full overflow-hidden mt-3 ${isLight ? 'bg-slate-200' : 'bg-gray-900'}`}>
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 node.cpu >= 85 ? 'bg-red-500' : node.cpu >= 75 ? 'bg-amber-500' : 'bg-gradient-to-r from-blue-500 to-cyan-400'
@@ -279,7 +293,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             />
           </div>
 
-          <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono mt-2">
+          <div className={`flex justify-between items-center text-[10px] font-mono mt-2 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
             <span>{isZh ? '處理序總量' : 'Processes'}: {node.processCount}</span>
             <span>{isZh ? '核心溫度' : 'Die Temp'}: ~42°C</span>
           </div>
@@ -291,38 +305,40 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             ? 'bg-red-500/5 border-red-500/30' 
             : ramStatus === 'warning'
             ? 'bg-amber-500/5 border-amber-500/30'
+            : isLight 
+            ? 'bg-slate-50 border-slate-200 hover:border-purple-400' 
             : 'bg-[#12141a] border-gray-800/80 hover:border-purple-500/30'
         }`}>
           <div className="flex justify-between items-start mb-2">
             <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+              <span className={`p-1.5 rounded-lg border ${isLight ? 'bg-purple-50 text-purple-600 border-purple-200' : 'bg-purple-500/10 text-purple-400 border-purple-500/20'}`}>
                 <Activity size={16} />
               </span>
               <div>
-                <span className="text-[11px] font-mono font-bold text-gray-400 uppercase tracking-wider block">
+                <span className={`text-[11px] font-mono font-bold uppercase tracking-wider block ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
                   {isZh ? 'RAM 記憶體佔用率' : 'Memory (RAM) Usage'}
                 </span>
-                <span className="text-[10px] text-gray-500 font-mono">
+                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
                   DDR4 ECC Reg · {node.totalRamGB} GB Total
                 </span>
               </div>
             </div>
             <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-              ramStatus === 'critical' ? 'text-red-400 bg-red-500/10' : ramStatus === 'warning' ? 'text-amber-400 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10'
+              ramStatus === 'critical' ? 'text-red-500 bg-red-500/10' : ramStatus === 'warning' ? 'text-amber-500 bg-amber-500/10' : 'text-emerald-600 bg-emerald-500/10'
             }`}>
               {ramStatus === 'critical' ? 'CRITICAL' : ramStatus === 'warning' ? 'WARNING' : 'HEALTHY'}
             </span>
           </div>
 
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl font-black font-mono text-white tracking-tight">{node.ram}%</span>
-            <span className="text-xs text-gray-400 font-mono">
+            <span className={`text-3xl font-black font-mono tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>{node.ram}%</span>
+            <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
               ({node.usedRamGB} GB / {node.totalRamGB} GB)
             </span>
           </div>
 
           {/* Progress bar */}
-          <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden mt-3">
+          <div className={`w-full h-1.5 rounded-full overflow-hidden mt-3 ${isLight ? 'bg-slate-200' : 'bg-gray-900'}`}>
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 node.ram >= 90 ? 'bg-red-500' : node.ram >= 80 ? 'bg-amber-500' : 'bg-gradient-to-r from-purple-500 to-indigo-400'
@@ -331,7 +347,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             />
           </div>
 
-          <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono mt-2">
+          <div className={`flex justify-between items-center text-[10px] font-mono mt-2 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
             <span>{isZh ? '空閒' : 'Free'}: {(node.totalRamGB - node.usedRamGB).toFixed(1)} GB</span>
             <span>{isZh ? '快取' : 'Cached'}: ~14.5 GB</span>
           </div>
@@ -343,38 +359,40 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             ? 'bg-red-500/5 border-red-500/30' 
             : diskStatus === 'warning'
             ? 'bg-amber-500/5 border-amber-500/30'
+            : isLight 
+            ? 'bg-slate-50 border-slate-200 hover:border-emerald-400' 
             : 'bg-[#12141a] border-gray-800/80 hover:border-emerald-500/30'
         }`}>
           <div className="flex justify-between items-start mb-2">
             <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span className={`p-1.5 rounded-lg border ${isLight ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
                 <HardDrive size={16} />
               </span>
               <div>
-                <span className="text-[11px] font-mono font-bold text-gray-400 uppercase tracking-wider block">
+                <span className={`text-[11px] font-mono font-bold uppercase tracking-wider block ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
                   {isZh ? 'NVMe 磁碟儲存佔用' : 'NVMe Disk Storage'}
                 </span>
-                <span className="text-[10px] text-gray-500 font-mono">
+                <span className={`text-[10px] font-mono ${isLight ? 'text-slate-400' : 'text-gray-500'}`}>
                   PCIe 4.0 NVMe RAID · {node.totalDiskGB} GB
                 </span>
               </div>
             </div>
             <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-              diskStatus === 'critical' ? 'text-red-400 bg-red-500/10' : diskStatus === 'warning' ? 'text-amber-400 bg-amber-500/10' : 'text-emerald-400 bg-emerald-500/10'
+              diskStatus === 'critical' ? 'text-red-500 bg-red-500/10' : diskStatus === 'warning' ? 'text-amber-500 bg-amber-500/10' : 'text-emerald-600 bg-emerald-500/10'
             }`}>
               {diskStatus === 'critical' ? 'CRITICAL' : diskStatus === 'warning' ? 'WARNING' : 'HEALTHY'}
             </span>
           </div>
 
           <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl font-black font-mono text-white tracking-tight">{node.disk}%</span>
-            <span className="text-xs text-gray-400 font-mono">
+            <span className={`text-3xl font-black font-mono tracking-tight ${isLight ? 'text-slate-900' : 'text-white'}`}>{node.disk}%</span>
+            <span className={`text-xs font-mono ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
               ({node.usedDiskGB} GB / {node.totalDiskGB} GB)
             </span>
           </div>
 
           {/* Progress bar */}
-          <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden mt-3">
+          <div className={`w-full h-1.5 rounded-full overflow-hidden mt-3 ${isLight ? 'bg-slate-200' : 'bg-gray-900'}`}>
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 node.disk >= 90 ? 'bg-red-500' : node.disk >= 80 ? 'bg-amber-500' : 'bg-gradient-to-r from-emerald-500 to-teal-400'
@@ -383,7 +401,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
             />
           </div>
 
-          <div className="flex justify-between items-center text-[10px] text-gray-500 font-mono mt-2">
+          <div className={`flex justify-between items-center text-[10px] font-mono mt-2 ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
             <span>{isZh ? '剩餘空間' : 'Available'}: {(node.totalDiskGB - node.usedDiskGB).toFixed(0)} GB</span>
             <span>{isZh ? '壓縮比率' : 'Ratio'}: 11.85x</span>
           </div>
@@ -392,29 +410,29 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
       </div>
 
       {/* Real-Time Recharts Area Visualizer */}
-      <div className="bg-[#090b10] border border-gray-850/80 rounded-xl p-4 relative">
+      <div className={`border rounded-xl p-4 relative ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#090b10] border-gray-850/80'}`}>
         <div className="flex justify-between items-center mb-3">
           <div className="flex items-center gap-2">
-            <Activity size={14} className="text-blue-400 animate-pulse" />
-            <span className="text-xs font-mono font-bold text-gray-300">
+            <Activity size={14} className="text-blue-500 animate-pulse" />
+            <span className={`text-xs font-mono font-bold ${isLight ? 'text-slate-700' : 'text-gray-300'}`}>
               {isZh ? '實時負載波動趨勢 (Real-Time Telemetry Timeline)' : 'Real-Time Telemetry Timeline (Last 2m)'}
             </span>
           </div>
-          <div className="flex items-center gap-3 text-[10px] font-mono text-gray-500">
+          <div className={`flex items-center gap-3 text-[10px] font-mono ${isLight ? 'text-slate-500' : 'text-gray-500'}`}>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-0.5 bg-blue-400" />
+              <span className="w-2.5 h-0.5 bg-blue-500" />
               <span>CPU</span>
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-0.5 bg-purple-400" />
+              <span className="w-2.5 h-0.5 bg-purple-500" />
               <span>RAM</span>
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-0.5 bg-emerald-400" />
+              <span className="w-2.5 h-0.5 bg-emerald-500" />
               <span>Disk</span>
             </span>
-            <span className="flex items-center gap-1 text-amber-400/80">
-              <span className="w-2.5 h-0.5 border-b border-dashed border-amber-400" />
+            <span className="flex items-center gap-1 text-amber-500">
+              <span className="w-2.5 h-0.5 border-b border-dashed border-amber-500" />
               <span>Threshold (75%)</span>
             </span>
           </div>
@@ -438,23 +456,23 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
                 </linearGradient>
               </defs>
 
-              <CartesianGrid strokeDasharray="3 3" stroke="#181c26" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={isLight ? '#e2e8f0' : '#181c26'} vertical={false} />
 
               <XAxis 
                 dataKey="time" 
-                stroke="#4b5563" 
+                stroke={isLight ? '#64748b' : '#4b5563'} 
                 fontSize={10} 
                 tickLine={false}
-                axisLine={{ stroke: '#1f2430' }}
+                axisLine={{ stroke: isLight ? '#cbd5e1' : '#1f2430' }}
                 dy={6}
               />
 
               <YAxis 
                 domain={[0, 100]} 
-                stroke="#4b5563" 
+                stroke={isLight ? '#64748b' : '#4b5563'} 
                 fontSize={10} 
                 tickLine={false}
-                axisLine={{ stroke: '#1f2430' }}
+                axisLine={{ stroke: isLight ? '#cbd5e1' : '#1f2430' }}
                 tickFormatter={(v) => `${v}%`}
               />
 
@@ -464,7 +482,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
                 y={75} 
                 stroke="#f59e0b" 
                 strokeDasharray="4 4" 
-                strokeOpacity={0.6}
+                strokeOpacity={0.7}
               />
 
               {(activeSeries === 'all' || activeSeries === 'cpu') && (
@@ -511,23 +529,25 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
       </div>
 
       {/* Secondary Telemetry Strip */}
-      <div className="mt-4 pt-4 border-t border-gray-850/80 flex flex-wrap items-center justify-between text-xs font-mono text-gray-500 gap-3">
+      <div className={`mt-4 pt-4 border-t flex flex-wrap items-center justify-between text-xs font-mono gap-3 ${
+        isLight ? 'border-slate-200 text-slate-500' : 'border-gray-850/80 text-gray-500'
+      }`}>
         <div className="flex flex-wrap items-center gap-4">
-          <span className="flex items-center gap-1.5 text-gray-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className={`flex items-center gap-1.5 ${isLight ? 'text-slate-700' : 'text-gray-400'}`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>kube-apiserver: Running</span>
           </span>
-          <span className="flex items-center gap-1.5 text-gray-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className={`flex items-center gap-1.5 ${isLight ? 'text-slate-700' : 'text-gray-400'}`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>etcd-cluster: Healthy (Quorum 3/3)</span>
           </span>
-          <span className="flex items-center gap-1.5 text-gray-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className={`flex items-center gap-1.5 ${isLight ? 'text-slate-700' : 'text-gray-400'}`}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>VictoriaLogs Ingest: Active</span>
           </span>
         </div>
 
-        <div className="flex items-center gap-3 text-gray-400">
+        <div className={`flex items-center gap-3 ${isLight ? 'text-slate-600' : 'text-gray-400'}`}>
           <span>Net Rx: {node.networkRxMbps} Mbps</span>
           <span>·</span>
           <span>Net Tx: {node.networkTxMbps} Mbps</span>

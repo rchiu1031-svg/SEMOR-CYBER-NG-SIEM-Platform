@@ -10,6 +10,7 @@ import {
   Target
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useTheme } from '../../context/ThemeContext';
 
 interface OverviewAiThreatAdvisoryProps {
   isZh: boolean;
@@ -22,10 +23,15 @@ export const OverviewAiThreatAdvisory: React.FC<OverviewAiThreatAdvisoryProps> =
   onOpenTopology,
   onOpenSoar
 }) => {
+  const { isLight } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="w-full bg-gradient-to-r from-blue-950/40 via-[#111114] to-purple-950/30 border border-blue-500/30 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+    <div className={`w-full rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all ${
+      isLight 
+        ? 'bg-gradient-to-r from-blue-50/80 via-white to-purple-50/80 border border-blue-200 text-slate-800' 
+        : 'bg-gradient-to-r from-blue-950/40 via-[#111114] to-purple-950/30 border border-blue-500/30'
+    }`}>
       {/* Background ambient lighting */}
       <div className="absolute -right-16 -top-16 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute right-32 -bottom-16 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -48,17 +54,17 @@ export const OverviewAiThreatAdvisory: React.FC<OverviewAiThreatAdvisoryProps> =
               </span>
             </div>
 
-            <p className="text-sm font-medium text-gray-200 leading-relaxed">
+            <p className={`text-sm font-medium leading-relaxed ${isLight ? 'text-slate-700' : 'text-gray-200'}`}>
               {isZh ? (
                 <>
-                  AI 關聯分析引擎偵測到涉及 <strong className="text-blue-400 underline decoration-blue-500/40">研發核心部主機 (WS-22)</strong> 的重大複合式攻擊鏈：
-                  惡意程式經由 <span className="text-amber-300 font-mono">MS17-010 SMB 漏洞</span> 發起內網橫向擴散，並伴隨 <strong className="text-red-400 font-mono">15GB 原始碼異常外傳</strong> 至外部 Tor 出口節點。
+                  AI 關聯分析引擎偵測到涉及 <strong className="text-blue-500 underline decoration-blue-500/40 font-bold">研發核心部主機 (WS-22)</strong> 的重大複合式攻擊鏈：
+                  惡意程式經由 <span className="text-amber-500 font-mono font-bold">MS17-010 SMB 漏洞</span> 發起內網橫向擴散，並伴隨 <strong className="text-red-500 font-mono font-bold">15GB 原始碼異常外傳</strong> 至外部 Tor 出口節點。
                   系統已自動下發端點隔離與邊界阻斷策略。
                 </>
               ) : (
                 <>
-                  AI Correlation Engine detected a multi-stage attack chain targeting <strong className="text-blue-400 underline decoration-blue-500/40">R&D Workstation (WS-22)</strong>:
-                  Malware leveraging <span className="text-amber-300 font-mono">SMB MS17-010</span> for lateral movement, coupled with <strong className="text-red-400 font-mono">15GB source code exfiltration</strong> to a foreign Tor node.
+                  AI Correlation Engine detected a multi-stage attack chain targeting <strong className="text-blue-500 underline decoration-blue-500/40 font-bold">R&D Workstation (WS-22)</strong>:
+                  Malware leveraging <span className="text-amber-500 font-mono font-bold">SMB MS17-010</span> for lateral movement, coupled with <strong className="text-red-500 font-mono font-bold">15GB source code exfiltration</strong> to a foreign Tor node.
                   Automated containment and perimeter null-routing have been initiated.
                 </>
               )}
@@ -71,9 +77,13 @@ export const OverviewAiThreatAdvisory: React.FC<OverviewAiThreatAdvisoryProps> =
           <button
             id="overview-ai-open-topology-btn"
             onClick={onOpenTopology}
-            className="flex items-center gap-2 px-3.5 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all group"
+            className={`flex items-center gap-2 px-3.5 py-2 border rounded-xl text-xs font-bold transition-all group ${
+              isLight 
+                ? 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200' 
+                : 'bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30'
+            }`}
           >
-            <Workflow size={14} className="group-hover:scale-110 transition-transform text-purple-400" />
+            <Workflow size={14} className="group-hover:scale-110 transition-transform text-purple-500" />
             <span>{isZh ? '檢視攻擊鏈拓撲' : 'View Attack Graph'}</span>
           </button>
 
@@ -88,7 +98,11 @@ export const OverviewAiThreatAdvisory: React.FC<OverviewAiThreatAdvisoryProps> =
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl transition-all border border-white/10"
+            className={`p-2 rounded-xl transition-all border ${
+              isLight 
+                ? 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200' 
+                : 'bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border-white/10'
+            }`}
             title={isZh ? (isExpanded ? '收合技術詳情' : '展開技術詳情') : (isExpanded ? 'Collapse' : 'Expand')}
           >
             {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -98,37 +112,45 @@ export const OverviewAiThreatAdvisory: React.FC<OverviewAiThreatAdvisoryProps> =
 
       {/* Expandable Technical Root Cause Analysis Details */}
       {isExpanded && (
-        <div className="mt-4 pt-4 border-t border-gray-800/80 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-gray-300">
-          <div className="bg-black/40 p-3 rounded-xl border border-gray-800 space-y-1.5">
-            <div className="text-[10px] font-black uppercase text-blue-400 flex items-center gap-1.5">
+        <div className={`mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-3 gap-4 text-xs ${
+          isLight ? 'border-slate-200 text-slate-700' : 'border-gray-800/80 text-gray-300'
+        }`}>
+          <div className={`p-3 rounded-xl border space-y-1.5 ${
+            isLight ? 'bg-white/90 border-slate-200 shadow-sm' : 'bg-black/40 border-gray-800'
+          }`}>
+            <div className="text-[10px] font-black uppercase text-blue-500 flex items-center gap-1.5">
               <Target size={12} />
               {isZh ? '根因研判 (Root Cause)' : 'Root Cause Deduction'}
             </div>
-            <p className="text-gray-300 leading-normal">
+            <p className={`leading-normal ${isLight ? 'text-slate-600' : 'text-gray-300'}`}>
               {isZh
                 ? '端點遭偽裝成軟體更新的 Trojan.Dropper 釣魚郵件穿透邊界，於凌晨非營業時段執行 7z 壓縮並加密敏感資料夾。'
                 : 'Initial ingress via spear-phishing dropper posing as software patch, executing unauthorized 7z compression during off-hours.'}
             </p>
           </div>
 
-          <div className="bg-black/40 p-3 rounded-xl border border-gray-800 space-y-1.5">
-            <div className="text-[10px] font-black uppercase text-purple-400 flex items-center gap-1.5">
+          <div className={`p-3 rounded-xl border space-y-1.5 ${
+            isLight ? 'bg-white/90 border-slate-200 shadow-sm' : 'bg-black/40 border-gray-800'
+          }`}>
+            <div className="text-[10px] font-black uppercase text-purple-500 flex items-center gap-1.5">
               <Cpu size={12} />
               {isZh ? '關聯 IOC 與規則命中' : 'Associated IOCs & Rules'}
             </div>
             <div className="space-y-1 font-mono text-[11px]">
-              <div className="text-gray-400">SHA256: <span className="text-gray-200">e3b0c442...855</span></div>
-              <div className="text-gray-400">C2: <span className="text-red-400 font-bold">185.220.101.5:443</span></div>
-              <div className="text-gray-400">Sigma: <span className="text-blue-300">win_smb_ms17_010</span></div>
+              <div className={isLight ? 'text-slate-600' : 'text-gray-400'}>SHA256: <span className={isLight ? 'text-slate-800 font-bold' : 'text-gray-200'}>e3b0c442...855</span></div>
+              <div className={isLight ? 'text-slate-600' : 'text-gray-400'}>C2: <span className="text-red-500 font-bold">185.220.101.5:443</span></div>
+              <div className={isLight ? 'text-slate-600' : 'text-gray-400'}>Sigma: <span className="text-blue-500 font-semibold">win_smb_ms17_010</span></div>
             </div>
           </div>
 
-          <div className="bg-black/40 p-3 rounded-xl border border-gray-800 space-y-1.5">
-            <div className="text-[10px] font-black uppercase text-emerald-400 flex items-center gap-1.5">
+          <div className={`p-3 rounded-xl border space-y-1.5 ${
+            isLight ? 'bg-white/90 border-slate-200 shadow-sm' : 'bg-black/40 border-gray-800'
+          }`}>
+            <div className="text-[10px] font-black uppercase text-emerald-500 flex items-center gap-1.5">
               <ShieldCheck size={12} />
               {isZh ? '自動化防禦處置成效' : 'Automated Defense Actions'}
             </div>
-            <ul className="space-y-1 text-gray-300 list-disc list-inside">
+            <ul className={`space-y-1 list-disc list-inside ${isLight ? 'text-slate-600' : 'text-gray-300'}`}>
               <li>{isZh ? '端點 EDR 隔離：WS-22 網路通訊已截斷' : 'Endpoint EDR: WS-22 network quarantined'}</li>
               <li>{isZh ? '防火牆黑名單：C2 IP 於 NGFW 邊界丟棄' : 'NGFW: C2 IP null-routed at edge perimeter'}</li>
               <li>{isZh ? 'AD 憑證鎖定：帳號 Kevin.Chen 已撤銷權杖' : 'Active Directory: Kevin.Chen Kerberos invalidated'}</li>

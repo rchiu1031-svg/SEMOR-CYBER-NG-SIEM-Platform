@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { AbnormalLoginRecord } from './types';
 import { cn } from '../../lib/utils';
+import { useTheme } from '../../context/ThemeContext';
 
 interface OverviewAbnormalLoginsProps {
   records: AbnormalLoginRecord[];
@@ -25,6 +26,8 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
   onBlockIp,
   onInvestigateHost
 }) => {
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
   const [searchTerm, setSearchTerm] = useState('');
   const [blockedIps, setBlockedIps] = useState<string[]>([]);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -43,19 +46,25 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
   };
 
   return (
-    <div className="bg-[#111114] border border-gray-800/80 rounded-2xl p-5 flex flex-col justify-between">
+    <div className={cn(
+      "rounded-2xl p-5 flex flex-col justify-between transition-colors",
+      isLight ? "bg-white border border-slate-200 shadow-sm" : "bg-[#111114] border border-gray-800/80"
+    )}>
       <div>
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-xl">
+            <div className={cn(
+              "p-2 rounded-xl transition-colors",
+              isLight ? "bg-amber-50 border border-amber-200 text-amber-600" : "bg-amber-500/15 border border-amber-500/30 text-amber-400"
+            )}>
               <UserCheck size={20} />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-wide">
+              <h2 className={cn("text-base font-bold tracking-wide", isLight ? "text-slate-900" : "text-white")}>
                 {isZh ? '主機異常暴力破解與憑證撞庫監控' : 'Host Brute-Force & Credential Stuffing Watch'}
               </h2>
-              <p className="text-xs text-gray-400 mt-0.5">
+              <p className={cn("text-xs mt-0.5", isLight ? "text-slate-500" : "text-gray-400")}>
                 {isZh
                   ? '自動捕獲 SSH / RDP / Kerberos 高頻嘗試並即時實施速率限制與阻斷'
                   : 'Automated telemetry for distributed auth brute-force attacks'}
@@ -65,13 +74,18 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
 
           <div className="flex items-center gap-2">
             <div className="relative">
-              <Search size={13} className="absolute left-3 top-2.5 text-gray-500" />
+              <Search size={13} className={cn("absolute left-3 top-2.5", isLight ? "text-slate-400" : "text-gray-500")} />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder={isZh ? '搜尋 IP 或主機名稱...' : 'Search IP or host...'}
-                className="pl-8 pr-3 py-1.5 bg-black/40 border border-gray-800 rounded-xl text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 w-44 sm:w-56"
+                className={cn(
+                  "pl-8 pr-3 py-1.5 rounded-xl text-xs focus:outline-none focus:border-blue-500 w-44 sm:w-56 transition-colors",
+                  isLight
+                    ? "bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400"
+                    : "bg-black/40 border border-gray-800 text-gray-200 placeholder-gray-500"
+                )}
               />
             </div>
           </div>
@@ -88,7 +102,10 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="text-gray-400 uppercase text-[10px] tracking-wider border-b border-gray-800/80">
+              <tr className={cn(
+                "uppercase text-[10px] tracking-wider border-b font-bold",
+                isLight ? "text-slate-500 border-slate-200" : "text-gray-400 border-gray-800/80"
+              )}>
                 <th className="pb-3 font-bold">{isZh ? '時間' : 'Time'}</th>
                 <th className="pb-3 font-bold">{isZh ? '來源 IP 與地理歸屬' : 'Source IP & Geo'}</th>
                 <th className="pb-3 font-bold">{isZh ? '目標主機' : 'Target Host'}</th>
@@ -98,21 +115,21 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
                 <th className="pb-3 font-bold text-right">{isZh ? '應變動作' : 'Action'}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/50">
+            <tbody className={cn("divide-y", isLight ? "divide-slate-200" : "divide-gray-800/50")}>
               {filteredRecords.map((record) => {
                 const isAlreadyBlocked = record.status === 'BLOCKED' || blockedIps.includes(record.ip);
                 return (
-                  <tr key={record.id} className="hover:bg-white/[0.02] transition-colors group">
-                    <td className="py-3 text-xs text-gray-400 font-mono">
+                  <tr key={record.id} className={cn("transition-colors group", isLight ? "hover:bg-slate-50/80" : "hover:bg-white/[0.02]")}>
+                    <td className={cn("py-3 text-xs font-mono", isLight ? "text-slate-500" : "text-gray-400")}>
                       {record.time}
                     </td>
 
                     <td className="py-3">
                       <div className="flex flex-col">
-                        <span className="text-xs font-bold text-blue-400 font-mono group-hover:underline cursor-pointer" onClick={() => onInvestigateHost(record.ip)}>
+                        <span className="text-xs font-bold text-blue-500 font-mono group-hover:underline cursor-pointer" onClick={() => onInvestigateHost(record.ip)}>
                           {record.ip}
                         </span>
-                        <span className="text-[10px] text-gray-500">
+                        <span className={cn("text-[10px]", isLight ? "text-slate-400" : "text-gray-500")}>
                           {isZh ? record.locationZh : record.locationEn}
                         </span>
                       </div>
@@ -121,13 +138,13 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
                     <td className="py-3">
                       <div className="flex flex-col">
                         <div className="flex items-center gap-1.5">
-                          <Lock size={12} className="text-gray-500" />
-                          <span className="text-xs font-medium text-gray-200 font-mono">
+                          <Lock size={12} className={isLight ? "text-slate-400" : "text-gray-500"} />
+                          <span className={cn("text-xs font-medium font-mono", isLight ? "text-slate-800" : "text-gray-200")}>
                             {record.host}
                           </span>
                         </div>
                         {record.authEventDetail && (
-                          <span className="text-[10px] text-gray-400 font-mono truncate max-w-[260px] mt-0.5" title={record.authEventDetail}>
+                          <span className={cn("text-[10px] font-mono truncate max-w-[260px] mt-0.5", isLight ? "text-slate-500" : "text-gray-400")} title={record.authEventDetail}>
                             {record.authEventDetail}
                           </span>
                         )}
@@ -136,11 +153,14 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
 
                     <td className="py-3">
                       <div className="flex flex-col gap-1">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-gray-900 border border-gray-800 text-gray-300 w-fit">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-mono font-bold w-fit border",
+                          isLight ? "bg-slate-100 border-slate-200 text-slate-700" : "bg-gray-900 border border-gray-800 text-gray-300"
+                        )}>
                           {record.service}
                         </span>
                         {record.eventId && (
-                          <span className="text-[9px] font-mono font-semibold text-purple-400">
+                          <span className={cn("text-[9px] font-mono font-semibold", isLight ? "text-purple-600" : "text-purple-400")}>
                             {typeof record.eventId === 'number' ? `EvtID ${record.eventId}` : record.eventId}
                           </span>
                         )}
@@ -149,7 +169,7 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
 
                     <td className="py-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-gray-900 rounded-full overflow-hidden">
+                        <div className={cn("w-16 h-1.5 rounded-full overflow-hidden", isLight ? "bg-slate-200" : "bg-gray-900")}>
                           <div
                             className={cn(
                               "h-full rounded-full",
@@ -158,7 +178,7 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
                             style={{ width: `${Math.min(record.attempts, 100)}%` }}
                           />
                         </div>
-                        <span className={cn("text-xs font-bold font-mono", record.attempts > 80 ? "text-red-400" : "text-amber-400")}>
+                        <span className={cn("text-xs font-bold font-mono", record.attempts > 80 ? "text-red-500" : "text-amber-500")}>
                           {record.attempts}
                         </span>
                       </div>
@@ -201,11 +221,14 @@ export const OverviewAbnormalLogins: React.FC<OverviewAbnormalLoginsProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="mt-3 pt-3 border-t border-gray-800/80 flex items-center justify-between text-xs text-gray-500">
+      <div className={cn(
+        "mt-3 pt-3 border-t flex items-center justify-between text-xs transition-colors",
+        isLight ? "border-slate-200 text-slate-500" : "border-gray-800/80 text-gray-500"
+      )}>
         <span className="text-[11px]">
           {isZh ? '暴力破解規則：1 分鐘內失敗超過 10 次自動納入動態觀察清單' : 'Rule: >10 failures/min dynamically placed in watch quarantine'}
         </span>
-        <span className="text-[11px] font-mono text-emerald-400">
+        <span className={cn("text-[11px] font-mono", isLight ? "text-emerald-600 font-semibold" : "text-emerald-400")}>
           {isZh ? '已攔截 362 次未授權連線' : '362 unauthorized attempts mitigated today'}
         </span>
       </div>

@@ -14,6 +14,7 @@ import {
 import { Activity, Radio, BarChart2, Layers } from 'lucide-react';
 import { TrafficDataPoint } from './types';
 import { cn } from '../../lib/utils';
+import { useTheme } from '../../context/ThemeContext';
 
 interface OverviewTrafficAnalyticsProps {
   data: TrafficDataPoint[];
@@ -24,6 +25,7 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
   data,
   isZh
 }) => {
+  const { isLight } = useTheme();
   const [chartType, setChartType] = useState<'area' | 'bar'>('area');
   const [visibleWorkers, setVisibleWorkers] = useState<{ [key: string]: boolean }>({
     worker1: true,
@@ -39,17 +41,19 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
   const avgEps = Math.round(totalEps / (data.length * 3));
 
   return (
-    <div className="bg-[#111114] border border-gray-800/80 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden">
+    <div className={`border rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden transition-all ${
+      isLight ? 'bg-white border-slate-200' : 'bg-[#111114] border-gray-800/80'
+    }`}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <div className="flex items-center gap-2">
-            <Activity className="text-blue-400" size={18} />
-            <h2 className="text-base font-bold text-white tracking-wide">
+            <Activity className="text-blue-500" size={18} />
+            <h2 className={`text-base font-bold tracking-wide ${isLight ? 'text-slate-900' : 'text-white'}`}>
               {isZh ? '分散式跨集群 (CCS) 流量與 EPS 即時分析' : 'Distributed CCS Ingestion & EPS Telemetry'}
             </h2>
           </div>
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-gray-400'}`}>
             {isZh
               ? '即時監控台北主要節點、東京邊緣與法蘭克福搜尋節點事件吞吐'
               : 'Real-time multi-worker log parsing & search throughput stream'}
@@ -59,12 +63,16 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
         {/* Worker toggles and view selector */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Worker toggles */}
-          <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-lg border border-gray-800 text-[11px]">
+          <div className={`flex items-center gap-1.5 p-1 rounded-lg border text-[11px] ${
+            isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-gray-800'
+          }`}>
             <button
               onClick={() => toggleWorker('worker1')}
               className={cn(
-                "px-2 py-0.5 rounded flex items-center gap-1.5 transition-all",
-                visibleWorkers.worker1 ? "bg-blue-600/20 text-blue-400 border border-blue-500/30" : "text-gray-500"
+                "px-2 py-0.5 rounded flex items-center gap-1.5 transition-all font-medium",
+                visibleWorkers.worker1 
+                  ? "bg-blue-600/20 text-blue-500 border border-blue-500/30" 
+                  : isLight ? "text-slate-400 hover:text-slate-600" : "text-gray-500"
               )}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
@@ -73,8 +81,10 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
             <button
               onClick={() => toggleWorker('worker2')}
               className={cn(
-                "px-2 py-0.5 rounded flex items-center gap-1.5 transition-all",
-                visibleWorkers.worker2 ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30" : "text-gray-500"
+                "px-2 py-0.5 rounded flex items-center gap-1.5 transition-all font-medium",
+                visibleWorkers.worker2 
+                  ? "bg-emerald-600/20 text-emerald-500 border border-emerald-500/30" 
+                  : isLight ? "text-slate-400 hover:text-slate-600" : "text-gray-500"
               )}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -83,8 +93,10 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
             <button
               onClick={() => toggleWorker('worker3')}
               className={cn(
-                "px-2 py-0.5 rounded flex items-center gap-1.5 transition-all",
-                visibleWorkers.worker3 ? "bg-purple-600/20 text-purple-400 border border-purple-500/30" : "text-gray-500"
+                "px-2 py-0.5 rounded flex items-center gap-1.5 transition-all font-medium",
+                visibleWorkers.worker3 
+                  ? "bg-purple-600/20 text-purple-500 border border-purple-500/30" 
+                  : isLight ? "text-slate-400 hover:text-slate-600" : "text-gray-500"
               )}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
@@ -93,12 +105,16 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
           </div>
 
           {/* Chart type toggle */}
-          <div className="flex items-center bg-black/40 p-1 rounded-lg border border-gray-800">
+          <div className={`flex items-center p-1 rounded-lg border ${
+            isLight ? 'bg-slate-100 border-slate-200' : 'bg-black/40 border-gray-800'
+          }`}>
             <button
               onClick={() => setChartType('area')}
               className={cn(
                 "p-1 rounded text-xs transition-all",
-                chartType === 'area' ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white"
+                chartType === 'area' 
+                  ? isLight ? "bg-white text-slate-900 shadow-sm" : "bg-gray-800 text-white" 
+                  : isLight ? "text-slate-500 hover:text-slate-900" : "text-gray-400 hover:text-white"
               )}
               title={isZh ? '面積圖' : 'Area Chart'}
             >
@@ -108,7 +124,9 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
               onClick={() => setChartType('bar')}
               className={cn(
                 "p-1 rounded text-xs transition-all",
-                chartType === 'bar' ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white"
+                chartType === 'bar' 
+                  ? isLight ? "bg-white text-slate-900 shadow-sm" : "bg-gray-800 text-white" 
+                  : isLight ? "text-slate-500 hover:text-slate-900" : "text-gray-400 hover:text-white"
               )}
               title={isZh ? '長條圖' : 'Bar Chart'}
             >
@@ -137,17 +155,17 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
                   <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-              <XAxis dataKey="time" stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} unit=" eps" />
+              <CartesianGrid strokeDasharray="3 3" stroke={isLight ? '#e2e8f0' : '#1f2937'} vertical={false} />
+              <XAxis dataKey="time" stroke={isLight ? '#64748b' : '#6b7280'} fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke={isLight ? '#64748b' : '#6b7280'} fontSize={11} tickLine={false} axisLine={false} unit=" eps" />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#111114',
-                  borderColor: '#374151',
+                  backgroundColor: isLight ? '#ffffff' : '#111114',
+                  borderColor: isLight ? '#cbd5e1' : '#374151',
                   borderRadius: '12px',
-                  boxShadow: '0 10px 25px rgba(0,0,0,0.5)'
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
                 }}
-                itemStyle={{ color: '#fff' }}
+                itemStyle={{ color: isLight ? '#0f172a' : '#fff' }}
               />
               <Legend
                 wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }}
@@ -189,16 +207,17 @@ export const OverviewTrafficAnalytics: React.FC<OverviewTrafficAnalyticsProps> =
             </AreaChart>
           ) : (
             <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-              <XAxis dataKey="time" stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} unit=" eps" />
+              <CartesianGrid strokeDasharray="3 3" stroke={isLight ? '#e2e8f0' : '#1f2937'} vertical={false} />
+              <XAxis dataKey="time" stroke={isLight ? '#64748b' : '#6b7280'} fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke={isLight ? '#64748b' : '#6b7280'} fontSize={11} tickLine={false} axisLine={false} unit=" eps" />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#111114',
-                  borderColor: '#374151',
-                  borderRadius: '12px'
+                  backgroundColor: isLight ? '#ffffff' : '#111114',
+                  borderColor: isLight ? '#cbd5e1' : '#374151',
+                  borderRadius: '12px',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
                 }}
-                itemStyle={{ color: '#fff' }}
+                itemStyle={{ color: isLight ? '#0f172a' : '#fff' }}
               />
               <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }} />
               {visibleWorkers.worker1 && (
