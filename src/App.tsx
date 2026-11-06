@@ -131,8 +131,11 @@ import {
   Radar as RadarIcon,
   RotateCcw,
   ZapOff,
-  Swords
+  Swords,
+  Sun,
+  Moon
 } from 'lucide-react';
+import { useTheme } from './context/ThemeContext';
 import { 
   ComposableMap, 
   Geographies, 
@@ -1631,8 +1634,10 @@ const CyberRadarLogo = () => {
 };
 
 export default function App() {
+  const { theme, isLight, toggleTheme, setTheme } = useTheme();
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const isJa = i18n.language?.startsWith('ja');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [user, setUser] = useState<any>(() => {
     try {
@@ -2004,19 +2009,33 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0a0a0c] text-gray-100 font-sans overflow-hidden">
+    <div className={cn(
+      "flex h-screen font-sans overflow-hidden transition-colors duration-200",
+      isLight ? "bg-[#f8fafc] text-slate-900 theme-light" : "bg-[#0a0a0c] text-gray-100 theme-dark"
+    )}>
       {/* Sidebar */}
       <motion.aside 
         initial={false}
         animate={{ width: isSidebarOpen ? 260 : 80 }}
-        className="bg-[#111114] border-r border-gray-800 flex flex-col z-50"
+        className={cn(
+          "border-r flex flex-col z-50 transition-colors duration-200",
+          isLight ? "bg-white border-slate-200" : "bg-[#111114] border-gray-800"
+        )}
       >
-        <div className="p-6 flex items-center gap-3 border-b border-gray-800">
+        <div className={cn(
+          "p-6 flex items-center gap-3 border-b transition-colors duration-200",
+          isLight ? "border-slate-200 bg-slate-50/60" : "border-gray-800"
+        )}>
           <CyberRadarLogo />
 
           {isSidebarOpen && (
             <div className="flex flex-col">
-              <span className="font-black text-xl tracking-tighter bg-gradient-to-r from-white via-blue-200 to-gray-500 bg-clip-text text-transparent italic">
+              <span className={cn(
+                "font-black text-xl tracking-tighter italic",
+                isLight 
+                  ? "bg-gradient-to-r from-slate-950 via-blue-700 to-slate-700 bg-clip-text text-transparent"
+                  : "bg-gradient-to-r from-white via-blue-200 to-gray-500 bg-clip-text text-transparent"
+              )}>
                 SEMOR CYBER
               </span>
               <span className="text-[8px] text-blue-500 font-bold uppercase tracking-[0.2em] -mt-1 italic">Unified Threat Control</span>
@@ -2346,24 +2365,73 @@ export default function App() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
         {/* Header */}
-        <header className="h-16 bg-[#111114]/80 backdrop-blur-md border-b border-gray-800 flex items-center justify-between px-8 z-40">
+        <header className={cn(
+          "h-16 backdrop-blur-md border-b flex items-center justify-between px-8 z-40 transition-colors duration-200",
+          isLight ? "bg-white/90 border-slate-200 shadow-sm" : "bg-[#111114]/80 border-gray-800"
+        )}>
           <div className="flex items-center gap-4">
-            <h2 className="text-lg font-medium text-gray-300">
+            <h2 className={cn(
+              "text-lg font-bold tracking-tight",
+              isLight ? "text-slate-900" : "text-gray-200"
+            )}>
               {activeTab === 'dashboard' ? t('common.dashboard') : 
                activeTab === 'critical-incidents' ? t('common.critical_incidents') :
                t(`modules.${activeTab}`, { defaultValue: MODULES.find(m => m.id === activeTab)?.name || 'System' })}
             </h2>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
+            {/* Cyber Theme Switcher (科技感黑 / 簡報科技白) */}
+            <div className="relative">
+              <button 
+                onClick={toggleTheme}
+                title={isZh 
+                  ? (isLight ? "目前為「簡報科技白」高對比模式，點擊切換為「深邃戰情黑」" : "目前為「深邃戰情黑」模式，點擊切換為「簡報科技白」（消除投影機灰階模糊與反光）") 
+                  : (isLight ? "Switch to Cyber Dark Mode" : "Switch to Presentation Cyber Light Mode")}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all border shadow-sm group cursor-pointer",
+                  isLight 
+                    ? "bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 border-amber-300 shadow-amber-500/10" 
+                    : "bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-300 border-cyan-500/40 hover:border-cyan-400"
+                )}
+              >
+                {isLight ? (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-500 animate-spin-slow" />
+                    <span className="font-mono font-black">
+                      {isZh ? "科技感白" : isJa ? "プレゼン白" : "Cyber Light"}
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-200/80 text-amber-900 font-black uppercase tracking-wider">
+                      {isZh ? "簡報模式" : "Pres"}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-cyan-400 group-hover:text-cyan-300" />
+                    <span className="font-mono text-gray-200 group-hover:text-white">
+                      {isZh ? "科技感黑" : isJa ? "サイバー黒" : "Cyber Dark"}
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/60 text-cyan-400 font-mono font-bold border border-cyan-700/50">
+                      SOC
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+
             {/* Language Switcher */}
             <div className="relative">
               <button 
                 onClick={() => setIsLangOpen(!isLangOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/50 hover:bg-gray-800 rounded-lg text-[10px] font-bold transition-all border border-gray-800 hover:border-gray-700"
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border",
+                  isLight 
+                    ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200" 
+                    : "bg-gray-800/50 hover:bg-gray-800 text-gray-300 border-gray-800 hover:border-gray-700"
+                )}
               >
-                <Globe className="w-3.5 h-3.5 text-blue-400" />
-                <span className="text-gray-300">
+                <Globe className="w-3.5 h-3.5 text-blue-500" />
+                <span>
                   {i18n.language?.startsWith("en") ? "English" : i18n.language?.startsWith("ja") ? "日本語" : "繁體中文"}
                 </span>
                 <ChevronDown className={cn("w-3 h-3 text-gray-500 transition-transform", isLangOpen && "rotate-180")} />
@@ -2465,7 +2533,10 @@ export default function App() {
         </header>
 
         {/* View Content */}
-        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+        <div className={cn(
+          "flex-1 overflow-y-auto p-8 custom-scrollbar transition-colors duration-200",
+          isLight ? "bg-[#f1f5f9]" : "bg-[#0a0a0c]"
+        )}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

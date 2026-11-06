@@ -4,11 +4,14 @@ import App from './App.tsx';
 import './index.css';
 import './i18n';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ThemeProvider } from './context/ThemeContext';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
     </ErrorBoundary>
   </StrictMode>,
 );

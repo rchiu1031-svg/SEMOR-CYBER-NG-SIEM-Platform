@@ -31,6 +31,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
 import { siemService } from '../services/siemService';
+import { useTheme } from '../context/ThemeContext';
 
 interface GeneralSettingsViewProps {
   isReadOnly?: boolean;
@@ -66,7 +67,12 @@ export default function GeneralSettingsView({
   const [orgName, setOrgName] = useState('SEMOR CYBER Security Operations HQ');
   const [systemTimezone, setSystemTimezone] = useState('Asia/Taipei');
   const [defaultLanguage, setDefaultLanguage] = useState('zh-TW');
-  const [themeMode, setThemeMode] = useState('cyber-dark');
+  const { theme, setTheme } = useTheme();
+  const [themeMode, setThemeMode] = useState(theme === 'light' ? 'cyber-light' : 'cyber-dark');
+
+  useEffect(() => {
+    setThemeMode(theme === 'light' ? 'cyber-light' : 'cyber-dark');
+  }, [theme]);
 
   // Security & Session Policy Settings
   const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState('30');
@@ -601,20 +607,31 @@ export default function GeneralSettingsView({
             </select>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-              {isZh ? '儀表板主題風格 (UI Theme)' : 'Theme Mode'}
+          <div className="space-y-1.5 md:col-span-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider flex items-center justify-between">
+              <span>{isZh ? '視覺主題與簡報模式 (Theme & Presentation Mode)' : 'UI Theme & Presentation'}</span>
+              <span className="text-[9px] font-mono text-cyan-400 font-bold">
+                {themeMode === 'cyber-light' ? (isZh ? '★ 簡報高對比白已啟用' : 'Presentation Active') : (isZh ? '● 戰情深色模式' : 'Dark Active')}
+              </span>
             </label>
             <select 
               value={themeMode}
-              onChange={(e) => setThemeMode(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setThemeMode(val);
+                setTheme(val === 'cyber-light' ? 'light' : 'dark');
+              }}
               disabled={isReadOnly}
               className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 uppercase"
             >
-              <option value="cyber-dark">{isZh ? '深邃戰情暗黑主題 (Cyber Dark - 預設)' : 'Cyber Dark (Default)'}</option>
-              <option value="oled-black">{isZh ? '極致純黑省電模式 (OLED Black)' : 'OLED Black'}</option>
-              <option value="high-contrast">{isZh ? '高對比安全監控模式 (High Contrast)' : 'High Contrast'}</option>
+              <option value="cyber-dark">{isZh ? '🌙 科技感黑 (Cyber Dark - 沉浸式戰情室深色)' : 'Cyber Dark (SOC Operations)'}</option>
+              <option value="cyber-light">{isZh ? '☀️ 科技感白 (Cyber Light - 簡報投影極致對比模式)' : 'Cyber Light (Presentation Mode)'}</option>
             </select>
+            <p className="text-[10px] text-gray-400 leading-relaxed mt-1">
+              {isZh 
+                ? '專為簡報會議室投影機、大型螢幕設計，使用高對比純白底與深灰字，徹底消除黑底在投影時灰霧洗白、反光與字型看不清的問題。' 
+                : 'High-contrast presentation white mode specifically engineered for beamers, conference room screens, and slides to prevent projector washout.'}
+            </p>
           </div>
 
           <div className="space-y-1.5">
