@@ -37,6 +37,7 @@ import { EngineArchitectureView } from './EngineArchitectureView';
 import { CollectorTelemetryDashboard } from './CollectorTelemetryDashboard';
 import { EngineThresholdConfigView } from './EngineThresholdConfigView';
 import { VictoriaLogsRetryMonitorView } from './VictoriaLogsRetryMonitorView';
+import { ActiveDefenseBlueprintView } from './platform/ActiveDefenseBlueprintView';
 import { 
   AreaChart, 
   Area, 
@@ -138,8 +139,8 @@ export function PlatformPerformanceView() {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
-  // Tabs: 'overview' | 'analytics' | 'engine' | 'telemetry' | 'retry_monitor' | 'engine_thresholds'
-  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'engine' | 'telemetry' | 'retry_monitor' | 'engine_thresholds'>('overview');
+  // Tabs: 'overview' | 'analytics' | 'active_defense' | 'engine' | 'telemetry' | 'retry_monitor' | 'engine_thresholds'
+  const [activeViewMode, setActiveViewMode] = useState<'overview' | 'analytics' | 'active_defense' | 'engine' | 'telemetry' | 'retry_monitor' | 'engine_thresholds'>('active_defense');
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configModalTab, setConfigModalTab] = useState<'thresholds' | 'engine_thresholds' | 'notifications' | 'overrides' | 'test'>('thresholds');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -551,6 +552,18 @@ export function PlatformPerformanceView() {
             >
               <Layers size={13} />
               {isZh ? '節點拓撲' : 'Nodes & Topology'}
+            </button>
+            <button
+              onClick={() => setActiveViewMode('active_defense')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                activeViewMode === 'active_defense'
+                  ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-md shadow-blue-900/30 font-black'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <ShieldAlert size={13} className={activeViewMode === 'active_defense' ? 'text-white' : 'text-blue-400'} />
+              <span>{isZh ? '主動誘捕與自動化聯防' : 'Active Defense & SOAR'}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
             </button>
             <button
               onClick={() => setActiveViewMode('analytics')}
@@ -1203,6 +1216,11 @@ export function PlatformPerformanceView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MAIN VIEW MODE: Active Defense Honeypot & Distributed Command Node Blueprint */}
+      {activeViewMode === 'active_defense' && (
+        <ActiveDefenseBlueprintView />
       )}
 
       {/* MAIN VIEW MODE: Go Collector Telemetry Dashboard */}

@@ -34,6 +34,7 @@ import { createSettingsRouter } from './server/settingsRouter.ts';
 import { createEngineMonitoringRouter } from './server/engineMonitoringRouter.ts';
 import { createOtRouter } from './server/otRouter.ts';
 import { createPlatformPerformanceRouter } from './server/platformPerformanceRouter.ts';
+import { createActiveDefenseRouter } from './server/activeDefenseRouter.ts';
 import { createLicenseRouter } from './server/licenseRouter.ts';
 import { createAiGatewayRouter } from './server/aiGatewayRouter.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
@@ -2164,6 +2165,11 @@ async function startServer() {
   app.use('/api/v1/platform-performance', platformPerformanceRouter);
   app.use('/api/platform-performance', platformPerformanceRouter);
   app.use('/api/v1/infra/performance', platformPerformanceRouter);
+
+  // Active Defense (Honeypot/Sandbox & Distributed Command Node SOAR) Router
+  const activeDefenseRouter = createActiveDefenseRouter();
+  app.use('/api/v1/active-defense', activeDefenseRouter);
+  app.use('/api/active-defense', activeDefenseRouter);
 
   // AI Gateway & Prompt DLP Compliance Router
   const aiGatewayRouter = createAiGatewayRouter();
