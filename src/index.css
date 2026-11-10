@@ -274,7 +274,7 @@ body.theme-light {
   border-color: #e2e8f0 !important;
 }
 
-/* Preserve solid colored buttons, status indicators, and badges */
+/* Preserve solid colored buttons, status indicators, badges, and gradient buttons */
 .theme-light .bg-blue-600,
 .theme-light .bg-blue-500,
 .theme-light .bg-blue-700,
@@ -290,7 +290,15 @@ body.theme-light {
 .theme-light .bg-amber-600,
 .theme-light .bg-amber-500,
 .theme-light .bg-rose-600,
-.theme-light .bg-rose-500 {
+.theme-light .bg-rose-500,
+.theme-light [class*="bg-gradient-"],
+.theme-light [class*="from-blue-"],
+.theme-light [class*="from-purple-"],
+.theme-light [class*="from-red-"],
+.theme-light [class*="from-rose-"],
+.theme-light [class*="from-emerald-"],
+.theme-light [class*="from-cyan-"],
+.theme-light [class*="from-indigo-"] {
   color: #ffffff !important;
 }
 
@@ -307,7 +315,62 @@ body.theme-light {
 .theme-light .bg-amber-600 *,
 .theme-light .bg-amber-500 *,
 .theme-light .bg-rose-600 *,
-.theme-light .bg-rose-500 * {
+.theme-light .bg-rose-500 *,
+.theme-light [class*="bg-gradient-"] *,
+.theme-light [class*="from-blue-"] *,
+.theme-light [class*="from-purple-"] *,
+.theme-light [class*="from-red-"] *,
+.theme-light [class*="from-rose-"] *,
+.theme-light [class*="from-emerald-"] *,
+.theme-light [class*="from-cyan-"] *,
+.theme-light [class*="from-indigo-"] * {
+  color: #ffffff !important;
+}
+
+/* Ensure SVG icons inside colored and gradient containers remain crisp white */
+.theme-light [class*="bg-gradient-"] svg,
+.theme-light [class*="from-"] svg,
+.theme-light .bg-blue-600 svg,
+.theme-light .bg-blue-500 svg,
+.theme-light .bg-red-600 svg,
+.theme-light .bg-red-500 svg,
+.theme-light .bg-purple-600 svg,
+.theme-light .bg-purple-500 svg,
+.theme-light .bg-emerald-600 svg,
+.theme-light .bg-emerald-500 svg,
+.theme-light .bg-cyan-600 svg,
+.theme-light .bg-amber-600 svg,
+.theme-light .bg-rose-600 svg {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
+
+/* Circular badges, avatar initials, and step markers with letters/numbers inside (e.g. A, B, 1, 2, AI, Step N) */
+.theme-light [class*="rounded-full"][class*="bg-blue-"],
+.theme-light [class*="rounded-full"][class*="bg-red-"],
+.theme-light [class*="rounded-full"][class*="bg-emerald-"],
+.theme-light [class*="rounded-full"][class*="bg-purple-"],
+.theme-light [class*="rounded-full"][class*="bg-amber-"],
+.theme-light [class*="rounded-full"][class*="bg-orange-"],
+.theme-light [class*="rounded-full"][class*="bg-cyan-"],
+.theme-light [class*="rounded-full"][class*="bg-indigo-"],
+.theme-light [class*="rounded-md"][class*="bg-blue-"],
+.theme-light [class*="rounded-lg"][class*="bg-blue-"],
+.theme-light [class*="rounded-xl"][class*="bg-blue-"] {
+  color: #ffffff !important;
+}
+
+.theme-light [class*="rounded-full"][class*="bg-blue-"] *,
+.theme-light [class*="rounded-full"][class*="bg-red-"] *,
+.theme-light [class*="rounded-full"][class*="bg-emerald-"] *,
+.theme-light [class*="rounded-full"][class*="bg-purple-"] *,
+.theme-light [class*="rounded-full"][class*="bg-amber-"] *,
+.theme-light [class*="rounded-full"][class*="bg-orange-"] *,
+.theme-light [class*="rounded-full"][class*="bg-cyan-"] *,
+.theme-light [class*="rounded-full"][class*="bg-indigo-"] *,
+.theme-light [class*="rounded-md"][class*="bg-blue-"] *,
+.theme-light [class*="rounded-lg"][class*="bg-blue-"] *,
+.theme-light [class*="rounded-xl"][class*="bg-blue-"] * {
   color: #ffffff !important;
 }
 
@@ -362,6 +425,38 @@ body.theme-light {
 .theme-light .text-slate-100,
 .theme-light .text-slate-200 {
   color: #0f172a !important;
+}
+
+/* Re-assert white text for elements inside colored badges, solid buttons, and active tabs in light mode */
+.theme-light .bg-blue-600 span,
+.theme-light .bg-blue-500 span,
+.theme-light .bg-red-600 span,
+.theme-light .bg-red-500 span,
+.theme-light .bg-emerald-600 span,
+.theme-light .bg-emerald-500 span,
+.theme-light .bg-purple-600 span,
+.theme-light .bg-purple-500 span,
+.theme-light .bg-cyan-600 span,
+.theme-light .bg-rose-600 span,
+.theme-light [class*="bg-gradient-"] span,
+.theme-light [class*="from-"] span,
+.theme-light .bg-blue-600 div,
+.theme-light .bg-blue-500 div,
+.theme-light .bg-red-600 div,
+.theme-light .bg-red-500 div,
+.theme-light .bg-emerald-600 div,
+.theme-light .bg-emerald-500 div,
+.theme-light .bg-purple-600 div,
+.theme-light .bg-purple-500 div,
+.theme-light .bg-cyan-600 div,
+.theme-light .bg-rose-600 div,
+.theme-light [class*="bg-gradient-"] div,
+.theme-light [class*="from-"] div,
+.theme-light .bg-blue-600 h1, .theme-light .bg-blue-600 h2, .theme-light .bg-blue-600 h3, .theme-light .bg-blue-600 h4, .theme-light .bg-blue-600 h5,
+.theme-light .bg-purple-600 h1, .theme-light .bg-purple-600 h2, .theme-light .bg-purple-600 h3, .theme-light .bg-purple-600 h4, .theme-light .bg-purple-600 h5,
+.theme-light .bg-red-600 h1, .theme-light .bg-red-600 h2, .theme-light .bg-red-600 h3, .theme-light .bg-red-600 h4, .theme-light .bg-red-600 h5,
+.theme-light [class*="bg-gradient-"] h1, .theme-light [class*="bg-gradient-"] h2, .theme-light [class*="bg-gradient-"] h3, .theme-light [class*="bg-gradient-"] h4, .theme-light [class*="bg-gradient-"] h5 {
+  color: #ffffff !important;
 }
 
 .theme-light .text-gray-300,
@@ -752,5 +847,131 @@ body.theme-light {
 .theme-light [class*="from-\[\#0"] {
   --tw-gradient-from: #ffffff !important;
 }
+
+/* =========================================================================
+   ICON & TEXT-IN-ICON LEGIBILITY & BACKGROUND OPTIMIZATIONS (ALL THEMES)
+   Eliminates black-on-black or illegible icons/letters, giving icon containers
+   crisp surface definition and guaranteed contrast across dark and light modes.
+   ========================================================================= */
+
+/* Dark Mode Icon Elevation (Prevents text-gray-600/700 from disappearing on dark canvases) */
+body:not(.theme-light) svg.text-gray-600,
+body:not(.theme-light) svg.text-gray-700,
+body:not(.theme-light) svg.text-gray-800,
+.theme-dark svg.text-gray-600,
+.theme-dark svg.text-gray-700,
+.theme-dark svg.text-gray-800 {
+  color: #94a3b8 !important;
+}
+
+body:not(.theme-light) .text-gray-600 svg,
+body:not(.theme-light) .text-gray-700 svg,
+.theme-dark .text-gray-600 svg,
+.theme-dark .text-gray-700 svg {
+  color: #94a3b8 !important;
+}
+
+/* Prevent black text/icons on colored badges in Dark Mode */
+body:not(.theme-light) .bg-emerald-600.text-black,
+body:not(.theme-light) .bg-emerald-500.text-black,
+.theme-dark .bg-emerald-600.text-black,
+.theme-dark .bg-emerald-500.text-black,
+body:not(.theme-light) .bg-red-500.text-black,
+.theme-dark .bg-red-500.text-black {
+  color: #ffffff !important;
+}
+
+/* Icon container background surface enhancement in Dark Mode */
+body:not(.theme-light) [class*="w-7"][class*="h-7"][class*="bg-black"],
+body:not(.theme-light) [class*="w-8"][class*="h-8"][class*="bg-black"],
+body:not(.theme-light) [class*="w-9"][class*="h-9"][class*="bg-black"],
+body:not(.theme-light) [class*="w-10"][class*="h-10"][class*="bg-black"],
+.theme-dark [class*="w-7"][class*="h-7"][class*="bg-black"],
+.theme-dark [class*="w-8"][class*="h-8"][class*="bg-black"],
+.theme-dark [class*="w-9"][class*="h-9"][class*="bg-black"],
+.theme-dark [class*="w-10"][class*="h-10"][class*="bg-black"] {
+  background-color: #1a1e29 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Light Mode Icon container background surface enhancement */
+.theme-light [class*="w-8"][class*="h-8"][class*="bg-gray-900"],
+.theme-light [class*="w-10"][class*="h-10"][class*="bg-gray-900"],
+.theme-light [class*="p-2.5"][class*="bg-gray-900"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+.theme-light [class*="w-8"][class*="h-8"][class*="bg-gray-900"] svg,
+.theme-light [class*="w-10"][class*="h-10"][class*="bg-gray-900"] svg,
+.theme-light [class*="p-2.5"][class*="bg-gray-900"] svg {
+  color: #334155 !important;
+}
+
+/* Topology node text chips on maps */
+.theme-light .bg-black\/80 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Ensure letters/numbers/initials in avatar chips and badges stay white in Light Mode */
+.theme-light div[class*="rounded-full"][class*="bg-blue-"],
+.theme-light div[class*="rounded-full"][class*="bg-purple-"],
+.theme-light div[class*="rounded-full"][class*="bg-indigo-"],
+.theme-light div[class*="rounded-full"][class*="bg-emerald-"],
+.theme-light div[class*="rounded-full"][class*="bg-red-"],
+.theme-light div[class*="rounded-full"][class*="bg-rose-"],
+.theme-light div[class*="rounded-full"][class*="bg-cyan-"],
+.theme-light span[class*="rounded-full"][class*="bg-blue-"],
+.theme-light span[class*="rounded-full"][class*="bg-purple-"],
+.theme-light span[class*="rounded-full"][class*="bg-indigo-"],
+.theme-light span[class*="rounded-full"][class*="bg-emerald-"],
+.theme-light span[class*="rounded-full"][class*="bg-red-"],
+.theme-light span[class*="rounded-full"][class*="bg-rose-"],
+.theme-light span[class*="rounded-full"][class*="bg-cyan-"] {
+  color: #ffffff !important;
+}
+
+.theme-light div[class*="rounded-full"][class*="bg-blue-"] *,
+.theme-light div[class*="rounded-full"][class*="bg-purple-"] *,
+.theme-light div[class*="rounded-full"][class*="bg-indigo-"] *,
+.theme-light div[class*="rounded-full"][class*="bg-emerald-"] *,
+.theme-light div[class*="rounded-full"][class*="bg-red-"] *,
+.theme-light div[class*="rounded-full"][class*="bg-rose-"] *,
+.theme-light div[class*="rounded-full"][class*="bg-cyan-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-blue-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-purple-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-indigo-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-emerald-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-red-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-rose-"] *,
+.theme-light span[class*="rounded-full"][class*="bg-cyan-"] * {
+  color: #ffffff !important;
+}
+
+/* Ensure SVG icons inside colored action buttons maintain their vibrant white or brand color */
+.theme-light button[class*="bg-blue-"] svg,
+.theme-light button[class*="bg-purple-"] svg,
+.theme-light button[class*="bg-indigo-"] svg,
+.theme-light button[class*="bg-emerald-"] svg,
+.theme-light button[class*="bg-red-"] svg,
+.theme-light button[class*="bg-rose-"] svg,
+.theme-light button[class*="bg-gradient-"] svg,
+.theme-light [class*="bg-gradient-"] svg {
+  color: #ffffff !important;
+}
+
+/* High contrast for neon green actions across themes */
+[class*="bg-\[\#00FF66\]"],
+[class*="bg-\[\#00e65c\]"] {
+  color: #020617 !important;
+}
+[class*="bg-\[\#00FF66\]"] *,
+[class*="bg-\[\#00e65c\]"] * {
+  color: #020617 !important;
+}
+
 
 

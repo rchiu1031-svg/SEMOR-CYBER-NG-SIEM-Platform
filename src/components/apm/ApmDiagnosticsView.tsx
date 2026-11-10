@@ -98,7 +98,7 @@ export const ApmDiagnosticsView: React.FC<ApmDiagnosticsViewProps> = ({
               </div>
               <button
                 onClick={() => setIsModalOpen(true)}
-                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-black text-[10.5px] font-black rounded-lg transition-all flex items-center gap-1"
+                className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 text-[10.5px] font-black rounded-lg transition-all flex items-center gap-1 shadow-xs"
               >
                 <Play size={10} fill="currentColor" />
                 <span>{isZh ? '發起剖析' : isJa ? '測定を開始' : 'Spawn Profiling'}</span>
@@ -177,7 +177,7 @@ export const ApmDiagnosticsView: React.FC<ApmDiagnosticsViewProps> = ({
                     <div 
                       className={`h-7 rounded-md p-1.5 flex items-center justify-between text-[10px] font-mono text-left transition-all duration-300 relative overflow-hidden group hover:opacity-90 ${
                         isHot 
-                          ? "bg-gradient-to-r from-red-600 to-amber-500 text-black font-black border border-red-500/40" 
+                          ? "bg-gradient-to-r from-red-600 to-amber-500 text-white font-black border border-red-500/40 shadow-xs" 
                           : "bg-gradient-to-r from-indigo-900/60 to-blue-950/40 text-gray-300 border border-indigo-950/40"
                       }`}
                       style={{ width: widthStyle, minWidth: '40%' }}
@@ -424,12 +424,12 @@ export const ApmDiagnosticsView: React.FC<ApmDiagnosticsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 text-black font-bold rounded-xl transition-all hover:bg-amber-600 flex items-center gap-1.5"
+                  className="px-5 py-2 bg-amber-400 text-slate-950 font-black rounded-xl transition-all hover:bg-amber-500 flex items-center gap-1.5 shadow-xs"
                   disabled={isProfilingActive}
                 >
                   {isProfilingActive ? (
                     <>
-                      <span className="h-3 w-3 border-2 border-black border-t-transparent rounded-full animate-spin"></span>
+                      <span className="h-3 w-3 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
                       <span>{isZh ? '探針部署監測中...' : isJa ? 'プローブ配備監視中...' : 'Deploying eBPF Sniffer...'}</span>
                     </>
                   ) : (

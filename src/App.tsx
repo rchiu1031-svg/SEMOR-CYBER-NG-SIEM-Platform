@@ -495,7 +495,7 @@ function EntityInvestigationDialog({ entity, onClose }: { entity: any, onClose: 
                  onClick={() => setActiveView(view.id as any)}
                  className={cn(
                    "px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", 
-                   activeView === view.id ? "bg-white text-black shadow-xl" : "bg-white/5 text-gray-500 hover:text-white"
+                   activeView === view.id ? "bg-white text-slate-900 shadow-xl" : "bg-white/5 text-gray-400 hover:text-white"
                  )}
                >
                  {view.label}
@@ -1527,7 +1527,7 @@ function AttackTopologyOverlay({ incident, onClose }: { incident: any, onClose: 
                       item.status === 'alert' ? 'bg-orange-500' :
                       item.status === 'escalation' ? 'bg-red-500' : 'bg-red-600 animate-pulse border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)]'
                     )}>
-                      <div className="w-1.5 h-1.5 bg-black rounded-full" />
+                      <div className="w-1.5 h-1.5 bg-white rounded-full shadow-xs" />
                     </div>
                     <div className="space-y-1">
                       <p className="text-[10px] font-black text-gray-500 flex items-center gap-2">
@@ -6135,7 +6135,7 @@ function MITREMatrixView({ framework, alerts, records, manualTags }: { framework
                    {data.ttps.map((ttp: string) => (
                      <span key={ttp} className={cn(
                        "px-1.5 py-0.5 rounded text-[8px] font-black",
-                       mappedTechniques.includes(ttp.split('.')[0]) ? "bg-orange-500 text-black" : "bg-gray-800 text-gray-500 border border-gray-700"
+                       mappedTechniques.includes(ttp.split('.')[0]) ? "bg-orange-600 text-white font-black shadow-xs" : "bg-gray-800 text-gray-400 border border-gray-700"
                      )}>
                        {ttp}
                      </span>
@@ -6347,7 +6347,7 @@ function XDRView() {
                         "w-4 h-4 rounded mt-1 border flex items-center justify-center transition-all",
                         isSelected ? "bg-orange-500 border-orange-400" : "bg-gray-800 border-gray-700"
                       )}>
-                        {isSelected && <Check size={10} className="text-black font-black" />}
+                        {isSelected && <Check size={10} className="text-white font-black" />}
                       </div>
                       <div>
                         <div className="text-[11px] font-black text-white leading-tight mb-1">{tech.id}: {tech.name}</div>
@@ -8578,7 +8578,7 @@ function ActionBuilder({ onBack, initialProtocol = 'REST', autoOpenExtractor = f
 
         <div className="flex items-center gap-3">
            <button className="px-5 py-2 border border-gray-800 hover:bg-white/5 rounded-xl text-[10px] font-black text-gray-400 uppercase tracking-widest transition-all">{isZh ? '儲存草稿' : 'Save as Draft'}</button>
-           <button className="px-5 py-2 bg-white text-black hover:bg-gray-200 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-xl">{isZh ? '完成動作' : 'Complete Action'}</button>
+           <button className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/25 active:scale-95">{isZh ? '完成動作' : 'Complete Action'}</button>
         </div>
       </div>
 

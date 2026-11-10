@@ -415,7 +415,7 @@ export function LicenseManagementView() {
   const getTierBadge = (tier: string) => {
     switch (tier) {
       case 'Ultimate':
-        return <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-gradient-to-r from-amber-500 to-rose-500 text-black shadow-md">Ultimate SecOps</span>;
+        return <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-md">Ultimate SecOps</span>;
       case 'Enterprise':
         return <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-md">Enterprise</span>;
       case 'Professional':

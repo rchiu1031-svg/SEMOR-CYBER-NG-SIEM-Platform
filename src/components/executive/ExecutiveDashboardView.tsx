@@ -109,7 +109,7 @@ export function ExecutiveDashboardView({ setActiveTab }: ExecutiveDashboardViewP
             <AlertOctagon size={14} className={pendingApprovalsCount > 0 ? "text-amber-400 animate-pulse" : ""} />
             <span>{isZh ? '主管緊急授權' : 'Authorizations'}</span>
             {pendingApprovalsCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black font-mono font-black text-[10px]">
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-mono font-black text-[10px] shadow-xs">
                 {pendingApprovalsCount}
               </span>
             )}

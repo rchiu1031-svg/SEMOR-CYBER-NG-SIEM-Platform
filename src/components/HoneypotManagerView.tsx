@@ -3478,7 +3478,7 @@ export default function HoneypotManagerView() {
                                   }}
                                   className={cn(
                                     "px-3 py-1.5 text-[10px] font-black cursor-pointer transition-colors border-r border-gray-850 last:border-none",
-                                    playbackSpeed === speed ? "bg-yellow-500 text-black font-black" : "text-gray-400 hover:text-white"
+                                    playbackSpeed === speed ? "bg-amber-500 text-slate-950 font-black shadow-xs" : "text-gray-400 hover:text-white"
                                   )}
                                 >
                                   {speed}x

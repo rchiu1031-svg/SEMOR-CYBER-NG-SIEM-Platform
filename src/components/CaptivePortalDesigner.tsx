@@ -357,8 +357,8 @@ export default function CaptivePortalDesigner({
                     className="hidden"
                   />
                   <div className={cn(
-                    "w-3.5 h-3.5 border rounded flex items-center justify-center font-bold",
-                    portalConfig.authMethods.credentials ? "bg-emerald-500 text-black border-emerald-500" : "border-gray-600"
+                    "w-3.5 h-3.5 border rounded flex items-center justify-center font-black text-[11px]",
+                    portalConfig.authMethods.credentials ? "bg-emerald-500 text-white border-emerald-500 shadow-xs" : "border-gray-600"
                   )}>
                     {portalConfig.authMethods.credentials && '✓'}
                   </div>
@@ -383,8 +383,8 @@ export default function CaptivePortalDesigner({
                     className="hidden"
                   />
                   <div className={cn(
-                    "w-3.5 h-3.5 border rounded flex items-center justify-center font-bold",
-                    portalConfig.authMethods.sms ? "bg-yellow-500 text-black border-yellow-500" : "border-gray-600"
+                    "w-3.5 h-3.5 border rounded flex items-center justify-center font-black text-[11px]",
+                    portalConfig.authMethods.sms ? "bg-yellow-500 text-slate-950 border-yellow-500 shadow-xs" : "border-gray-600"
                   )}>
                     {portalConfig.authMethods.sms && '✓'}
                   </div>
@@ -409,8 +409,8 @@ export default function CaptivePortalDesigner({
                     className="hidden"
                   />
                   <div className={cn(
-                    "w-3.5 h-3.5 border rounded flex items-center justify-center font-bold",
-                    portalConfig.authMethods.passwordless ? "bg-cyan-500 text-black border-cyan-500" : "border-gray-600"
+                    "w-3.5 h-3.5 border rounded flex items-center justify-center font-black text-[11px]",
+                    portalConfig.authMethods.passwordless ? "bg-cyan-500 text-slate-950 border-cyan-500 shadow-xs" : "border-gray-600"
                   )}>
                     {portalConfig.authMethods.passwordless && '✓'}
                   </div>

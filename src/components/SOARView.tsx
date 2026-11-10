@@ -833,7 +833,7 @@ export default function SOARView() {
               {tab.icon}
               {tab.label}
               {tab.badgeCount && tab.badgeCount > 0 ? (
-                <span className="px-1.5 py-0.2 bg-amber-500 text-black text-[9px] font-black rounded-full animate-pulse ml-1">
+                <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 text-[9px] font-black rounded-full animate-pulse ml-1 shadow-xs">
                   {tab.badgeCount}
                 </span>
               ) : null}
@@ -1344,7 +1344,7 @@ export default function SOARView() {
                             {item.status === 'Pending Approval' ? (
                               <button
                                 onClick={() => setApprovalModalItem(item)}
-                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-black font-black rounded text-[10px] uppercase transition-all shadow-lg active:scale-95 flex items-center gap-1"
+                                className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded text-[10px] uppercase transition-all shadow-md active:scale-95 flex items-center gap-1"
                               >
                                 <UserCheck size={12} />
                                 {isZh ? '審批授權' : 'Review'}
@@ -1444,7 +1444,7 @@ export default function SOARView() {
 
                     <button
                       onClick={handleConfirmApproval}
-                      className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-black font-black rounded-lg text-xs font-mono uppercase transition-all shadow-lg active:scale-95"
+                      className="px-5 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-lg text-xs font-mono uppercase transition-all shadow-lg shadow-amber-500/20 active:scale-95"
                     >
                       {isZh ? '⚡ 授權核准處置 (Authorize)' : 'Authorize & Execute'}
                     </button>

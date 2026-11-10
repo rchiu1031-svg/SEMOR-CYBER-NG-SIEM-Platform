@@ -1559,7 +1559,7 @@ drop tcp $HOME_NET 5432 -> any any (msg:"[LLAMA-3-IPS] BLOCK Exfiltration Activi
                     <Bug size={14} className="text-red-400" />
                     <span className="text-xs font-black text-red-400 font-mono">{selectedNode.cveId}</span>
                   </div>
-                  <span className="text-[10px] font-mono font-black bg-red-500 text-black px-1.5 py-0.2 rounded">
+                  <span className="text-[10px] font-mono font-black bg-red-600 text-white px-1.5 py-0.2 rounded shadow-xs">
                     CVSS {selectedNode.cvss}
                   </span>
                 </div>

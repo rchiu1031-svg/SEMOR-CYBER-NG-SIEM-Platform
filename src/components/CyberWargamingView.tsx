@@ -2214,7 +2214,7 @@ useEffect(() => {
                     showToast(isZh ? '已成功下載 AAR 鑑識分析報告 (PDF)！' : 'Downloaded AAR Report.');
                     setShowReportModal(false);
                   }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-black font-bold rounded-xl flex items-center gap-1.5 shadow"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center gap-1.5 shadow"
                 >
                   <Download size={14} />
                   匯出 AAR 報告 (PDF)
