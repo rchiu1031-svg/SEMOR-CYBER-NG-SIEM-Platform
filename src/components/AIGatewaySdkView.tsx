@@ -631,34 +631,34 @@ export default function AIGatewaySdkView({ isZh, isJa, onAlertInjected }: AIGate
     const testPayloads = {
       A: {
         userId: 'usr_rd_7821',
-        userName: 'Alex Lin (資深後端工程師)',
-        department: '研發工程處 (R&D)',
+        userName: isZh ? 'Alex Lin (資深後端工程師)' : 'Alex Lin (Senior Backend Engineer)',
+        department: isZh ? '研發工程處 (R&D)' : 'R&D Engineering',
         action: 'BLOCK',
         riskLevel: 'CRITICAL',
         model: 'gpt-4o',
-        policyName: '核心原始碼與金鑰防護策略 (SEC-001)',
+        policyName: isZh ? '核心原始碼與金鑰防護策略 (SEC-001)' : 'Core Source & Secret Protection Policy (SEC-001)',
         content: 'Detected DB Connection string and API Secret Key in user prompt',
         tokens: 1420
       },
       B: {
         userId: 'usr_hr_3309',
-        userName: 'Emma Wang (人資招募專員)',
-        department: '人力資源處 (HR)',
+        userName: isZh ? 'Emma Wang (人資招募專員)' : 'Emma Wang (Talent Acquisition)',
+        department: isZh ? '人力資源處 (HR)' : 'Human Resources (HR)',
         action: 'MASK',
         riskLevel: 'HIGH',
         model: 'claude-3-5-sonnet',
-        policyName: '個人可識別資訊脫敏策略 (PII-002)',
+        policyName: isZh ? '個人可識別資訊脫敏策略 (PII-002)' : 'PII Redaction Policy (PII-002)',
         content: 'Employee ID: A129876543, Monthly Base Salary: NT$ 125,000',
         tokens: 880
       },
       C: {
         userId: 'usr_sec_9912',
         userName: 'Bot_Automator_Service',
-        department: '自動化測試組 (QA)',
+        department: isZh ? '自動化測試組 (QA)' : 'QA Automation Team',
         action: 'BLOCK',
         riskLevel: 'CRITICAL',
         model: 'gpt-4o-mini',
-        policyName: '異常高頻異常呼叫阻斷 (RATE-003)',
+        policyName: isZh ? '異常高頻異常呼叫阻斷 (RATE-003)' : 'Anomalous High-Frequency Rate Limit (RATE-003)',
         content: 'Detected 450 prompt requests in 60 seconds (Threshold: 60/min)',
         tokens: 35000
       }
@@ -895,18 +895,30 @@ export default function AIGatewaySdkView({ isZh, isJa, onAlertInjected }: AIGate
         {activeLang === 'specs' ? (
           <div className="p-6 bg-black/90 text-xs text-gray-300 font-mono space-y-6 max-h-[550px] overflow-y-auto">
             <div className="space-y-2">
-              <h4 className="text-white font-bold text-sm text-cyan-400">1. Syslog over TLS (RFC 5424 / RFC 5425) 封包結構規範</h4>
-              <p className="text-gray-400">使用 TCP 端口 6514，啟用 TLS 1.2+。採用 Octet-counting Framing 以防止資料串流黏包：</p>
+              <h4 className="text-white font-bold text-sm text-cyan-400">
+                {isZh ? '1. Syslog over TLS (RFC 5424 / RFC 5425) 封包結構規範' : '1. Syslog over TLS (RFC 5424 / RFC 5425) Packet Specification'}
+              </h4>
+              <p className="text-gray-400">
+                {isZh
+                  ? '使用 TCP 端口 6514，啟用 TLS 1.2+。採用 Octet-counting Framing 以防止資料串流黏包：'
+                  : 'Uses TCP port 6514 with TLS 1.2+. Employs Octet-Counting Framing to prevent message boundary concatenation:'}
+              </p>
               <pre className="p-4 bg-gray-950 rounded-xl border border-gray-800 text-[11px] text-gray-300">
 {`[MESSAGE_LENGTH] <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA MSG\n
-範例:
+${isZh ? '範例' : 'Example'}:
 215 <134>1 2026-10-20T00:15:30.123456Z ai-gateway-prod-01 semor-ai-gateway 4892 AUDIT - \uFEFF{"timestamp":"2026-10-20T00:15:30Z","userId":"usr_rd_7821","model":"gpt-4o","tokens":1420,"action":"BLOCK"}`}
               </pre>
             </div>
 
             <div className="space-y-2">
-              <h4 className="text-white font-bold text-sm text-amber-400">2. 高風險告警 Webhook (HMAC-SHA256 簽名規範)</h4>
-              <p className="text-gray-400">採用預共享金鑰 Secret 計算 Payload 的雜湊簽名，防範偽造、竄改與重放攻擊：</p>
+              <h4 className="text-white font-bold text-sm text-amber-400">
+                {isZh ? '2. 高風險告警 Webhook (HMAC-SHA256 簽名規範)' : '2. High-Risk Alert Webhook (HMAC-SHA256 Signature Specification)'}
+              </h4>
+              <p className="text-gray-400">
+                {isZh
+                  ? '採用預共享金鑰 Secret 計算 Payload 的雜湊簽名，防範偽造、竄改與重放攻擊：'
+                  : 'Computes payload HMAC digest using pre-shared secret to prevent spoofing, tampering, and replay attacks:'}
+              </p>
               <pre className="p-4 bg-gray-950 rounded-xl border border-gray-800 text-[11px] text-gray-300">
 {`POST /api/v1/ai-gateway/webhook/alerts HTTP/1.1
 Host: siem-soc.corp.internal
@@ -920,8 +932,8 @@ X-Semor-Event: DLP_ALERT
   "id": "aigw-alert-20261020-001",
   "timestamp": "2026-10-20T00:15:30Z",
   "userId": "usr_rd_7821",
-  "userName": "Alex Lin (資深後端工程師)",
-  "department": "研發工程處 (R&D)",
+  "userName": "${isZh ? 'Alex Lin (資深後端工程師)' : 'Alex Lin (Senior Backend Engineer)'}",
+  "department": "${isZh ? '研發工程處 (R&D)' : 'R&D Engineering'}",
   "action": "BLOCK",
   "riskLevel": "CRITICAL",
   "targetModel": "gpt-4o",

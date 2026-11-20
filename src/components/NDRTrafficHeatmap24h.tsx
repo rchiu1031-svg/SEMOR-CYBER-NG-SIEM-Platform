@@ -115,10 +115,10 @@ export default function NDRTrafficHeatmap24h({
     total24hVolumeGB: 45850,
     maxThroughputMbps: 3860,
     minThroughputMbps: 16,
-    peakPeriod: '11:00 - 16:00 (日間企業業務常態高峰)',
+    peakPeriod: isZh ? '11:00 - 16:00 (日間企業業務常態高峰)' : '11:00 - 16:00 (Daytime Business Peak)',
     peakWindowTime: '11:00 - 16:00',
     peakAvgMbps: 8088,
-    offPeakPeriod: '01:00 - 05:00 (深夜離峰深層鑑識窗口)',
+    offPeakPeriod: isZh ? '01:00 - 05:00 (深夜離峰深層鑑識窗口)' : '01:00 - 05:00 (Off-Peak Forensic Window)',
     offPeakAvgMbps: 1188,
     peakToBaselineRatio: '6.8x',
     busiestHour: '12:00 (9,390 Mbps)',
@@ -244,7 +244,7 @@ export default function NDRTrafficHeatmap24h({
           abnormalCluster: isAbn ? {
             clusterId: 'AC-01',
             timeRange: '02:00 - 04:00',
-            threatType: '離峰異常橫向漫延與資料外洩 (Off-Hours Lateral SMB Exfiltration)',
+            threatType: isZh ? '離峰異常橫向漫延與資料外洩 (Off-Hours Lateral SMB Exfiltration)' : 'Off-Hours Lateral SMB Exfiltration',
             severity: 'Critical',
             anomalyScore: 96,
             confidencePct: 98.4,
@@ -252,7 +252,7 @@ export default function NDRTrafficHeatmap24h({
             normalBaselineMbps: 95,
             deviationPct: '+615%',
             affectedHosts: ['10.88.88.106', '10.88.88.200'],
-            description: '在凌晨離峰時段，終端工作站 WS07 對核心資料庫發起高頻未授權 SMB 檔案讀取及 RPC 呼叫。'
+            description: isZh ? '在凌晨離峰時段，終端工作站 WS07 對核心資料庫發起高頻未授權 SMB 檔案讀取及 RPC 呼叫。' : 'Workstation WS07 initiated high-frequency unauthorized SMB reads and RPC calls against the core database during off-hours.'
           } : undefined
         });
       }
@@ -968,7 +968,7 @@ export default function NDRTrafficHeatmap24h({
             </div>
             <div className="flex items-center justify-between text-[10px] text-sky-400/80 mt-1 font-mono">
               <span>{isZh ? '高峰均速:' : 'Peak Avg:'} <strong>{summaryData.peakAvgMbps?.toLocaleString() || 8088} Mbps</strong></span>
-              <span className="text-amber-400 font-bold">({summaryData.peakToBaselineRatio || '6.8x'} 離峰)</span>
+              <span className="text-amber-400 font-bold">({summaryData.peakToBaselineRatio || '6.8x'} {isZh ? '離峰' : 'vs Off-Peak'})</span>
             </div>
           </div>
 
@@ -1157,7 +1157,7 @@ export default function NDRTrafficHeatmap24h({
                       {cluster.timeRange}
                     </span>
                     <span className="text-[10px] font-mono font-bold text-amber-400">
-                      偏離 {cluster.deviationPct}
+                      {isZh ? '偏離' : 'Dev'} {cluster.deviationPct}
                     </span>
                   </div>
 
@@ -1166,8 +1166,8 @@ export default function NDRTrafficHeatmap24h({
                   </p>
 
                   <div className="text-[11px] text-gray-400 flex justify-between font-mono pt-1 border-t border-gray-800/80">
-                    <span>峰值: <strong className="text-rose-400">{cluster.peakMbps} Mbps</strong></span>
-                    <span>可信度: <strong className="text-emerald-400">{cluster.confidencePct}%</strong></span>
+                    <span>{isZh ? '峰值:' : 'Peak:'} <strong className="text-rose-400">{cluster.peakMbps} Mbps</strong></span>
+                    <span>{isZh ? '可信度:' : 'Conf:'} <strong className="text-emerald-400">{cluster.confidencePct}%</strong></span>
                   </div>
                 </div>
               );

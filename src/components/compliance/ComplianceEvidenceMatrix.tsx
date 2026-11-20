@@ -383,7 +383,7 @@ export const ComplianceEvidenceMatrix: React.FC<ComplianceEvidenceMatrixProps> =
                                   {control.mitreRef && (
                                     <div className="p-2.5 bg-white/[0.02] border border-white/5 rounded-xl">
                                       <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-0.5">
-                                        MITRE ATT&CK 對齊:
+                                        {isZh ? 'MITRE ATT&CK 對齊:' : 'MITRE ATT&CK Mapping:'}
                                       </span>
                                       <span className="text-[11px] font-mono text-cyan-400">{control.mitreRef}</span>
                                     </div>

@@ -11,6 +11,7 @@ import {
 import { cn } from '../../lib/utils';
 import type { ExecutiveApprovalItem } from './types';
 import { PENDING_EXECUTIVE_APPROVALS } from './executiveData';
+import { localizeApprovalItem } from './ctoLocaleMap';
 
 interface ExecutiveActionModalProps {
   isOpen: boolean;
@@ -28,16 +29,18 @@ export function ExecutiveActionModal({
   onActionProcessed
 }: ExecutiveActionModalProps) {
   const [approvals, setApprovals] = useState<ExecutiveApprovalItem[]>(
-    externalApprovals && externalApprovals.length > 0 ? externalApprovals : PENDING_EXECUTIVE_APPROVALS
+    (externalApprovals && externalApprovals.length > 0 ? externalApprovals : PENDING_EXECUTIVE_APPROVALS).map((a) =>
+      localizeApprovalItem(a, isZh)
+    )
   );
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (externalApprovals && externalApprovals.length > 0) {
-      setApprovals(externalApprovals);
+      setApprovals(externalApprovals.map((a) => localizeApprovalItem(a, isZh)));
     }
-  }, [externalApprovals]);
+  }, [externalApprovals, isZh]);
 
   if (!isOpen) return null;
 

@@ -98,9 +98,9 @@ export const OverviewMetricCards: React.FC<OverviewMetricCardsProps> = ({
                   <span className="text-2xl font-black text-white tracking-tight font-mono">
                     {metric.value}
                   </span>
-                  {metric.subValue && (
+                  {(metric.subValueZh || metric.subValueEn || metric.subValue) && (
                     <span className="text-xs text-gray-400 font-medium">
-                      {metric.subValue}
+                      {isZh ? (metric.subValueZh || metric.subValue) : (metric.subValueEn || metric.subValue)}
                     </span>
                   )}
                 </div>

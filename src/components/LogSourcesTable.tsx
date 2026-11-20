@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Server,
   Radio,
@@ -30,6 +31,8 @@ export interface IngestSource {
 }
 
 export function LogSourcesTable() {
+  const { i18n } = useTranslation();
+  const isZh = !i18n.language || i18n.language.startsWith('zh');
   const [sources, setSources] = useState<IngestSource[]>([]);
   const [totalEPS, setTotalEPS] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -83,10 +86,10 @@ export function LogSourcesTable() {
             </span>
             <div>
               <h3 className="text-base font-bold text-white tracking-wide">
-                來源設備連線與通道監測 (Active Ingestion Sources)
+                {isZh ? '來源設備連線與通道監測 (Active Ingestion Sources)' : 'Active Ingestion Sources & Channel Telemetry'}
               </h3>
               <p className="text-xs text-slate-400">
-                即時掌握防火牆、交換器、K8s DaemonSet 與端點代理之實體封包吞吐
+                {isZh ? '即時掌握防火牆、交換器、K8s DaemonSet 與端點代理之實體封包吞吐' : 'Real-time packet ingestion throughput across firewalls, switches, K8s DaemonSets, and endpoint agents'}
               </p>
             </div>
           </div>
@@ -94,7 +97,7 @@ export function LogSourcesTable() {
 
         <div className="flex items-center gap-3">
           <div className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono flex items-center gap-2">
-            <span className="text-slate-400">總進線吞吐:</span>
+            <span className="text-slate-400">{isZh ? '總進線吞吐:' : 'Total Ingress:'}</span>
             <span className="text-emerald-400 font-bold">{totalEPS.toLocaleString()} EPS</span>
           </div>
 
@@ -102,7 +105,7 @@ export function LogSourcesTable() {
             onClick={fetchSources}
             disabled={isLoading}
             className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-            title="手動重新整理"
+            title={isZh ? '手動重新整理' : 'Manual Refresh'}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-indigo-400' : ''}`} />
           </button>
@@ -117,14 +120,14 @@ export function LogSourcesTable() {
             type="text"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="過濾來源 IP、設備名稱、協定或廠牌..."
+            placeholder={isZh ? '過濾來源 IP、設備名稱、協定或廠牌...' : 'Filter source IP, device name, protocol, or vendor...'}
             className="w-full bg-slate-950/80 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500/80"
           />
         </div>
 
         <div className="text-slate-400 flex items-center gap-2">
           <Clock className="w-3.5 h-3.5 text-indigo-400" />
-          <span>最後更新: {lastRefreshed.toLocaleTimeString()}</span>
+          <span>{isZh ? '最後更新:' : 'Last Updated:'} {lastRefreshed.toLocaleTimeString()}</span>
         </div>
       </div>
 
@@ -133,13 +136,13 @@ export function LogSourcesTable() {
         <table className="w-full text-left text-xs font-mono">
           <thead className="bg-slate-950/90 text-slate-400 border-b border-slate-800">
             <tr>
-              <th className="py-2.5 px-3 font-semibold">設備名稱 / Host</th>
-              <th className="py-2.5 px-3 font-semibold">來源 IP:Port</th>
-              <th className="py-2.5 px-3 font-semibold">通訊協議與規格</th>
-              <th className="py-2.5 px-3 font-semibold">廠牌/格式</th>
-              <th className="py-2.5 px-3 font-semibold text-right">當前 EPS</th>
-              <th className="py-2.5 px-3 font-semibold text-right">累積接收資料量</th>
-              <th className="py-2.5 px-3 font-semibold text-center">連線狀態</th>
+              <th className="py-2.5 px-3 font-semibold">{isZh ? '設備名稱 / Host' : 'Device / Host'}</th>
+              <th className="py-2.5 px-3 font-semibold">{isZh ? '來源 IP:Port' : 'Source IP:Port'}</th>
+              <th className="py-2.5 px-3 font-semibold">{isZh ? '通訊協議與規格' : 'Protocol & Spec'}</th>
+              <th className="py-2.5 px-3 font-semibold">{isZh ? '廠牌/格式' : 'Vendor / Format'}</th>
+              <th className="py-2.5 px-3 font-semibold text-right">{isZh ? '當前 EPS' : 'Current EPS'}</th>
+              <th className="py-2.5 px-3 font-semibold text-right">{isZh ? '累積接收資料量' : 'Cumulative Bytes'}</th>
+              <th className="py-2.5 px-3 font-semibold text-center">{isZh ? '連線狀態' : 'Status'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 bg-slate-900/40">
@@ -184,7 +187,7 @@ export function LogSourcesTable() {
                 <td className="py-2.5 px-3 text-center">
                   <span className="inline-flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded text-[11px]">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    連線正常
+                    {isZh ? '連線正常' : 'Connected'}
                   </span>
                 </td>
               </tr>
@@ -192,7 +195,7 @@ export function LogSourcesTable() {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-6 text-center text-slate-500">
-                  無符合條件之進線設備
+                  {isZh ? '無符合條件之進線設備' : 'No matching ingestion sources found'}
                 </td>
               </tr>
             )}

@@ -35,6 +35,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.hasError) {
+      let isZh = false;
+      try {
+        const lng = typeof window !== 'undefined' ? (localStorage.getItem('i18nextLng') || '') : '';
+        isZh = lng.startsWith('zh');
+      } catch {
+        isZh = false;
+      }
+
       return (
         <div className="min-h-screen bg-[#0a0a0c] text-white flex flex-col items-center justify-center p-6 text-center">
           <div className="max-w-md w-full p-8 bg-[#111114] border border-red-500/30 rounded-3xl shadow-2xl space-y-6">
@@ -45,10 +53,10 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <div>
               <h2 className="text-xl font-black uppercase tracking-wider text-white">
-                系統初始化保護機制啟動
+                {isZh ? '系統初始化保護機制啟動' : 'System Initialization Safeguard Activated'}
               </h2>
               <p className="text-xs text-gray-400 mt-2 font-mono">
-                {this.state.error?.message || '渲染遇到非預期錯誤，已自動啟動隔離防護。'}
+                {this.state.error?.message || (isZh ? '渲染遇到非預期錯誤，已自動啟動隔離防護。' : 'An unexpected rendering error occurred; isolation protection is active.')}
               </p>
             </div>
 
@@ -56,7 +64,7 @@ export class ErrorBoundary extends Component<Props, State> {
               onClick={this.handleReset}
               className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-600/20"
             >
-              重設快取並重新載入 (Reset Cache & Reload)
+              {isZh ? '重設快取並重新載入 (Reset Cache & Reload)' : 'Reset Cache & Reload'}
             </button>
           </div>
         </div>

@@ -36,6 +36,16 @@ import { ExecutiveAiBriefing } from './ExecutiveAiBriefing';
 import { ExecutiveStrategicRoadmap } from './ExecutiveStrategicRoadmap';
 import { ExecutiveBoardPackModal } from './ExecutiveBoardPackModal';
 import { ExecutiveActionModal } from './ExecutiveActionModal';
+import {
+  localizeFramework,
+  localizeControl,
+  localizeWormRecord,
+  localizeRemediationTask,
+  localizeBusinessService,
+  localizeDepartmentRisk,
+  localizeRoadmapItem,
+  localizeApprovalItem
+} from './ctoLocaleMap';
 import { ComplianceFrameworkSelector } from '../compliance/ComplianceFrameworkSelector';
 import { ComplianceEvidenceMatrix } from '../compliance/ComplianceEvidenceMatrix';
 import { ComplianceGapRemediation } from '../compliance/ComplianceGapRemediation';
@@ -103,12 +113,15 @@ export function ExecutiveDashboardView({
     setRefreshSignal((s) => s + 1);
   }, [fetchOverview, timeRange]);
 
-  const frameworks = overviewData?.frameworks || [];
-  const controls = overviewData?.controls || [];
-  const wormLedger = overviewData?.wormLedger || [];
-  const remediationTasks = overviewData?.remediationTasks || [];
+  const frameworks = (overviewData?.frameworks || []).map((f) => localizeFramework(f, isZh));
+  const controls = (overviewData?.controls || []).map((c) => localizeControl(c, isZh));
+  const wormLedger = (overviewData?.wormLedger || []).map((r) => localizeWormRecord(r, isZh));
+  const remediationTasks = (overviewData?.remediationTasks || []).map((t) => localizeRemediationTask(t, isZh));
   const techPillars = overviewData?.techPillars || [];
-  const approvals = overviewData?.approvals || [];
+  const approvals = (overviewData?.approvals || []).map((a) => localizeApprovalItem(a, isZh));
+  const departmentRisks = (overviewData?.departmentRisks || []).map((d) => localizeDepartmentRisk(d, isZh));
+  const businessServices = (overviewData?.businessServices || []).map((s) => localizeBusinessService(s, isZh));
+  const strategicRoadmap = (overviewData?.strategicRoadmap || []).map((r) => localizeRoadmapItem(r, isZh));
   const assetCoverage = overviewData?.assetCoverage || [];
 
   const selectedFramework = frameworks.find((f) => f.id === selectedFrameworkId) || frameworks[0];
@@ -725,10 +738,10 @@ export function ExecutiveDashboardView({
                   {[
                     { x: 20, y: 30, color: 'blue', label: 'David (Dev)' },
                     { x: 45, y: 55, color: 'blue', label: 'Sarah (DPO)' },
-                    { x: 86, y: 82, color: 'red', label: 'Kevin (ADM - +850% 異常偏離)' },
+                    { x: 86, y: 82, color: 'red', label: isZh ? 'Kevin (ADM - +850% 異常偏離)' : 'Kevin (ADM - +850% Anomaly)' },
                     { x: 62, y: 40, color: 'blue', label: 'Grace (SecOps)' },
                     { x: 12, y: 15, color: 'blue', label: 'Service-Bot' },
-                    { x: 74, y: 68, color: 'amber', label: 'CI/CD Deployer (過度特權)' }
+                    { x: 74, y: 68, color: 'amber', label: isZh ? 'CI/CD Deployer (過度特權)' : 'CI/CD Deployer (Over-Privileged)' }
                   ].map((dot, i) => (
                     <motion.div
                       key={i}
@@ -820,8 +833,8 @@ export function ExecutiveDashboardView({
       {activeSection === 'architecture' && (
         <ExecutiveBusinessRiskMatrix
           isZh={isZh}
-          departments={overviewData?.departmentRisks}
-          services={overviewData?.businessServices}
+          departments={departmentRisks}
+          services={businessServices}
           assetCoverage={assetCoverage}
         />
       )}
@@ -839,7 +852,7 @@ export function ExecutiveDashboardView({
         <div className="space-y-6">
           <ExecutiveStrategicRoadmap
             isZh={isZh}
-            roadmap={overviewData?.strategicRoadmap}
+            roadmap={strategicRoadmap}
             onUpdateRoadmap={handleUpdateRoadmap}
           />
           <ExecutiveAiBriefing

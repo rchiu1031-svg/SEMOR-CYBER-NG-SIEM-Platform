@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Flame,
   Activity,
@@ -42,6 +43,8 @@ export function NDRThresholdConfigPanel({
   onNavigateToFullNDR,
   onAlertTriggered
 }: NDRThresholdConfigPanelProps) {
+  const { i18n } = useTranslation();
+  const isZh = i18n.language === 'zh-TW' || i18n.language?.startsWith('zh');
   const [rules, setRules] = useState<NDRAlertRule[]>([]);
   const [selectedPattern, setSelectedPattern] = useState<NDRTrafficPatternType>('bandwidth_surge');
   const [isLoading, setIsLoading] = useState(false);
@@ -223,9 +226,14 @@ export function NDRThresholdConfigPanel({
       setRules(nextRules);
       localStorage.setItem('semor_ndr_alert_rules', JSON.stringify(nextRules));
 
-      showToast(`已成功保存 NDR【${NDR_PATTERNS_CONFIG[selectedPattern]?.name || selectedPattern}】門檻配置並同步至引擎！`, 'success');
+      showToast(
+        isZh
+          ? `已成功保存 NDR【${NDR_PATTERNS_CONFIG[selectedPattern]?.name || selectedPattern}】門檻配置並同步至引擎！`
+          : `Saved NDR [${NDR_PATTERNS_CONFIG[selectedPattern]?.nameEn || selectedPattern}] threshold configuration and synced to engine!`,
+        'success'
+      );
     } catch (e) {
-      showToast('儲存失敗，已暫存於瀏覽器', 'error');
+      showToast(isZh ? '儲存失敗，已暫存於瀏覽器' : 'Save failed, cached locally in browser', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -271,7 +279,12 @@ export function NDRThresholdConfigPanel({
           onAlertTriggered(data.alert, data.historyRecord);
         }
 
-        showToast(`【高優先級通知已發出】異常流量達 ${simulatedVal.toFixed(0)} ${formState.unit}，已觸發通知系統！`, 'success');
+        showToast(
+          isZh
+            ? `【高優先級通知已發出】異常流量達 ${simulatedVal.toFixed(0)} ${formState.unit}，已觸發通知系統！`
+            : `[High Priority Alert Dispatched] Anomalous traffic reached ${simulatedVal.toFixed(0)} ${formState.unit}.`,
+          'success'
+        );
       } else {
         throw new Error('API trigger error');
       }
@@ -298,7 +311,9 @@ export function NDRThresholdConfigPanel({
           `[${timestamp}] [CHANNEL_WEBHOOK] Dispatched payload to Slack Webhook (${formState.channels.webhookChannel}).`,
           `[${timestamp}] [CHANNEL_SMTP] High-priority incident mail queued.`
         ],
-        message: `【NDR 即時告警】${formState.name} 偵測到異常流量數值 (${simulatedVal.toFixed(0)} ${formState.unit})！已觸發通知管道。`
+        message: isZh
+          ? `【NDR 即時告警】${formState.name} 偵測到異常流量數值 (${simulatedVal.toFixed(0)} ${formState.unit})！已觸發通知管道。`
+          : `[NDR Real-time Alert] ${formState.name} detected anomalous traffic (${simulatedVal.toFixed(0)} ${formState.unit})! Notifications dispatched.`
       };
       setTestResult(mockAlert);
       setActiveAlert(mockAlert);
@@ -315,7 +330,12 @@ export function NDRThresholdConfigPanel({
         onAlertTriggered(mockAlert);
       }
 
-      showToast(`已觸發高優先級模擬告警（${simulatedVal.toFixed(0)} ${formState.unit}）`, 'success');
+      showToast(
+        isZh
+          ? `已觸發高優先級模擬告警（${simulatedVal.toFixed(0)} ${formState.unit}）`
+          : `Triggered simulated high-priority alert (${simulatedVal.toFixed(0)} ${formState.unit})`,
+        'success'
+      );
     } finally {
       setIsTesting(false);
     }
@@ -334,14 +354,16 @@ export function NDRThresholdConfigPanel({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                NDR 網路異常流量特徵自訂閥值配置面板
+                {isZh ? 'NDR 網路異常流量特徵自訂閥值配置面板' : 'NDR Custom Traffic Anomaly Threshold Panel'}
               </h3>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase tracking-widest font-mono">
                 Active Threshold Engine
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
-              定義全網頻寬洪峰、橫向移動、離群叢集與斷流特徵邊界，與現有通知系統無縫串聯即時觸發高優先級告警。
+              {isZh
+                ? '定義全網頻寬洪峰、橫向移動、離群叢集與斷流特徵邊界，與現有通知系統無縫串聯即時觸發高優先級告警。'
+                : 'Define boundaries for network bandwidth floods, lateral movement, outlier clusters, and drop patterns integrated with instant alerting.'}
             </p>
           </div>
         </div>
@@ -351,9 +373,9 @@ export function NDRThresholdConfigPanel({
             <button
               onClick={onNavigateToFullNDR}
               className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-xs font-semibold text-gray-300 hover:text-white flex items-center gap-1.5 transition"
-              title="前往完整 NDR 規則矩陣"
+              title={isZh ? '前往完整 NDR 規則矩陣' : 'Go to Full NDR Rules Matrix'}
             >
-              <span>完整規則清單</span>
+              <span>{isZh ? '完整規則清單' : 'Full Rules Matrix'}</span>
               <ExternalLink size={12} />
             </button>
           )}
@@ -361,7 +383,7 @@ export function NDRThresholdConfigPanel({
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="p-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-400 hover:text-white transition"
-            title={isExpanded ? '收合面板' : '展開面板'}
+            title={isExpanded ? (isZh ? '收合面板' : 'Collapse Panel') : (isZh ? '展開面板' : 'Expand Panel')}
           >
             {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
@@ -399,7 +421,7 @@ export function NDRThresholdConfigPanel({
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-red-600 text-white">
-                    高優先級即時告警 (CRITICAL FIRING)
+                    {isZh ? '高優先級即時告警 (CRITICAL FIRING)' : 'CRITICAL FIRING'}
                   </span>
                   <span className="text-xs font-bold text-white font-mono">
                     {activeAlert.ruleName}
@@ -409,18 +431,19 @@ export function NDRThresholdConfigPanel({
                   </span>
                 </div>
                 <p className="text-xs text-red-200/90 leading-relaxed">
-                  偵測到異常流量數值：
+                  {isZh ? '偵測到異常流量數值：' : 'Anomalous traffic measured: '}
                   <strong className="text-white font-mono mx-1">
                     {typeof activeAlert.measuredValue === 'number' ? activeAlert.measuredValue.toLocaleString() : activeAlert.measuredValue} {activeAlert.unit}
                   </strong>
-                  超出設定之嚴重臨界門檻 (
+                  {isZh ? '超出設定之嚴重臨界門檻 (' : 'exceeded critical threshold ('}
                   <span className="font-mono text-amber-300">
                     {activeAlert.thresholdValue} {activeAlert.unit}
                   </span>
-                  )！目標網段: <span className="font-mono text-cyan-300">{activeAlert.targetScope}</span>
+                  {isZh ? ')！目標網段: ' : ')! Target Scope: '}
+                  <span className="font-mono text-cyan-300">{activeAlert.targetScope}</span>
                 </p>
                 <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-gray-400 font-mono">
-                  <span>已發送通知:</span>
+                  <span>{isZh ? '已發送通知:' : 'Notified Channels:'}</span>
                   {activeAlert.dispatchedChannels?.map((ch: string) => (
                     <span key={ch} className="px-1.5 py-0.2 rounded bg-black/40 text-gray-300 border border-gray-800">
                       {ch}
@@ -433,18 +456,23 @@ export function NDRThresholdConfigPanel({
             <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
               <button
                 onClick={() => {
-                  showToast('已排程下發 Suricata 7.0 阻斷特徵與 802.1X 隔離防護', 'success');
+                  showToast(
+                    isZh
+                      ? '已排程下發 Suricata 7.0 阻斷特徵與 802.1X 隔離防護'
+                      : 'Scheduled Suricata 7.0 block signatures and 802.1X quarantine',
+                    'success'
+                  );
                 }}
                 className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md shadow-red-950/40 flex items-center gap-1.5 transition active:scale-95"
               >
                 <Shield size={13} />
-                <span>下發阻斷 / 隔離</span>
+                <span>{isZh ? '下發阻斷 / 隔離' : 'Block / Isolate'}</span>
               </button>
               <button
                 onClick={() => setActiveAlert(null)}
                 className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-700 text-gray-300 hover:text-white text-xs font-medium transition"
               >
-                確認解除
+                {isZh ? '確認解除' : 'Dismiss'}
               </button>
             </div>
           </div>
@@ -464,7 +492,7 @@ export function NDRThresholdConfigPanel({
             <div className="space-y-2">
               <label className="text-xs font-bold text-gray-300 flex items-center gap-1.5 uppercase tracking-wider">
                 <Sliders size={13} className="text-amber-400" />
-                選擇 NDR 流量特徵模式 (Select Traffic Pattern):
+                {isZh ? '選擇 NDR 流量特徵模式 (Select Traffic Pattern):' : 'Select NDR Traffic Pattern:'}
               </label>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
@@ -494,7 +522,7 @@ export function NDRThresholdConfigPanel({
                       </div>
                       <div>
                         <span className={cn("text-[11px] font-bold block line-clamp-1", isSelected ? "text-amber-300" : "text-gray-200")}>
-                          {config.name.split(' ')[0]}
+                          {isZh ? config.name.split(' ')[0] : config.nameEn.split(' ')[0]}
                         </span>
                         <span className="text-[10px] text-gray-500 font-mono">
                           {rule ? `${rule.criticalThreshold} ${rule.unit}` : `${config.defaultCritical} ${config.defaultUnit}`}
@@ -518,9 +546,9 @@ export function NDRThresholdConfigPanel({
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="text-sm font-bold text-white">
-                          {patternConfig.name}
+                          {isZh ? patternConfig.name : patternConfig.nameEn}
                         </h4>
-                        <span className="text-xs text-gray-400 font-mono">({patternConfig.nameEn})</span>
+                        {isZh && <span className="text-xs text-gray-400 font-mono">({patternConfig.nameEn})</span>}
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {patternConfig.description}
@@ -538,12 +566,12 @@ export function NDRThresholdConfigPanel({
                         disabled={isReadOnly}
                       />
                       <span className={cn("text-xs font-bold", formState.enabled ? "text-emerald-400" : "text-gray-500")}>
-                        {formState.enabled ? '監控啟用中' : '已停用'}
+                        {formState.enabled ? (isZh ? '監控啟用中' : 'Enabled') : (isZh ? '已停用' : 'Disabled')}
                       </span>
                     </label>
 
                     <div className="px-3 py-1.5 rounded-lg bg-black/40 border border-gray-800 text-xs font-mono text-gray-400">
-                      單位: <span className="text-amber-400 font-bold">{formState.unit}</span>
+                      {isZh ? '單位:' : 'Unit:'} <span className="text-amber-400 font-bold">{formState.unit}</span>
                     </div>
                   </div>
                 </div>
@@ -554,7 +582,7 @@ export function NDRThresholdConfigPanel({
                   <div className="p-4 rounded-xl bg-black/40 border border-amber-500/20 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">
-                        預警門檻 (Warning)
+                        {isZh ? '預警門檻 (Warning)' : 'Warning Threshold'}
                       </span>
                       <span className="text-xs font-mono text-amber-300 font-bold">
                         {formState.warningThreshold.toLocaleString()} {formState.unit}
@@ -577,14 +605,16 @@ export function NDRThresholdConfigPanel({
                       disabled={isReadOnly}
                       className="w-full accent-amber-500"
                     />
-                    <span className="text-[10px] text-gray-500 block">達此值進入 Warning 警戒狀態</span>
+                    <span className="text-[10px] text-gray-500 block">
+                      {isZh ? '達此值進入 Warning 警戒狀態' : 'Triggers Warning status at this value'}
+                    </span>
                   </div>
 
                   {/* Critical Threshold */}
                   <div className="p-4 rounded-xl bg-black/40 border border-rose-500/30 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">
-                        嚴重門檻 (Critical)
+                        {isZh ? '嚴重門檻 (Critical)' : 'Critical Threshold'}
                       </span>
                       <span className="text-xs font-mono text-rose-400 font-bold">
                         {formState.criticalThreshold.toLocaleString()} {formState.unit}
@@ -607,13 +637,15 @@ export function NDRThresholdConfigPanel({
                       disabled={isReadOnly}
                       className="w-full accent-rose-500"
                     />
-                    <span className="text-[10px] text-rose-400/80 block">超標即觸發高優先級即時通知！</span>
+                    <span className="text-[10px] text-rose-400/80 block">
+                      {isZh ? '超標即觸發高優先級即時通知！' : 'Breaching triggers instant high-priority alert!'}
+                    </span>
                   </div>
 
                   {/* Condition Operator */}
                   <div className="p-4 rounded-xl bg-black/40 border border-gray-800 space-y-2">
                     <span className="text-xs font-bold text-gray-300 uppercase tracking-wider block">
-                      比較判定條件 (Condition)
+                      {isZh ? '比較判定條件 (Condition)' : 'Comparison Condition'}
                     </span>
                     <select
                       value={formState.condition}
@@ -621,34 +653,34 @@ export function NDRThresholdConfigPanel({
                       disabled={isReadOnly}
                       className="w-full bg-[#111115] border border-gray-800 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-blue-500"
                     >
-                      <option value=">=">&gt;= 大於等於 (超限告警)</option>
-                      <option value=">">&gt; 大於</option>
-                      <option value="<=">&lt;= 小於等於 (斷流/靜默)</option>
-                      <option value="<">&lt; 小於</option>
-                      <option value="cluster_deviation">離群偏離度 (Deviation %)</option>
-                      <option value="rate_surge">突增變化率 (Rate Surge)</option>
+                      <option value=">=">{isZh ? '>= 大於等於 (超限告警)' : '>= Greater or Equal (Spike)'}</option>
+                      <option value=">">{isZh ? '> 大於' : '> Greater Than'}</option>
+                      <option value="<=">{isZh ? '<= 小於等於 (斷流/靜默)' : '<= Less or Equal (Drop/Silence)'}</option>
+                      <option value="<">{isZh ? '< 小於' : '< Less Than'}</option>
+                      <option value="cluster_deviation">{isZh ? '離群偏離度 (Deviation %)' : 'Outlier Deviation %'}</option>
+                      <option value="rate_surge">{isZh ? '突增變化率 (Rate Surge)' : 'Rate Surge'}</option>
                     </select>
                     <div className="text-[10px] text-gray-500 font-mono pt-1">
-                      判定邏輯: Value {formState.condition} Threshold
+                      {isZh ? '判定邏輯:' : 'Rule Logic:'} Value {formState.condition} Threshold
                     </div>
                   </div>
 
                   {/* Target Scope CIDR */}
                   <div className="p-4 rounded-xl bg-black/40 border border-gray-800 space-y-2">
                     <span className="text-xs font-bold text-gray-300 uppercase tracking-wider block">
-                      監控範疇 (Target Scope / CIDR)
+                      {isZh ? '監控範疇 (Target Scope / CIDR)' : 'Target Scope / CIDR'}
                     </span>
                     <input
                       type="text"
                       value={formState.targetScope}
                       onChange={e => setFormState({ ...formState, targetScope: e.target.value })}
-                      placeholder="例如: 10.0.0.0/16, DMZ Gateway"
+                      placeholder={isZh ? '例如: 10.0.0.0/16, DMZ Gateway' : 'e.g. 10.0.0.0/16, DMZ Gateway'}
                       disabled={isReadOnly}
                       className="w-full bg-[#111115] border border-gray-800 rounded-lg px-3 py-2 text-xs text-white font-mono outline-none focus:border-blue-500"
                     />
                     <div className="flex items-center justify-between text-[10px] text-gray-500">
-                      <span>方向: {formState.direction}</span>
-                      <span>持續: {formState.sustainDurationSec}s</span>
+                      <span>{isZh ? '方向:' : 'Direction:'} {formState.direction}</span>
+                      <span>{isZh ? '持續:' : 'Duration:'} {formState.sustainDurationSec}s</span>
                     </div>
                   </div>
                 </div>
@@ -658,10 +690,10 @@ export function NDRThresholdConfigPanel({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
                       <Bell size={13} className="text-blue-400" />
-                      現有通知系統整合通道 (Notification Channels Integration):
+                      {isZh ? '現有通知系統整合通道 (Notification Channels Integration):' : 'Notification Channels Integration:'}
                     </span>
                     <span className="text-[11px] text-gray-500">
-                      觸發時同步廣播至已啟用管道
+                      {isZh ? '觸發時同步廣播至已啟用管道' : 'Broadcasts to enabled channels on trigger'}
                     </span>
                   </div>
 
@@ -678,7 +710,7 @@ export function NDRThresholdConfigPanel({
                         className="accent-blue-500 rounded"
                       />
                       <span className="text-xs font-semibold text-gray-200 flex items-center gap-1">
-                        <Bell size={12} className="text-blue-400" /> 站內橫幅
+                        <Bell size={12} className="text-blue-400" /> {isZh ? '站內橫幅' : 'In-App Banner'}
                       </span>
                     </label>
 
@@ -694,7 +726,7 @@ export function NDRThresholdConfigPanel({
                         className="accent-pink-500 rounded"
                       />
                       <span className="text-xs font-semibold text-gray-200 flex items-center gap-1">
-                        <Volume2 size={12} className="text-pink-400" /> 警報音效
+                        <Volume2 size={12} className="text-pink-400" /> {isZh ? '警報音效' : 'Audio Alarm'}
                       </span>
                     </label>
 
@@ -710,7 +742,7 @@ export function NDRThresholdConfigPanel({
                         className="accent-emerald-500 rounded"
                       />
                       <span className="text-xs font-semibold text-gray-200 flex items-center gap-1">
-                        <Mail size={12} className="text-emerald-400" /> Email 郵件
+                        <Mail size={12} className="text-emerald-400" /> {isZh ? 'Email 郵件' : 'Email Alert'}
                       </span>
                     </label>
 
@@ -758,7 +790,7 @@ export function NDRThresholdConfigPanel({
                         className="accent-rose-500 rounded"
                       />
                       <span className="text-xs font-semibold text-gray-200 flex items-center gap-1">
-                        <Shield size={12} className="text-rose-400" /> SOAR 自動防護
+                        <Shield size={12} className="text-rose-400" /> {isZh ? 'SOAR 自動防護' : 'SOAR Auto-Defense'}
                       </span>
                     </label>
                   </div>
@@ -768,7 +800,11 @@ export function NDRThresholdConfigPanel({
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-gray-800/80">
                   <div className="flex items-center gap-2 text-xs text-gray-400">
                     <Clock size={13} className="text-gray-500" />
-                    <span>冷卻抑制: {formState.cooldownMinutes} 分鐘內防重複告警風暴</span>
+                    <span>
+                      {isZh
+                        ? `冷卻抑制: ${formState.cooldownMinutes} 分鐘內防重複告警風暴`
+                        : `Cooldown Suppression: ${formState.cooldownMinutes} min anti-storm window`}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
@@ -776,10 +812,14 @@ export function NDRThresholdConfigPanel({
                       onClick={handleTestTriggerAlert}
                       disabled={isTesting}
                       className="px-4 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center gap-2 transition active:scale-95 disabled:opacity-50"
-                      title="模擬超越嚴重門檻，驗證現有通知系統派送"
+                      title={isZh ? '模擬超越嚴重門檻，驗證現有通知系統派送' : 'Simulate critical breach to test notification dispatch'}
                     >
                       <RefreshCw className={cn("w-3.5 h-3.5", isTesting && "animate-spin")} />
-                      <span>{isTesting ? '派送測試中...' : '模擬觸發高優先級告警'}</span>
+                      <span>
+                        {isTesting
+                          ? (isZh ? '派送測試中...' : 'Dispatching Test...')
+                          : (isZh ? '模擬觸發高優先級告警' : 'Simulate Critical Alert')}
+                      </span>
                     </button>
 
                     {!isReadOnly && (
@@ -789,7 +829,11 @@ export function NDRThresholdConfigPanel({
                         className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-950/40 transition active:scale-95 disabled:opacity-50"
                       >
                         <Save size={14} />
-                        <span>{isSaving ? '儲存中...' : '儲存自訂門檻'}</span>
+                        <span>
+                          {isSaving
+                            ? (isZh ? '儲存中...' : 'Saving...')
+                            : (isZh ? '儲存自訂門檻' : 'Save Thresholds')}
+                        </span>
                       </button>
                     )}
                   </div>

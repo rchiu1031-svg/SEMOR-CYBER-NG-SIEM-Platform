@@ -439,11 +439,11 @@ export function LicenseManagementView() {
   const currentLic = license || {
     licenseKey: 'SEMOR-ENT-2026-8841-9923-SEC8',
     tier: 'Enterprise' as const,
-    tierDisplayName: 'Enterprise SecOps Suite (企業旗艦版)',
+    tierDisplayName: isZh ? 'Enterprise SecOps Suite (企業旗艦版)' : 'Enterprise SecOps Suite',
     status: 'Active' as const,
     customer: {
-      organization: '國家關鍵基礎設施數位防禦中心',
-      department: '資通安全處 / 核心 SOC 運籌中心',
+      organization: isZh ? '國家關鍵基礎設施數位防禦中心' : 'National Critical Infrastructure Cyber Defense Center',
+      department: isZh ? '資通安全處 / 核心 SOC 運籌中心' : 'Cybersecurity Division / Core SOC Operations Center',
       contactEmail: 'soc-admin@gov.internal.tw',
       contractId: 'CTR-2026-TW-CIP-9011',
       country: 'Taiwan (ROC)'
@@ -457,11 +457,11 @@ export function LicenseManagementView() {
     maxNodes: 500,
     currentNodes: 142,
     nodeBreakdown: {
-      masterNodes: { active: 1, max: 2, description: '主控中樞 HA 集群節點' },
-      workerNodes: { active: 4, max: 8, description: '日誌解析與關聯運算 Worker' },
-      flowSensors: { active: 12, max: 25, description: '全流量深包檢測 (DPI) 探針' },
-      endpointAgents: { active: 110, max: 400, description: 'EDR/FIM 主機微代理' },
-      otProbes: { active: 15, max: 65, description: '工控 Purdue 隔離邊界安全探針' }
+      masterNodes: { active: 1, max: 2, description: isZh ? '主控中樞 HA 集群節點' : 'Master Control HA Cluster Nodes' },
+      workerNodes: { active: 4, max: 8, description: isZh ? '日誌解析與關聯運算 Worker' : 'Log Parsing & Correlation Workers' },
+      flowSensors: { active: 12, max: 25, description: isZh ? '全流量深包檢測 (DPI) 探針' : 'Full-Flow Deep Packet Inspection (DPI) Sensors' },
+      endpointAgents: { active: 110, max: 400, description: isZh ? 'EDR/FIM 主機微代理' : 'EDR/FIM Endpoint Micro-Agents' },
+      otProbes: { active: 15, max: 65, description: isZh ? '工控 Purdue 隔離邊界安全探針' : 'Industrial Purdue Boundary OT Probes' }
     },
     maxEps: 25000,
     currentEps: 4850,
@@ -840,12 +840,12 @@ export function LicenseManagementView() {
                 <div className="bg-gray-900/40 border border-gray-800/80 rounded-xl p-3.5 space-y-1">
                   <span className="text-gray-500">{isZh ? '生效簽發日期' : 'Issued Date'}</span>
                   <p className="font-mono text-gray-200">{currentLic.issuedDate.replace('T', ' ').slice(0, 19)}</p>
-                  <p className="text-[11px] text-emerald-400">已通過 CA 根密鑰數位簽署</p>
+                  <p className="text-[11px] text-emerald-400">{isZh ? '已通過 CA 根密鑰數位簽署' : 'Digitally signed by CA Root Key'}</p>
                 </div>
                 <div className="bg-gray-900/40 border border-gray-800/80 rounded-xl p-3.5 space-y-1">
                   <span className="text-gray-500">{isZh ? '有效到期日期' : 'Expiration Date'}</span>
                   <p className="font-mono text-gray-200">{currentLic.expiryDate.replace('T', ' ').slice(0, 19)}</p>
-                  <p className="text-[11px] text-purple-400">含 {currentLic.gracePeriodDays} 天無中斷寬限保護</p>
+                  <p className="text-[11px] text-purple-400">{isZh ? `含 ${currentLic.gracePeriodDays} 天無中斷寬限保護` : `Includes ${currentLic.gracePeriodDays}-day uninterrupted grace period`}</p>
                 </div>
               </div>
 
@@ -877,12 +877,12 @@ export function LicenseManagementView() {
                       <Cpu size={16} />
                     </div>
                     <div>
-                      <div className="font-bold text-gray-200">AI 推理核心本地授權</div>
-                      <div className="text-[10px] text-gray-500">Llama-3 / Gemma-2 本地私有化分析</div>
+                      <div className="font-bold text-gray-200">{isZh ? 'AI 推理核心本地授權' : 'On-Prem AI Inference Core'}</div>
+                      <div className="text-[10px] text-gray-500">{isZh ? 'Llama-3 / Gemma-2 本地私有化分析' : 'Private local analysis with Llama-3 / Gemma-2'}</div>
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    {currentLic.addons.aiInferenceCore ? '已啟用' : '未授權'}
+                    {currentLic.addons.aiInferenceCore ? (isZh ? '已啟用' : 'Enabled') : (isZh ? '未授權' : 'Unlicensed')}
                   </span>
                 </div>
 
@@ -892,12 +892,12 @@ export function LicenseManagementView() {
                       <Activity size={16} />
                     </div>
                     <div>
-                      <div className="font-bold text-gray-200">工控 Purdue OT DPI 探針</div>
-                      <div className="text-[10px] text-gray-500">Modbus / S7 / IEC-60870 工控協議</div>
+                      <div className="font-bold text-gray-200">{isZh ? '工控 Purdue OT DPI 探針' : 'Purdue OT DPI Sensor'}</div>
+                      <div className="text-[10px] text-gray-500">{isZh ? 'Modbus / S7 / IEC-60870 工控協議' : 'Modbus / S7 / IEC-60870 Industrial Protocols'}</div>
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    {currentLic.addons.purdueOtdpi ? '已啟用' : '未授權'}
+                    {currentLic.addons.purdueOtdpi ? (isZh ? '已啟用' : 'Enabled') : (isZh ? '未授權' : 'Unlicensed')}
                   </span>
                 </div>
 
@@ -907,12 +907,12 @@ export function LicenseManagementView() {
                       <Sliders size={16} />
                     </div>
                     <div>
-                      <div className="font-bold text-gray-200">SOAR 劇本全自動處置</div>
-                      <div className="text-[10px] text-gray-500">防火牆自動聯防與主機微隔離</div>
+                      <div className="font-bold text-gray-200">{isZh ? 'SOAR 劇本全自動處置' : 'SOAR Automated Playbooks'}</div>
+                      <div className="text-[10px] text-gray-500">{isZh ? '防火牆自動聯防與主機微隔離' : 'Automated firewall blocking & host micro-segmentation'}</div>
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    {currentLic.addons.soarPlaybooksPro ? '已啟用' : '未授權'}
+                    {currentLic.addons.soarPlaybooksPro ? (isZh ? '已啟用' : 'Enabled') : (isZh ? '未授權' : 'Unlicensed')}
                   </span>
                 </div>
 
@@ -922,12 +922,12 @@ export function LicenseManagementView() {
                       <Server size={16} />
                     </div>
                     <div>
-                      <div className="font-bold text-gray-200">跨機房主主高可用 (HA Cluster)</div>
-                      <div className="text-[10px] text-gray-500">Raft / Paxos 雙活容錯熱備援</div>
+                      <div className="font-bold text-gray-200">{isZh ? '跨機房主主高可用 (HA Cluster)' : 'Cross-DC Active-Active HA Cluster'}</div>
+                      <div className="text-[10px] text-gray-500">{isZh ? 'Raft / Paxos 雙活容錯熱備援' : 'Raft / Paxos active-active fault-tolerant failover'}</div>
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                    {currentLic.addons.haClustering ? '已啟用' : '未授權'}
+                    {currentLic.addons.haClustering ? (isZh ? '已啟用' : 'Enabled') : (isZh ? '未授權' : 'Unlicensed')}
                   </span>
                 </div>
               </div>
@@ -1080,7 +1080,7 @@ export function LicenseManagementView() {
                     </div>
 
                     <p className="text-[11px] text-gray-400 mt-3 line-clamp-2 leading-relaxed">
-                      {module.description}
+                      {isZh ? (module.descriptionZh || module.description) : module.description}
                     </p>
 
                     <div className="mt-3 pt-3 border-t border-gray-800/60 flex items-center justify-between text-[10px] text-gray-500">
@@ -1375,21 +1375,21 @@ export function LicenseManagementView() {
                   onClick={() => handleActivateKey('SEMOR-ENT-2026-8841-9923-SEC8')}
                   className="px-2.5 py-1.5 bg-blue-950/40 hover:bg-blue-900/50 border border-blue-500/40 text-blue-300 rounded-lg font-mono text-[11px]"
                 >
-                  Enterprise 企業版 (500 Nodes)
+                  {isZh ? 'Enterprise 企業版 (500 Nodes)' : 'Enterprise Edition (500 Nodes)'}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleActivateKey('SEMOR-ULT-2026-7712-4418-SEC9')}
                   className="px-2.5 py-1.5 bg-purple-950/40 hover:bg-purple-900/50 border border-purple-500/40 text-purple-300 rounded-lg font-mono text-[11px]"
                 >
-                  Ultimate 國防旗艦版 (2000 Nodes)
+                  {isZh ? 'Ultimate 國防旗艦版 (2000 Nodes)' : 'Ultimate Sovereign (2000 Nodes)'}
                 </button>
                 <button
                   type="button"
                   onClick={() => handleActivateKey('SEMOR-PRO-2026-1122-3344-SEC1')}
                   className="px-2.5 py-1.5 bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-500/40 text-cyan-300 rounded-lg font-mono text-[11px]"
                 >
-                  Professional 專業版 (150 Nodes)
+                  {isZh ? 'Professional 專業版 (150 Nodes)' : 'Professional Edition (150 Nodes)'}
                 </button>
               </div>
             </div>
@@ -1456,7 +1456,7 @@ export function LicenseManagementView() {
                 <p className="text-xs text-gray-300 font-semibold">
                   {isZh ? '點擊此處瀏覽檔案，或將 .lic 檔案拖曳至此' : 'Click to browse or drag & drop .lic file'}
                 </p>
-                <p className="text-[10px] text-gray-500 mt-1">支援 .lic / .json 格式之數位憑證</p>
+                <p className="text-[10px] text-gray-500 mt-1">{isZh ? '支援 .lic / .json 格式之數位憑證' : 'Supports .lic / .json signed certificate formats'}</p>
               </div>
 
               <textarea
@@ -1528,7 +1528,7 @@ export function LicenseManagementView() {
                     >
                       <div className="text-xs font-bold">{tier}</div>
                       <div className="text-[10px] text-gray-500 mt-1">
-                        {tier === 'Ultimate' ? '2,000 節點' : tier === 'Enterprise' ? '500 節點' : '150 節點'}
+                        {tier === 'Ultimate' ? (isZh ? '2,000 節點' : '2,000 Nodes') : tier === 'Enterprise' ? (isZh ? '500 節點' : '500 Nodes') : (isZh ? '150 節點' : '150 Nodes')}
                       </div>
                     </button>
                   ))}

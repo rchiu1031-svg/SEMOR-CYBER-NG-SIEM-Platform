@@ -77,7 +77,14 @@
     "correlation-setting": "Correlation Setting",
     "wargaming": "Cyber Wargaming",
     "digital-forensics": "Digital Forensics",
-    "monitor": "Network Monitor"
+    "monitor": "Network Monitor",
+    "custom-dashboard": "Custom Dashboard",
+    "custom-visibility": "Custom Visibility",
+    "executive-insights": "CTO Governance & Compliance",
+    "compliance-center": "Compliance Center",
+    "ueba-investigation": "UEBA Investigation",
+    "license": "License Management",
+    "settings": "System Settings"
   },
   "semorcti": {
     "title": "Intel (CTI)",

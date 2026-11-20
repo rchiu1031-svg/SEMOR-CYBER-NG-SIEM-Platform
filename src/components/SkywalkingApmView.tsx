@@ -490,18 +490,18 @@ export default function SkywalkingApmView() {
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span>採樣率持久化:</span>
+            <span>{isZh ? '採樣率持久化:' : 'Sampling Persistence:'}</span>
             <span className="text-gray-300 font-bold">{samplingRate}%</span>
           </div>
           <div className="flex justify-between items-center">
-            <span>上次同步:</span>
+            <span>{isZh ? '上次同步:' : 'Last Sync:'}</span>
             <span className="text-gray-400">{lastSyncTime}</span>
           </div>
           
           <button
             onClick={handleResetDefaults}
             className="w-full mt-2 py-1.5 px-2 bg-gray-950 hover:bg-gray-900 text-gray-400 hover:text-gray-200 border border-gray-800 rounded-lg text-[9.5px] font-mono flex items-center justify-center gap-1.5 transition-all"
-            title="將採樣率與脫敏規則重置為工廠預設值"
+            title={isZh ? '將採樣率與脫敏規則重置為工廠預設值' : 'Reset sampling rate and masking rules to factory defaults'}
           >
             <RotateCcw size={11} />
             <span>{isZh ? '恢復 APM 預設範本' : 'Reset APM Defaults'}</span>
@@ -580,7 +580,7 @@ export default function SkywalkingApmView() {
                 className={`w-8 h-8 rounded-xl bg-gray-950 border border-gray-850 flex items-center justify-center text-gray-400 hover:text-white transition-all hover:border-gray-700 ${
                   isRefreshing ? "text-blue-400" : ""
                 }`}
-                title="立即同步 OAP 核心"
+                title={isZh ? '立即同步 OAP 核心' : 'Sync OAP Core Now'}
               >
                 <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
               </button>

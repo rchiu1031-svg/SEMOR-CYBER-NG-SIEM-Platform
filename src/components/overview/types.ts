@@ -7,6 +7,8 @@ export interface MetricCardData {
   titleEn: string;
   value: string;
   subValue?: string;
+  subValueZh?: string;
+  subValueEn?: string;
   changeZh: string;
   changeEn: string;
   trend: 'up' | 'down' | 'neutral';

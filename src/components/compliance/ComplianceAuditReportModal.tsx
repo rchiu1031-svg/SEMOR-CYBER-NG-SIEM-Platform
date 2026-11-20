@@ -75,13 +75,21 @@ export const ComplianceAuditReportModal: React.FC<ComplianceAuditReportModalProp
   };
 
   const handleCopySummary = () => {
-    const text = `【${framework.fullName} 正式稽核摘要報告】
+    const text = isZh
+      ? `【${framework.fullName} 正式稽核摘要報告】
 報告編號: ${reportId}
 評估日期: ${reportDate}
 合規得分: ${framework.score}% (${framework.badge})
 審計範圍: 控制項總計 ${controls.length} 項 | 通過 ${passedControls.length} 項 | 警告 ${warningControls.length} 項 | 偏離 ${violatedControls.length} 項
 WORM 區塊鏈雜湊: ${sha256MerkleRoot}
-主任稽核單位: ${framework.auditor}`;
+主任稽核單位: ${framework.auditor}`
+      : `[${framework.fullName} Formal Audit Summary]
+Report ID: ${reportId}
+Assessment Date: ${reportDate}
+Compliance Score: ${framework.score}% (${framework.badge})
+Scope: ${controls.length} Total Controls | ${passedControls.length} Passed | ${warningControls.length} Warnings | ${violatedControls.length} Violations
+WORM Merkle Root: ${sha256MerkleRoot}
+Lead Auditor: ${framework.auditor}`;
 
     navigator.clipboard.writeText(text);
     setCopied(true);

@@ -1774,9 +1774,9 @@ export default function NetworkAccessControlView({ isReadOnly = false }: { isRea
                       onChange={(e) => setManualBlockType(e.target.value as any)}
                       className="w-full bg-[#0c0c0e] border border-gray-800 rounded-lg px-3 py-2 text-gray-300 font-bold outline-none"
                     >
-                      <option value="mac">MAC 位址</option>
-                      <option value="ip">IP 位址</option>
-                      <option value="account">帳號 / 手機</option>
+                      <option value="mac">{isZh ? 'MAC 位址' : 'MAC Address'}</option>
+                      <option value="ip">{isZh ? 'IP 位址' : 'IP Address'}</option>
+                      <option value="account">{isZh ? '帳號 / 手機' : 'Account / Mobile'}</option>
                     </select>
                   </div>
 

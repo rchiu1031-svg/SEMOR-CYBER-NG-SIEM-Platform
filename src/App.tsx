@@ -7931,8 +7931,8 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
       setNetworkSaveStatus(isZh ? '網路與介面配置已成功儲存並同步套用生效！' : 'Network settings saved and synchronized!');
       setTimeout(() => setNetworkSaveStatus(null), 4000);
     } catch (e) {
-      alert(isZh ? '網路設定儲存失敗，請確認後端服務狀態' : 'Failed to save network settings');
-      setNetworkSaveStatus(null);
+      setNetworkSaveStatus(isZh ? '網路設定儲存失敗，請確認後端服務狀態' : 'Failed to save network settings. Please check backend service status.');
+      setTimeout(() => setNetworkSaveStatus(null), 4000);
     }
   };
 
@@ -7942,11 +7942,16 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
       const res = await siemService.testNetworkPing(targetIp);
       setNetworkPingResult({
         testing: false,
-        message: `${res.target} 回應正常 (RTT: ${res.latencyMs}ms, 0% Packet Loss)`
+        message: isZh
+          ? `${res.target} 回應正常 (RTT: ${res.latencyMs}ms, 0% Packet Loss)`
+          : `${res.target} reachable (RTT: ${res.latencyMs}ms, 0% Packet Loss)`
       });
       setTimeout(() => setNetworkPingResult(null), 5000);
     } catch (e) {
-      setNetworkPingResult({ testing: false, message: '目標連線逾時 (Timeout)' });
+      setNetworkPingResult({
+        testing: false,
+        message: isZh ? '目標連線逾時 (Timeout)' : 'Target connection timed out (Timeout)'
+      });
       setTimeout(() => setNetworkPingResult(null), 4000);
     }
   };
@@ -8210,7 +8215,7 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
 
               {networkPingResult && (
                 <div className="mt-3 p-3 rounded-lg bg-blue-950/60 border border-blue-800 text-blue-300 text-xs font-mono flex items-center justify-between">
-                  <span>{networkPingResult.testing ? '正在測試連線中...' : networkPingResult.message}</span>
+                  <span>{networkPingResult.testing ? (isZh ? '正在測試連線中...' : 'Testing connectivity...') : networkPingResult.message}</span>
                   <button onClick={() => setNetworkPingResult(null)} className="text-gray-400 hover:text-white">✕</button>
                 </div>
               )}
@@ -8221,19 +8226,19 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
                     onClick={handleSaveNetworkSettings}
                     className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-all shadow-lg shadow-blue-600/20"
                   >
-                    {t('settings.network.save') || "儲存系統網路設定 (Save Network Settings)"}
+                    {t('settings.network.save', { defaultValue: isZh ? '儲存系統網路設定' : 'Save Network Settings' })}
                   </button>
                   <button
                     onClick={() => handleTestNetworkPing(networkConfig.gateway)}
                     className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-lg text-sm font-medium transition-all"
                   >
-                    測試閘道連線 (Ping Gateway: {networkConfig.gateway})
+                    {isZh ? `測試閘道連線 (Ping Gateway: ${networkConfig.gateway})` : `Ping Gateway (${networkConfig.gateway})`}
                   </button>
                   <button
                     onClick={() => handleTestNetworkPing(networkConfig.dns[0] || '8.8.8.8')}
                     className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 rounded-lg text-sm font-medium transition-all"
                   >
-                    測試 DNS 解析端點 (Ping DNS)
+                    {isZh ? '測試 DNS 解析端點 (Ping DNS)' : 'Ping DNS Endpoint'}
                   </button>
                 </div>
               )}
@@ -8289,41 +8294,41 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
           </div>
           <div>
             <h2 className="text-2xl font-bold text-white">
-              {activeSubTab === 'engine_monitoring' ? '平台核心引擎監控 (Engine Monitoring)' :
-               activeSubTab === 'update' ? '特徵庫與規則庫更新管理' :
+              {activeSubTab === 'engine_monitoring' ? (isZh ? '平台核心引擎監控 (Engine Monitoring)' : 'Core Engine Monitoring') :
+               activeSubTab === 'update' ? (isZh ? '特徵庫與規則庫更新管理' : 'Signatures & Rules Updates Management') :
                activeSubTab === 'threat_intel' ? (isZh ? '外部威脅情資來源管理 (STIX/TAXII Feeds)' : 'Threat Intelligence Sources (STIX/TAXII)') :
-               activeSubTab === 'nac' ? '網路存取控制 (Network Access Control / NAC)' :
-               activeSubTab === 'collection' ? '資料採集配置 (Data Collection Setting)' : 
-               activeSubTab === 'remotelog' ? '遠端日誌伺服器' : 
-               activeSubTab === 'ueba' ? 'UEBA 使用者與實體行為分析配置 (UEBA Analytics & Profiling)' :
-               activeSubTab === 'decoder' ? 'AI 日誌解碼器 (AI Log Decoder)' :
-               activeSubTab === 'alert' ? '告警規則配置 (Alert Configuration)' :
+               activeSubTab === 'nac' ? (isZh ? '網路存取控制 (Network Access Control / NAC)' : 'Network Access Control (NAC)') :
+               activeSubTab === 'collection' ? (isZh ? '資料採集配置 (Data Collection Setting)' : 'Data Collection Settings') : 
+               activeSubTab === 'remotelog' ? (isZh ? '遠端日誌伺服器' : 'Remote Log Server') : 
+               activeSubTab === 'ueba' ? (isZh ? 'UEBA 使用者與實體行為分析配置 (UEBA Analytics & Profiling)' : 'UEBA Behavioral Analytics & Profiling') :
+               activeSubTab === 'decoder' ? (isZh ? 'AI 日誌解碼器 (AI Log Decoder)' : 'AI Log Decoder') :
+               activeSubTab === 'alert' ? (isZh ? '告警規則配置 (Alert Configuration)' : 'Alert Rules Configuration') :
                activeSubTab === 'ndr_alerts' ? (isZh ? 'NDR 網路流量特徵自訂告警規則 (NDR Traffic Alert Rules)' : 'NDR Traffic Pattern Alert Rules') :
-               activeSubTab === 'users' ? '使用者帳號與 RBAC 權限管理 (User Access Matrix)' :
-               activeSubTab === 'auth' ? '身分認證管理與 SSO 單一登入配置 (Authentication & SSO)' :
-               activeSubTab === 'general' ? '平台一般設定與 AI 引擎配置 (General Platform & AI Settings)' :
+               activeSubTab === 'users' ? (isZh ? '使用者帳號與 RBAC 權限管理 (User Access Matrix)' : 'User Accounts & RBAC Access Matrix') :
+               activeSubTab === 'auth' ? (isZh ? '身分認證管理與 SSO 單一登入配置 (Authentication & SSO)' : 'Authentication & SSO Configuration') :
+               activeSubTab === 'general' ? (isZh ? '平台一般設定與 AI 引擎配置 (General Platform & AI Settings)' : 'General Platform & AI Engine Settings') :
                t(`settings.tabs.${activeSubTab}`)}
             </h2>
-            <p className="text-xs text-gray-500 mt-1">管理系統配置與平台引擎整合節點。</p>
+            <p className="text-xs text-gray-500 mt-1">{isZh ? '管理系統配置與平台引擎整合節點。' : 'Manage system configurations and core platform engine nodes.'}</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 p-1 bg-gray-900/50 rounded-xl border border-gray-800">
           {[
-            { id: 'engine_monitoring', label: '引擎監控', icon: <Activity size={14} />, supervisorOnly: true },
-            { id: 'collection', label: '資料採集', icon: <Database size={14} /> },
-            { id: 'update', label: '更新管理', icon: <RefreshCw size={14} /> },
+            { id: 'engine_monitoring', label: isZh ? '引擎監控' : 'Engine Monitor', icon: <Activity size={14} />, supervisorOnly: true },
+            { id: 'collection', label: isZh ? '資料採集' : 'Data Collection', icon: <Database size={14} /> },
+            { id: 'update', label: isZh ? '更新管理' : 'Updates', icon: <RefreshCw size={14} /> },
             { id: 'threat_intel', label: isZh ? '情資來源' : 'Threat Intel', icon: <Radio size={14} /> },
-            { id: 'nac', label: 'NAC 控管', icon: <ShieldCheck size={14} /> },
-            { id: 'remotelog', label: '遠端日誌', icon: <Share2 size={14} /> },
-            { id: 'decoder', label: '日誌解碼', icon: <Binary size={14} /> },
-            { id: 'alert', label: '告警設定', icon: <Bell size={14} /> },
+            { id: 'nac', label: isZh ? 'NAC 控管' : 'NAC Control', icon: <ShieldCheck size={14} /> },
+            { id: 'remotelog', label: isZh ? '遠端日誌' : 'Remote Log', icon: <Share2 size={14} /> },
+            { id: 'decoder', label: isZh ? '日誌解碼' : 'Log Decoder', icon: <Binary size={14} /> },
+            { id: 'alert', label: isZh ? '告警設定' : 'Alert Rules', icon: <Bell size={14} /> },
             { id: 'ndr_alerts', label: isZh ? 'NDR 流量告警' : 'NDR Alerts', icon: <Flame size={14} className="text-amber-400" /> },
             { id: 'ueba', label: 'UEBA', icon: <Brain size={14} /> },
-            { id: 'network', label: '系統介面', icon: <Cpu size={14} /> },
-            { id: 'auth', label: '認證管理', icon: <Key size={14} /> },
-            { id: 'users', label: '使用者', icon: <Users size={14} /> },
-            { id: 'general', label: '一般設定', icon: <Settings size={14} /> },
+            { id: 'network', label: isZh ? '系統介面' : 'System Network', icon: <Cpu size={14} /> },
+            { id: 'auth', label: isZh ? '認證管理' : 'Auth & SSO', icon: <Key size={14} /> },
+            { id: 'users', label: isZh ? '使用者' : 'Users', icon: <Users size={14} /> },
+            { id: 'general', label: isZh ? '一般設定' : 'General', icon: <Settings size={14} /> },
           ].filter(tab => 
             (!tab.supervisorOnly || currentUser.role === 'supervisor') && 
             (tab.id !== 'users' || (currentUser.role === 'supervisor' || currentUser.role === 'admin'))
@@ -13958,11 +13963,13 @@ function NetworkAccessControlViewOld({ isReadOnly = false }: { isReadOnly?: bool
 }
 
 function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolean }) {
+  const { i18n } = useTranslation();
+  const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
   const [selectedModes, setSelectedModes] = useState<string[]>(['syslog']);
   const [sources, setSources] = useState<Array<{ id: string; sourceIp: string; port: number; protocol: 'udp' | 'tcp' | 'tls'; description?: string; status: 'active' | 'standby' }>>([
-    { id: 'src-1', sourceIp: '192.168.1.0/24', port: 514, protocol: 'udp', description: 'DMZ 核心交換器與邊界閘道日誌', status: 'active' },
-    { id: 'src-2', sourceIp: '10.0.0.0/16', port: 5140, protocol: 'tcp', description: '內部應用微服務與 API Gateway', status: 'active' },
-    { id: 'src-3', sourceIp: '172.16.10.50', port: 6514, protocol: 'tls', description: '核心主幹安全防火牆日誌', status: 'active' }
+    { id: 'src-1', sourceIp: '192.168.1.0/24', port: 514, protocol: 'udp', description: isZh ? 'DMZ 核心交換器與邊界閘道日誌' : 'DMZ Core Switch & Perimeter Gateway Logs', status: 'active' },
+    { id: 'src-2', sourceIp: '10.0.0.0/16', port: 5140, protocol: 'tcp', description: isZh ? '內部應用微服務與 API Gateway' : 'Internal Microservices & API Gateway Logs', status: 'active' },
+    { id: 'src-3', sourceIp: '172.16.10.50', port: 6514, protocol: 'tls', description: isZh ? '核心主幹安全防火牆日誌' : 'Core Backbone Security Firewall Logs', status: 'active' }
   ]);
   const [newIp, setNewIp] = useState('');
   const [newPort, setNewPort] = useState('514');
@@ -13992,7 +13999,8 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
 
   const handleAddSource = async () => {
     if (!newIp.trim()) {
-      alert('請輸入來源 IP 或網段位址 (如: 192.168.1.0/24)');
+      setStatusBanner(isZh ? '請輸入來源 IP 或網段位址 (如: 192.168.1.0/24)' : 'Please enter a source IP or subnet (e.g., 192.168.1.0/24)');
+      setTimeout(() => setStatusBanner(null), 3500);
       return;
     }
     try {
@@ -14000,17 +14008,18 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
         sourceIp: newIp.trim(),
         port: Number(newPort) || 514,
         protocol: newProtocol,
-        description: newDesc.trim() || '手動註冊資料採集端點'
+        description: newDesc.trim() || (isZh ? '手動註冊資料採集端點' : 'Manually registered collection endpoint')
       });
       if (res?.source) {
         setSources(prev => [...prev, res.source]);
         setNewIp('');
         setNewDesc('');
-        setStatusBanner(res.message || '已成功新增資料接收端點！');
+        setStatusBanner(res.message || (isZh ? '已成功新增資料接收端點！' : 'Collection receiver endpoint added!'));
         setTimeout(() => setStatusBanner(null), 3500);
       }
     } catch (err) {
-      alert('新增接收端點失敗');
+      setStatusBanner(isZh ? '新增接收端點失敗' : 'Failed to add receiver endpoint');
+      setTimeout(() => setStatusBanner(null), 3500);
     }
   };
 
@@ -14018,10 +14027,11 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
     try {
       await siemService.deleteDataCollectionSource(id);
       setSources(prev => prev.filter(s => s.id !== id));
-      setStatusBanner(`端點 ${id} 已成功移除`);
+      setStatusBanner(isZh ? `端點 ${id} 已成功移除` : `Endpoint ${id} removed successfully`);
       setTimeout(() => setStatusBanner(null), 3000);
     } catch (err) {
-      alert('刪除失敗');
+      setStatusBanner(isZh ? '刪除失敗' : 'Failed to remove endpoint');
+      setTimeout(() => setStatusBanner(null), 3000);
     }
   };
 
@@ -14044,10 +14054,10 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
           erspanEnabled: true
         }
       });
-      setStatusBanner('資料採集拓樸配置已成功部署至 Ingestion Pipeline 守護程序！');
+      setStatusBanner(isZh ? '資料採集拓樸配置已成功部署至 Ingestion Pipeline 守護程序！' : 'Data collection topology deployed to Ingestion Pipeline daemon!');
       setTimeout(() => setStatusBanner(null), 4000);
     } catch (err) {
-      setStatusBanner('已完成本地設定 (備援模式)');
+      setStatusBanner(isZh ? '已完成本地設定 (備援模式)' : 'Local configuration saved (fallback mode)');
       setTimeout(() => setStatusBanner(null), 3000);
     }
   };
@@ -14062,12 +14072,14 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
       )}
 
       <div className="bg-blue-600/5 border border-blue-500/20 p-6 rounded-3xl mb-8">
-        <h4 className="text-sm font-black text-white uppercase italic tracking-widest mb-4">選擇資料採集模式 (Select Data Collection Modes)</h4>
+        <h4 className="text-sm font-black text-white uppercase italic tracking-widest mb-4">
+          {isZh ? '選擇資料採集模式 (Select Data Collection Modes)' : 'Select Data Collection Modes'}
+        </h4>
         <div className="flex flex-wrap gap-4">
           {[
-            { id: 'syslog', label: 'Syslog 日誌採集 (Syslog Collection)', icon: FileText },
-            { id: 'eventlog', label: 'Windows 事件日誌 (Event Log)', icon: Activity },
-            { id: 'flow', label: '網路流量鏡像 (Network Flow)', icon: Network },
+            { id: 'syslog', label: isZh ? 'Syslog 日誌採集 (Syslog Collection)' : 'Syslog Collection', icon: FileText },
+            { id: 'eventlog', label: isZh ? 'Windows 事件日誌 (Event Log)' : 'Windows Event Log', icon: Activity },
+            { id: 'flow', label: isZh ? '網路流量鏡像 (Network Flow)' : 'Network Flow Mirroring', icon: Network },
           ].map(mode => (
             <button
               key={mode.id}
@@ -14097,12 +14109,16 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
               <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center border border-blue-500/20">
                 <FileText className="text-blue-400" size={20} />
               </div>
-              <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">Syslog 接收伺服器配置 (Syslog Server Configuration)</h4>
+              <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">
+                {isZh ? 'Syslog 接收伺服器配置 (Syslog Server Configuration)' : 'Syslog Server Configuration'}
+              </h4>
             </div>
 
             {/* List of active syslog receivers */}
             <div className="space-y-3 mb-6">
-              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">目前就緒之接收端點 ({sources.length})</p>
+              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                {isZh ? `目前就緒之接收端點 (${sources.length})` : `Active Receiver Endpoints (${sources.length})`}
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {sources.map(s => (
                   <div key={s.id} className="p-4 bg-black/40 border border-gray-800 rounded-2xl flex items-center justify-between group/src hover:border-blue-500/40 transition-all">
@@ -14128,17 +14144,21 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-4 border-t border-gray-800">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">來源 IP / 網段 (Source IP / Subnet)</label>
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                  {isZh ? '來源 IP / 網段 (Source IP / Subnet)' : 'Source IP / Subnet'}
+                </label>
                 <input 
                   type="text" 
                   value={newIp}
                   onChange={(e) => setNewIp(e.target.value)}
-                  placeholder="例如: 192.168.1.0/24" 
+                  placeholder={isZh ? '例如: 192.168.1.0/24' : 'e.g. 192.168.1.0/24'} 
                   className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-3 text-xs font-mono text-blue-400 outline-none focus:border-blue-500 transition-all font-bold"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">接聽連接埠 (Listening Port)</label>
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                  {isZh ? '接聽連接埠 (Listening Port)' : 'Listening Port'}
+                </label>
                 <input 
                   type="number" 
                   value={newPort}
@@ -14148,15 +14168,17 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">通訊協定 (Protocol)</label>
+                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                  {isZh ? '通訊協定 (Protocol)' : 'Protocol'}
+                </label>
                 <select 
                   value={newProtocol}
                   onChange={(e) => setNewProtocol(e.target.value as any)}
                   className="w-full bg-black/40 border border-gray-800 rounded-xl px-4 py-3 text-xs font-black text-white outline-none focus:border-blue-500 transition-all italic tracking-tighter uppercase"
                 >
-                  <option value="udp">UDP (建議使用)</option>
+                  <option value="udp">{isZh ? 'UDP (建議使用)' : 'UDP (Recommended)'}</option>
                   <option value="tcp">TCP</option>
-                  <option value="tls">TLS / 安全加密 TCP</option>
+                  <option value="tls">{isZh ? 'TLS / 安全加密 TCP' : 'TLS / Encrypted TCP'}</option>
                 </select>
               </div>
               <div className="flex items-end">
@@ -14165,7 +14187,7 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                     onClick={handleAddSource}
                     className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20"
                   >
-                    新增接收端點 (Add Receiver)
+                    {isZh ? '新增接收端點 (Add Receiver)' : 'Add Receiver'}
                   </button>
                 )}
               </div>
@@ -14183,26 +14205,40 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
               <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center border border-purple-500/20">
                 <Activity className="text-purple-400" size={20} />
               </div>
-              <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">Windows 事件日誌收集 (Windows Event Log Collection)</h4>
+              <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">
+                {isZh ? 'Windows 事件日誌收集 (Windows Event Log Collection)' : 'Windows Event Log Collection'}
+              </h4>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="p-6 bg-black/40 border border-gray-800 rounded-2xl space-y-4">
                 <div className="flex items-center justify-between">
-                  <h5 className="text-[11px] font-black text-white uppercase italic tracking-widest">採集方式 (Collection Method)</h5>
-                  <span className="text-[9px] font-bold text-blue-400 bg-blue-500/5 px-2 py-0.5 rounded border border-blue-500/20 uppercase">WinRM 服務已啟用</span>
+                  <h5 className="text-[11px] font-black text-white uppercase italic tracking-widest">
+                    {isZh ? '採集方式 (Collection Method)' : 'Collection Method'}
+                  </h5>
+                  <span className="text-[9px] font-bold text-blue-400 bg-blue-500/5 px-2 py-0.5 rounded border border-blue-500/20 uppercase">
+                    {isZh ? 'WinRM 服務已啟用' : 'WinRM Service Enabled'}
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <button className="py-4 bg-blue-600/10 border border-blue-500/40 text-blue-400 rounded-xl text-[10px] font-black uppercase italic tracking-wider">代理端模式 (Agent-Based)</button>
-                  <button className="py-4 bg-gray-900 border border-gray-800 text-gray-500 rounded-xl text-[10px] font-black uppercase italic tracking-wider hover:border-gray-600">無代理模式 (Agentless)</button>
+                  <button className="py-4 bg-blue-600/10 border border-blue-500/40 text-blue-400 rounded-xl text-[10px] font-black uppercase italic tracking-wider">
+                    {isZh ? '代理端模式 (Agent-Based)' : 'Agent-Based'}
+                  </button>
+                  <button className="py-4 bg-gray-900 border border-gray-800 text-gray-500 rounded-xl text-[10px] font-black uppercase italic tracking-wider hover:border-gray-600">
+                    {isZh ? '無代理模式 (Agentless)' : 'Agentless'}
+                  </button>
                 </div>
               </div>
 
               <div className="p-6 bg-black/40 border border-gray-800 rounded-2xl space-y-4">
-                 <h5 className="text-[11px] font-black text-white uppercase italic tracking-widest">無代理端配置 (WMS / WinRM)</h5>
+                 <h5 className="text-[11px] font-black text-white uppercase italic tracking-widest">
+                   {isZh ? '無代理端配置 (WMS / WinRM)' : 'Agentless Configuration (WMS / WinRM)'}
+                 </h5>
                  <div className="space-y-4">
                    <div className="space-y-1">
-                      <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">WS-Management 服務端點位址</p>
+                      <p className="text-[9px] font-bold text-gray-600 uppercase tracking-widest">
+                        {isZh ? 'WS-Management 服務端點位址' : 'WS-Management Service Endpoint'}
+                      </p>
                       <input 
                         type="text" 
                         value={winrmEndpoint}
@@ -14212,7 +14248,9 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                    </div>
                    <div className="flex items-center gap-2">
                      <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                     <span className="text-[9px] font-black text-blue-500 uppercase">Port 5986 監聽器運作中 (Listener Active)</span>
+                     <span className="text-[9px] font-black text-blue-500 uppercase">
+                       {isZh ? 'Port 5986 監聽器運作中 (Listener Active)' : 'Port 5986 Listener Active'}
+                     </span>
                    </div>
                  </div>
               </div>
@@ -14230,12 +14268,16 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
               <div className="w-10 h-10 bg-green-500/10 rounded-xl flex items-center justify-center border border-green-500/20">
                 <Network className="text-green-400" size={20} />
               </div>
-              <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">實體網路埠流量鏡像 (Physical Port Mirroring / Flow)</h4>
+              <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">
+                {isZh ? '實體網路埠流量鏡像 (Physical Port Mirroring / Flow)' : 'Physical Port Mirroring / Flow'}
+              </h4>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                <div className="space-y-4">
-                  <h5 className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-4">已偵測到的 Linux 網路介面卡 (Detected Interfaces)</h5>
+                  <h5 className="text-[11px] font-black text-gray-500 uppercase tracking-widest mb-4">
+                    {isZh ? '已偵測到的 Linux 網路介面卡 (Detected Interfaces)' : 'Detected Linux Network Interfaces'}
+                  </h5>
                   <div className="space-y-2">
                     {['ens192', 'ens32', 'eth0', 'lo'].map(iface => (
                       <div key={iface} className="p-4 bg-black/40 border border-gray-800 rounded-2xl flex items-center justify-between hover:border-green-500/30 transition-all cursor-pointer group">
@@ -14247,11 +14289,15 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                         </div>
                         {iface.startsWith('ens') ? (
                           <div className="flex items-center gap-2">
-                             <span className="text-[9px] font-black text-green-500 uppercase tracking-widest italic">鏡像來源 (Mirror Source)</span>
+                             <span className="text-[9px] font-black text-green-500 uppercase tracking-widest italic">
+                               {isZh ? '鏡像來源 (Mirror Source)' : 'Mirror Source'}
+                             </span>
                              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                           </div>
                         ) : (
-                          <span className="text-[9px] font-bold text-gray-700 uppercase">待命 (Standby)</span>
+                          <span className="text-[9px] font-bold text-gray-700 uppercase">
+                            {isZh ? '待命 (Standby)' : 'Standby'}
+                          </span>
                         )}
                       </div>
                     ))}
@@ -14263,14 +14309,18 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
                     <Zap className="text-green-500" size={28} />
                   </div>
                   <div>
-                    <h6 className="text-[11px] font-black text-white uppercase italic tracking-widest">介面模式：混雜模式 (Promiscuous Mode)</h6>
-                    <p className="text-[10px] text-gray-500 mt-2 max-w-xs mx-auto leading-relaxed uppercase font-bold tracking-widest italic">請確認實體交換器 (Switch) 已完成 RSPAN/ERSPAN 配置，將網路流量導向至所選之監聽介面。</p>
+                    <h6 className="text-[11px] font-black text-white uppercase italic tracking-widest">
+                      {isZh ? '介面模式：混雜模式 (Promiscuous Mode)' : 'Interface Mode: Promiscuous Mode'}
+                    </h6>
+                    <p className="text-[10px] text-gray-500 mt-2 max-w-xs mx-auto leading-relaxed uppercase font-bold tracking-widest italic">
+                      {isZh ? '請確認實體交換器 (Switch) 已完成 RSPAN/ERSPAN 配置，將網路流量導向至所選之監聽介面。' : 'Ensure physical switch RSPAN/ERSPAN is configured to forward traffic to the selected monitor interface.'}
+                    </p>
                   </div>
                   <button 
                     onClick={handleDeployConfig}
                     className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                   >
-                    套用流量鏡像配置 (Apply Config)
+                    {isZh ? '套用流量鏡像配置 (Apply Config)' : 'Apply Flow Mirror Config'}
                   </button>
                </div>
             </div>
@@ -14283,13 +14333,13 @@ function DataCollectionSettingView({ isReadOnly = false }: { isReadOnly?: boolea
            onClick={() => setSelectedModes(['syslog'])}
            className="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all"
          >
-           重置預設 (Reset)
+           {isZh ? '重置預設 (Reset)' : 'Reset Defaults'}
          </button>
          <button 
            onClick={handleDeployConfig}
            className="px-10 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-blue-600/30 transition-all"
          >
-           部署採集配置 (Deploy Config)
+           {isZh ? '部署採集配置 (Deploy Config)' : 'Deploy Config'}
          </button>
       </div>
     </div>

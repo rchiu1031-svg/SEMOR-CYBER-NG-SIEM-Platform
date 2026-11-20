@@ -324,7 +324,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
     } catch (e: any) {
       setGlobalSaveNotification({
         success: false,
-        message: `儲存失敗: ${e.message || '無法儲存全域策略'}`
+        message: isZh ? `儲存失敗: ${e.message || '無法儲存全域策略'}` : `Save failed: ${e.message || 'Unable to save global policies'}`
       });
       setTimeout(() => setGlobalSaveNotification(null), 5000);
     } finally {
@@ -348,7 +348,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
     } catch (e: any) {
       setGlobalSaveNotification({
         success: false,
-        message: `清除失敗: ${e.message || '緩衝區清空操作失敗'}`
+        message: isZh ? `清除失敗: ${e.message || '緩衝區清空操作失敗'}` : `Flush failed: ${e.message || 'Buffer flush failed'}`
       });
       setTimeout(() => setGlobalSaveNotification(null), 5000);
     } finally {
@@ -442,7 +442,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
         ...prev,
         isSending: false,
         result: {
-          message: res.message || '測試事件發送完成',
+          message: res.message || (isZh ? '測試事件發送完成' : 'Test event dispatched'),
           dispatchedAt: res.dispatchedAt || new Date().toISOString(),
           payloadSize: res.payloadSize || 382,
           logEntry: res.logEntry,
@@ -465,7 +465,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
         ...prev,
         isSending: false,
         result: {
-          message: `發送失敗: ${e.message || '未知錯誤'}`,
+          message: isZh ? `發送失敗: ${e.message || '未知錯誤'}` : `Dispatch failed: ${e.message || 'Unknown error'}`,
           dispatchedAt: new Date().toISOString(),
           payloadSize: 0
         }
@@ -492,14 +492,14 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
         testing: false,
         success: true,
         latency: res.latencyMs || 12,
-        message: res.message || `連線測試成功！已成功握手目標節點 ${targetProto}://${targetIp}:${targetPort}`
+        message: res.message || (isZh ? `連線測試成功！已成功握手目標節點 ${targetProto}://${targetIp}:${targetPort}` : `Connection successful! Handshake completed with ${targetProto}://${targetIp}:${targetPort}`)
       });
       setTimeout(() => setTestResult(null), 5000);
     } catch (e: any) {
       setTestResult({
         testing: false,
         success: false,
-        message: `連線失敗: ${e.message || '連線逾時'}`
+        message: isZh ? `連線失敗: ${e.message || '連線逾時'}` : `Connection failed: ${e.message || 'Connection timed out'}`
       });
       setTimeout(() => setTestResult(null), 5000);
     }
@@ -878,10 +878,10 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
               className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-black text-white outline-none focus:border-orange-500 transition-all uppercase"
             >
               <option value="splunk">Splunk (HEC HTTP Event Collector)</option>
-              <option value="syslog">遠端 Syslog 伺服器 (RFC5424/RFC3164)</option>
+              <option value="syslog">{isZh ? '遠端 Syslog 伺服器 (RFC5424/RFC3164)' : 'Remote Syslog Server (RFC5424/RFC3164)'}</option>
               <option value="elk">Elasticsearch / OpenSearch</option>
-              <option value="kafka">Apache Kafka 分散式佇列</option>
-              <option value="s3">AWS S3 / MinIO 物件儲存</option>
+              <option value="kafka">{isZh ? 'Apache Kafka 分散式佇列' : 'Apache Kafka Distributed Queue'}</option>
+              <option value="s3">{isZh ? 'AWS S3 / MinIO 物件儲存' : 'AWS S3 / MinIO Object Storage'}</option>
               <option value="qradar">IBM QRadar SIEM (LEEF/CEF)</option>
             </select>
           </div>
@@ -909,7 +909,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
               value={formData.destination}
               onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
               disabled={isReadOnly}
-              placeholder="10.88.90.11 或 log.corp.local" 
+              placeholder={isZh ? '10.88.90.11 或 log.corp.local' : '10.88.90.11 or log.corp.local'} 
               className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-orange-400 outline-none focus:border-orange-500 transition-all font-bold placeholder:text-gray-600"
             />
           </div>
@@ -991,10 +991,10 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
               disabled={isReadOnly}
               className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-black text-white outline-none focus:border-orange-500 transition-all uppercase"
             >
-              <option value="json">Structured JSON (Elastic/Splunk 原生)</option>
-              <option value="cef">CEF (ArcSight / Micro Focus 標準)</option>
-              <option value="rfc5424">Syslog RFC5424 (標準時間戳與標頭)</option>
-              <option value="raw">Raw String (原始字串轉送)</option>
+              <option value="json">{isZh ? 'Structured JSON (Elastic/Splunk 原生)' : 'Structured JSON (Elastic/Splunk Native)'}</option>
+              <option value="cef">{isZh ? 'CEF (ArcSight / Micro Focus 標準)' : 'CEF (ArcSight / Micro Focus Standard)'}</option>
+              <option value="rfc5424">{isZh ? 'Syslog RFC5424 (標準時間戳與標頭)' : 'Syslog RFC5424 (Standard Timestamp & Header)'}</option>
+              <option value="raw">{isZh ? 'Raw String (原始字串轉送)' : 'Raw String (Unparsed Line)'}</option>
             </select>
           </div>
 
@@ -1664,7 +1664,7 @@ export default function RemoteLogServerSettingView({ isReadOnly = false }: Remot
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs text-gray-400">
                     <span className="font-mono text-[11px] text-gray-300">
-                      檔案名稱: <span className="text-blue-400 font-bold">{exportConfigModal.filename}</span>
+                      {isZh ? '檔案名稱:' : 'Filename:'} <span className="text-blue-400 font-bold">{exportConfigModal.filename}</span>
                     </span>
                     <div className="flex items-center gap-2">
                       <button

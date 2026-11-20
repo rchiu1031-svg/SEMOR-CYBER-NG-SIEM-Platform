@@ -446,13 +446,13 @@ export default function CorrelationSettingView() {
         stages: [
           {
             stageId: 'A',
-            name: '階段 A: 初始處理程序觸發',
+            name: isZh ? '階段 A: 初始處理程序觸發' : 'Stage A: Initial Process Trigger',
             source: 'EDR Telemetry',
             condition: "process.name in ['powershell.exe', 'cmd.exe']"
           },
           {
             stageId: 'B',
-            name: '階段 B: 出境網路連線',
+            name: isZh ? '階段 B: 出境網路連線' : 'Stage B: Outbound Network Connection',
             source: 'Network NDR',
             condition: "network.direction == 'outbound' AND destination.port in [443, 8080]"
           }

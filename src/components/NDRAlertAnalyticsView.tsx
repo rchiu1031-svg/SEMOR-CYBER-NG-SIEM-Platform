@@ -206,7 +206,7 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
       }
     } catch (err: any) {
       console.error('Mitigation failed:', err);
-      setMitigationFeedback(err?.response?.data?.error || '處置操作失敗');
+      setMitigationFeedback(err?.response?.data?.error || (isZh ? '處置操作失敗' : 'Mitigation action failed'));
       setTimeout(() => setMitigationFeedback(null), 4000);
     }
   };
@@ -222,7 +222,11 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
       });
       if (res.success) {
         setIsSimulatingModalOpen(false);
-        setMitigationFeedback(`已成功模擬注入流量違規事件: ${res.alert.id} (${res.alert.ruleName})`);
+        setMitigationFeedback(
+          isZh
+            ? `已成功模擬注入流量違規事件: ${res.alert.id} (${res.alert.ruleName})`
+            : `Simulated traffic violation injected: ${res.alert.id} (${res.alert.ruleName})`
+        );
         setTimeout(() => setMitigationFeedback(null), 5000);
         await fetchData(true);
       }

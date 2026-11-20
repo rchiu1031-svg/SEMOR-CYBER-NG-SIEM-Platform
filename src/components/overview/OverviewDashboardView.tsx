@@ -243,7 +243,7 @@ export const OverviewDashboardView: React.FC<OverviewDashboardViewProps> = ({
         body: JSON.stringify({ active: val })
       });
       const data = await res.json();
-      triggerToast(data.message || (val ? '已啟動戰情警戒模式 (DEFCON 1)' : '已解除戰情模式'));
+      triggerToast(data.message || (val ? (isZh ? '已啟動戰情警戒模式 (DEFCON 1)' : 'War Mode (DEFCON 1) Activated') : (isZh ? '已解除戰情模式' : 'War mode deactivated')));
       fetchDashboardData(false);
     } catch {
       triggerToast(

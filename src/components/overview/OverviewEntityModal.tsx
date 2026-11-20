@@ -37,16 +37,16 @@ export const OverviewEntityModal: React.FC<OverviewEntityModalProps> = ({
     {
       metricZh: '登入存取時段',
       metricEn: 'Login Hours',
-      current: '02:40 AM (非慣用時段)',
-      baseline: '09:00 - 18:00 (週一至週五)',
+      current: isZh ? '02:40 AM (非慣用時段)' : '02:40 AM (Off-hours)',
+      baseline: isZh ? '09:00 - 18:00 (週一至週五)' : '09:00 - 18:00 (Mon-Fri)',
       deviation: isZh ? '嚴重偏離常態' : 'Severe Anomaly',
       status: 'danger'
     },
     {
       metricZh: '檔案存取數量 (24h)',
       metricEn: 'File Access Vol',
-      current: `${entity.networkActivity.filesAccessed} 份檔案`,
-      baseline: '45 份 / 日常平均',
+      current: isZh ? `${entity.networkActivity.filesAccessed} 份檔案` : `${entity.networkActivity.filesAccessed} files`,
+      baseline: isZh ? '45 份 / 日常平均' : '45 files / daily norm',
       deviation: '+2,655%',
       status: 'danger'
     },
@@ -54,15 +54,15 @@ export const OverviewEntityModal: React.FC<OverviewEntityModalProps> = ({
       metricZh: '出站流量總量 (24h)',
       metricEn: 'Outbound Traffic',
       current: `${(entity.networkActivity.bytesOutMb / 1024).toFixed(1)} GB`,
-      baseline: '120 MB / 日常平均',
+      baseline: isZh ? '120 MB / 日常平均' : '120 MB / daily norm',
       deviation: isZh ? '極高風險突增' : 'High Surge',
       status: 'danger'
     },
     {
       metricZh: '異常連線來源 IP',
       metricEn: 'Source IP Anomaly',
-      current: '103.152.220.45 (未知 VPN)',
-      baseline: '10.88.x.x (辦公室內網)',
+      current: isZh ? '103.152.220.45 (未知 VPN)' : '103.152.220.45 (Unknown VPN)',
+      baseline: isZh ? '10.88.x.x (辦公室內網)' : '10.88.x.x (Corp LAN)',
       deviation: isZh ? '首次出現位址' : 'First-time IP',
       status: 'warning'
     }

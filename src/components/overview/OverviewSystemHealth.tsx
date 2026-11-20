@@ -49,7 +49,7 @@ export const OverviewSystemHealth: React.FC<OverviewSystemHealthProps> = ({
   const node = systemHealth || {
     nodeId: 'master-01',
     nodeName: 'Master-Node-01',
-    role: 'Kubernetes/Cluster Control Plane & 排程仲裁',
+    role: isZh ? 'Kubernetes/Cluster Control Plane & 排程仲裁' : 'Kubernetes/Cluster Control Plane & Quorum',
     ip: '192.168.10.20',
     status: 'Online' as const,
     uptime: '5d 04h 18m',

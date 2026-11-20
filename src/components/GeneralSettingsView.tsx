@@ -383,9 +383,9 @@ export default function GeneralSettingsView({
                   disabled={isReadOnly}
                   className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-bold text-white outline-none focus:border-blue-500"
                 >
-                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (推薦・極致極速與深度資安研判)</option>
-                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (旗艦高精準・複雜攻擊鏈取證推論)</option>
-                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (標準快速模型)</option>
+                  <option value="gemini-2.5-flash">{isZh ? 'Gemini 2.5 Flash (推薦・極致極速與深度資安研判)' : 'Gemini 2.5 Flash (Recommended • Fast & Deep Security Analysis)'}</option>
+                  <option value="gemini-2.5-pro">{isZh ? 'Gemini 2.5 Pro (旗艦高精準・複雜攻擊鏈取證推論)' : 'Gemini 2.5 Pro (Flagship • Complex Attack Chain Forensics)'}</option>
+                  <option value="gemini-2.0-flash">{isZh ? 'Gemini 2.0 Flash (標準快速模型)' : 'Gemini 2.0 Flash (Standard Fast Model)'}</option>
                 </select>
               </div>
 
@@ -577,11 +577,11 @@ export default function GeneralSettingsView({
               disabled={isReadOnly}
               className="w-full bg-black/50 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-bold text-white outline-none focus:border-cyan-500 uppercase font-mono"
             >
-              <option value="Asia/Taipei">Asia/Taipei (UTC+08:00 台北/標準時區)</option>
-              <option value="Asia/Tokyo">Asia/Tokyo (UTC+09:00 東京)</option>
-              <option value="Asia/Singapore">Asia/Singapore (UTC+08:00 新加坡)</option>
-              <option value="UTC">UTC (世界協調時間 +00:00)</option>
-              <option value="America/New_York">America/New_York (UTC-05:00 紐約/美東)</option>
+              <option value="Asia/Taipei">{isZh ? 'Asia/Taipei (UTC+08:00 台北/標準時區)' : 'Asia/Taipei (UTC+08:00 Taipei)'}</option>
+              <option value="Asia/Tokyo">{isZh ? 'Asia/Tokyo (UTC+09:00 東京)' : 'Asia/Tokyo (UTC+09:00 Tokyo)'}</option>
+              <option value="Asia/Singapore">{isZh ? 'Asia/Singapore (UTC+08:00 新加坡)' : 'Asia/Singapore (UTC+08:00 Singapore)'}</option>
+              <option value="UTC">{isZh ? 'UTC (世界協調時間 +00:00)' : 'UTC (Coordinated Universal Time +00:00)'}</option>
+              <option value="America/New_York">{isZh ? 'America/New_York (UTC-05:00 紐約/美東)' : 'America/New_York (UTC-05:00 New York)'}</option>
             </select>
           </div>
 

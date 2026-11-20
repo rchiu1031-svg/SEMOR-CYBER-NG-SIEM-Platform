@@ -9,6 +9,7 @@ import {
 import { cn } from '../../lib/utils';
 import type { StrategicRoadmapItem } from './types';
 import { STRATEGIC_ROADMAP_DATA } from './executiveData';
+import { localizeRoadmapItem } from './ctoLocaleMap';
 
 interface ExecutiveStrategicRoadmapProps {
   isZh: boolean;
@@ -27,7 +28,9 @@ export function ExecutiveStrategicRoadmap({
   const [filter, setFilter] = useState<'all' | 'on_track' | 'completed' | 'at_risk'>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  const items = roadmap && roadmap.length > 0 ? roadmap : STRATEGIC_ROADMAP_DATA;
+  const items = (roadmap && roadmap.length > 0 ? roadmap : STRATEGIC_ROADMAP_DATA).map((item) =>
+    localizeRoadmapItem(item, isZh)
+  );
 
   const filteredItems = items.filter((item) => {
     if (filter === 'all') return true;

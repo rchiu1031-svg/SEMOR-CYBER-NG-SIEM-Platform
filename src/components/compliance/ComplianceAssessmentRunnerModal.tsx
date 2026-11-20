@@ -91,8 +91,12 @@ export const ComplianceAssessmentRunnerModal: React.FC<ComplianceAssessmentRunne
     resetState();
     setIsScanning(true);
     setLogs([
-      `[${new Date().toLocaleTimeString()}] 啟動自動化合規全檢引擎 (Engine v4.8) - 標的: ${selectedFrameworkId}`,
-      `[${new Date().toLocaleTimeString()}] 載入基準規範: CIS Benchmark v8.0 & 官方法規控制項庫`
+      isZh
+        ? `[${new Date().toLocaleTimeString()}] 啟動自動化合規全檢引擎 (Engine v4.8) - 標的: ${selectedFrameworkId}`
+        : `[${new Date().toLocaleTimeString()}] Starting Automated Compliance Engine (v4.8) - Target: ${selectedFrameworkId}`,
+      isZh
+        ? `[${new Date().toLocaleTimeString()}] 載入基準規範: CIS Benchmark v8.0 & 官方法規控制項庫`
+        : `[${new Date().toLocaleTimeString()}] Loading baselines: CIS Benchmark v8.0 & Regulatory Controls`
     ]);
 
     let step = 0;
@@ -107,30 +111,69 @@ export const ComplianceAssessmentRunnerModal: React.FC<ComplianceAssessmentRunne
         currProgress += 20;
         setProgress(Math.min(currProgress, 99));
 
-        const stage = stages[step];
         const newLogs: string[] = [];
 
         if (step === 0) {
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [NET] 掃描 14 組核心防火牆與 SDN 虛擬路由...`);
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [NET] 驗證持卡人資料網段 (CDE) 邊界隔離 - 發現 1 項暫時性規則違規`);
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [NET] 掃描 14 組核心防火牆與 SDN 虛擬路由...`
+              : `[${new Date().toLocaleTimeString()}] [NET] Scanning 14 core firewalls & SDN virtual routes...`
+          );
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [NET] 驗證持卡人資料網段 (CDE) 邊界隔離 - 發現 1 項暫時性規則違規`
+              : `[${new Date().toLocaleTimeString()}] [NET] Verifying CDE perimeter isolation - found 1 temporary rule violation`
+          );
           warns += 1;
         } else if (step === 1) {
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [IAM] 稽核 Active Directory 與 Okta 身分識別目錄 (共 1,240 帳號)...`);
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [IAM] 100% 強制 FIDO2 MFA 鑑別通過；發現 12 個閒置 >90 天帳號需清理`);
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [IAM] 稽核 Active Directory 與 Okta 身分識別目錄 (共 1,240 帳號)...`
+              : `[${new Date().toLocaleTimeString()}] [IAM] Auditing Active Directory & Okta identities (1,240 accounts)...`
+          );
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [IAM] 100% 強制 FIDO2 MFA 鑑別通過；發現 12 個閒置 >90 天帳號需清理`
+              : `[${new Date().toLocaleTimeString()}] [IAM] 100% FIDO2 MFA enforced; 12 inactive >90d accounts flagged`
+          );
           passes += 24;
           warns += 1;
         } else if (step === 2) {
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [XDR] 檢驗 420 台主機 OpenXDR 代理程式運作心跳...`);
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [FIM] 比對 /etc/pam.d/sshd 基準雜湊值 - 偵測到 1 台主機偏離需處置`);
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [XDR] 檢驗 420 台主機 OpenXDR 代理程式運作心跳...`
+              : `[${new Date().toLocaleTimeString()}] [XDR] Verifying OpenXDR agent heartbeats across 420 endpoints...`
+          );
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [FIM] 比對 /etc/pam.d/sshd 基準雜湊值 - 偵測到 1 台主機偏離需處置`
+              : `[${new Date().toLocaleTimeString()}] [FIM] Checking /etc/pam.d/sshd baseline hashes - 1 host drift detected`
+          );
           passes += 35;
           fails += 1;
         } else if (step === 3) {
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [CRYPTO] 測試端到端 TLS 1.3 傳輸密碼套件... 全部符合標準`);
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [CRYPTO] 驗證 HSM 金鑰管理週期性輪替雜湊... 合規`);
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [CRYPTO] 測試端到端 TLS 1.3 傳輸密碼套件... 全部符合標準`
+              : `[${new Date().toLocaleTimeString()}] [CRYPTO] Probing end-to-end TLS 1.3 cipher suites... all compliant`
+          );
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [CRYPTO] 驗證 HSM 金鑰管理週期性輪替雜湊... 合規`
+              : `[${new Date().toLocaleTimeString()}] [CRYPTO] Validating periodic HSM key rotation hashes... compliant`
+          );
           passes += 28;
         } else if (step === 4) {
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [WORM] 驗證 VictoriaLogs 審計日誌鏈... 產生區塊 Block #10429`);
-          newLogs.push(`[${new Date().toLocaleTimeString()}] [WORM] Merkle 樹簽章驗證通過 (0x9a3e1b7...)，存證密封完成`);
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [WORM] 驗證 VictoriaLogs 審計日誌鏈... 產生區塊 Block #10429`
+              : `[${new Date().toLocaleTimeString()}] [WORM] Verifying VictoriaLogs audit chain... sealed Block #10429`
+          );
+          newLogs.push(
+            isZh
+              ? `[${new Date().toLocaleTimeString()}] [WORM] Merkle 樹簽章驗證通過 (0x9a3e1b7...)，存證密封完成`
+              : `[${new Date().toLocaleTimeString()}] [WORM] Merkle root signature verified (0x9a3e1b7...), ledger sealed`
+          );
           passes += 12;
         }
 
@@ -155,14 +198,18 @@ export const ComplianceAssessmentRunnerModal: React.FC<ComplianceAssessmentRunne
             const finalScore = json?.framework?.score ?? 96;
             setLogs(prev => [
               ...prev,
-              `[${new Date().toLocaleTimeString()}] 合規評估完成！${selectedFrameworkId} 最新合規達成率 ${finalScore}%，已寫入 WORM 存證區塊。`
+              isZh
+                ? `[${new Date().toLocaleTimeString()}] 合規評估完成！${selectedFrameworkId} 最新合規達成率 ${finalScore}%，已寫入 WORM 存證區塊。`
+                : `[${new Date().toLocaleTimeString()}] Assessment complete! ${selectedFrameworkId} posture updated to ${finalScore}% and sealed to WORM ledger.`
             ]);
             onScanCompleted(selectedFrameworkId, finalScore);
           })
           .catch(() => {
             setLogs(prev => [
               ...prev,
-              `[${new Date().toLocaleTimeString()}] 合規評估完成！總通過率 96.2%，自動歸檔正式報表。`
+              isZh
+                ? `[${new Date().toLocaleTimeString()}] 合規評估完成！總通過率 96.2%，自動歸檔正式報表。`
+                : `[${new Date().toLocaleTimeString()}] Assessment complete! 96.2% pass rate archived to report.`
             ]);
             onScanCompleted(selectedFrameworkId, 96);
           });

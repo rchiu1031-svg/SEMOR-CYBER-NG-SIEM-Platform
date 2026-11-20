@@ -462,7 +462,7 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
       if (data.success && data.incident) {
         setIncidents((prev) => prev.map((i) => (i.id === incidentId ? data.incident : i)));
         if (selectedIncident?.id === incidentId) setSelectedIncident(data.incident);
-        setSuccessToast(data.message || `事件 ${incidentId} 已成功標記為 ${newStatus}`);
+        setSuccessToast(data.message || (isZh ? `事件 ${incidentId} 已成功標記為 ${newStatus}` : `Incident ${incidentId} marked as ${newStatus}.`));
         setTimeout(() => setSuccessToast(null), 3000);
         return;
       }
@@ -1024,7 +1024,7 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                               <button
                                 className="w-full px-3.5 py-2 text-xs font-bold text-red-400 hover:bg-red-500/10 flex items-center gap-2.5"
                                 onClick={() => {
-                                  handleExecutePlaybook(incident.id, '即時隔離受害主機 (Host Quarantine)', 'isolate');
+                                  handleExecutePlaybook(incident.id, isZh ? '即時隔離受害主機 (Host Quarantine)' : 'Host Quarantine', 'isolate');
                                   setOpenDropdown(null);
                                 }}
                               >
@@ -1035,7 +1035,7 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                               <button
                                 className="w-full px-3.5 py-2 text-xs font-bold text-orange-400 hover:bg-orange-500/10 flex items-center gap-2.5"
                                 onClick={() => {
-                                  handleExecutePlaybook(incident.id, '下發邊界防火牆封鎖 IP', 'block');
+                                  handleExecutePlaybook(incident.id, isZh ? '下發邊界防火牆封鎖 IP' : 'Perimeter Firewall IP Block', 'block');
                                   setOpenDropdown(null);
                                 }}
                               >
@@ -1079,7 +1079,7 @@ export default function CriticalIncidentsView({ currentUser }: { currentUser: an
                                     </div>
                                     <div>
                                       <h4 className="text-sm font-black text-white flex items-center gap-2">
-                                        <span>{incident.id} 深度鑑識與處置工作區</span>
+                                        <span>{isZh ? `${incident.id} 深度鑑識與處置工作區` : `${incident.id} Deep Forensics & Response Workspace`}</span>
                                         <span className="text-[10px] font-mono px-2 py-0.5 bg-gray-800 text-gray-300 rounded">
                                           {incident.cve || 'MITRE TTP'}
                                         </span>
@@ -1876,13 +1876,17 @@ function CollaborativeNotesPanel({ incidentId, currentUser }: { incidentId: stri
       id: 'n-1',
       author: 'Tier-3 Lead (Chen)',
       timestamp: '14:22:10',
-      content: '已確認為真實內部異常存取活動，初步比對該 R&D 帳號昨夜有異地 VPN 登入紀錄，疑似帳號憑證遭竊取或內部人員惡意外洩。'
+      content: isZh
+        ? '已確認為真實內部異常存取活動，初步比對該 R&D 帳號昨夜有異地 VPN 登入紀錄，疑似帳號憑證遭竊取或內部人員惡意外洩。'
+        : 'Confirmed anomalous internal access activity. Initial correlation shows an off-hours foreign VPN login for this R&D account last night, indicating possible credential theft or insider exfiltration.'
     },
     {
       id: 'n-2',
       author: 'EDR Analyst (Lin)',
       timestamp: '14:35:45',
-      content: '已下發主機網路隔離指令，目前正在對 WS-RD-DEV-04 執行即時 RAM Memory Dump 取證。'
+      content: isZh
+        ? '已下發主機網路隔離指令，目前正在對 WS-RD-DEV-04 執行即時 RAM Memory Dump 取證。'
+        : 'Host network containment command dispatched. Currently executing live RAM memory dump acquisition on WS-RD-DEV-04.'
     }
   ]);
   const [newNoteText, setNewNoteText] = useState('');

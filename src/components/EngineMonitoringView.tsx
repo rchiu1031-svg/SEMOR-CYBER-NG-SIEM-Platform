@@ -244,7 +244,7 @@ export default function EngineMonitoringView({ isReadOnly = false }: EngineMonit
         isOpen: true,
         testing: false,
         engine,
-        error: e.message || '連線逾時或通訊埠未開放'
+        error: e.message || (isZh ? '連線逾時或通訊埠未開放' : 'Connection timeout or port unreachable')
       });
     }
   };
@@ -668,7 +668,7 @@ export default function EngineMonitoringView({ isReadOnly = false }: EngineMonit
                         type="text" 
                         value={engineConfigs[selectedEngineId]?.accountId || ''} 
                         onChange={(e) => handleUpdateConfig(selectedEngineId, 'accountId', e.target.value)}
-                        placeholder="admin 或 semor-user"
+                        placeholder={isZh ? 'admin 或 semor-user' : 'admin or semor-user'}
                         className="w-full bg-black/60 border border-gray-800 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white focus:border-red-500 outline-none"
                       />
                     </div>
@@ -971,15 +971,15 @@ export default function EngineMonitoringView({ isReadOnly = false }: EngineMonit
 
                   <div className="p-3.5 bg-black/60 border border-gray-800/80 rounded-2xl space-y-1.5 font-mono text-[11px]">
                     <div className="flex justify-between text-gray-400">
-                      <span>目標位址 (Endpoint):</span>
+                      <span>{isZh ? '目標位址 (Endpoint):' : 'Endpoint:'}</span>
                       <span className="text-white font-bold">{testResultModal.result?.host}:{testResultModal.result?.port}</span>
                     </div>
                     <div className="flex justify-between text-gray-400">
-                      <span>通訊協定 (Protocol):</span>
+                      <span>{isZh ? '通訊協定 (Protocol):' : 'Protocol:'}</span>
                       <span className="text-white font-bold">{testResultModal.result?.protocol}</span>
                     </div>
                     <div className="flex justify-between text-gray-400">
-                      <span>服務標頭 (Banner):</span>
+                      <span>{isZh ? '服務標頭 (Banner):' : 'Banner:'}</span>
                       <span className="text-emerald-400 font-bold">{testResultModal.result?.banner}</span>
                     </div>
                   </div>

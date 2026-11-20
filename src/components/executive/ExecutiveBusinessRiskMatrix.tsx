@@ -12,6 +12,7 @@ import {
 import { cn } from '../../lib/utils';
 import type { DepartmentRisk, BusinessServiceHealth, AssetCoverageItem } from './types';
 import { DEPARTMENT_RISKS_DATA, BUSINESS_SERVICES_DATA } from './executiveData';
+import { localizeDepartmentRisk, localizeBusinessService } from './ctoLocaleMap';
 
 interface ExecutiveBusinessRiskMatrixProps {
   isZh: boolean;
@@ -31,8 +32,12 @@ export function ExecutiveBusinessRiskMatrix({
   const [activeTab, setActiveTab] = useState<'departments' | 'services' | 'coverage'>('departments');
   const [searchTerm, setSearchTerm] = useState('');
 
-  const deptList = departments && departments.length > 0 ? departments : DEPARTMENT_RISKS_DATA;
-  const serviceList = services && services.length > 0 ? services : BUSINESS_SERVICES_DATA;
+  const deptList = (departments && departments.length > 0 ? departments : DEPARTMENT_RISKS_DATA).map((d) =>
+    localizeDepartmentRisk(d, isZh)
+  );
+  const serviceList = (services && services.length > 0 ? services : BUSINESS_SERVICES_DATA).map((s) =>
+    localizeBusinessService(s, isZh)
+  );
   const coverageList: AssetCoverageItem[] =
     assetCoverage && assetCoverage.length > 0
       ? assetCoverage

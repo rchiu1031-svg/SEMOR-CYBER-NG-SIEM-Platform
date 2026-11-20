@@ -77,7 +77,14 @@
     "correlation-setting": "關聯設定",
     "wargaming": "攻擊模擬 (兵棋推演)",
     "digital-forensics": "數位鑑識",
-    "monitor": "網路監控"
+    "monitor": "網路監控",
+    "custom-dashboard": "客製化儀表板",
+    "custom-visibility": "自定義可視化",
+    "executive-insights": "CTO 治理與合規洞察",
+    "compliance-center": "法規合規與連續稽核",
+    "ueba-investigation": "UEBA 行為調查",
+    "license": "授權管理",
+    "settings": "系統設定"
   },
   "semorcti": {
     "title": "Intel (CTI)",
