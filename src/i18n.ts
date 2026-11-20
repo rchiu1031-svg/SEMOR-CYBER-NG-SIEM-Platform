@@ -22,7 +22,11 @@ i18n
       ja: { translation: ja }
     },
     lng: savedLng,
-    fallbackLng: 'zh',
+    fallbackLng: {
+      'zh-TW': ['zh'],
+      zh: ['zh'],
+      default: ['en']
+    },
     interpolation: {
       escapeValue: false
     }

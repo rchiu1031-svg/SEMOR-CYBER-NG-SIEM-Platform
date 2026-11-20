@@ -2413,7 +2413,7 @@ export default function App() {
             </div>
 
             {/* Language Switcher */}
-            <div className="relative">
+            <div className="relative" data-i18n-preserve="true">
               <button 
                 onClick={() => setIsLangOpen(!isLangOpen)}
                 className={cn(
