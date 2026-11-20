@@ -1119,7 +1119,7 @@ class VulnerabilityDetectionEngine {
           id: 'Q3_HIGH_OPPORTUNITY',
           title: '第 III 象限：高利用機會區 (Low CVSS < 7.0 & High EPSS ≥ 0.36)',
           urgency: 'P2 - 快速防禦緩解 (3-5天 SLA)',
-          description: '單一破壞力中等，但駭客極度頻繁用於鏈接攻擊 (Exploit Chain) 或偵察提權，需以虛擬補丁加固。',
+          description: '單一破壞力中等，但駭客極度頻繁用於鏈接攻擊 (Exploit Chain) 或偵察提權，需以虛擬漏洞更新加固。',
           count: this.vulnerabilities.filter(v => v.priorityQuadrant === 'Q3_HIGH_OPPORTUNITY').length,
           items: this.vulnerabilities.filter(v => v.priorityQuadrant === 'Q3_HIGH_OPPORTUNITY').map(v => ({
             cveId: v.cveId,
@@ -1199,7 +1199,7 @@ class VulnerabilityDetectionEngine {
         analysisSynthesis: {
           summary: `【跨源情報綜合研判】${existing.cveId} 屬於 ${existing.severity} 等級。NVD CVSS 評分為 ${existing.nvd.cvss.baseScore}，EPSS 30日內武器化攻擊利用率高達 ${(existing.epss.epssScore * 100).toFixed(1)}% (位列全球第 ${(existing.epss.epssPercentile * 100).toFixed(2)} 百分位)。OpenCVE 威脅平台標註多個活躍勒索組織 (${existing.openCve.threatActors.join(', ')}) 正在利用。`,
           actionPlan: existing.priorityQuadrant === 'Q1_CRITICAL_WEAPONIZED'
-            ? '🚨 判定為 P0 最高急迫度！建議立即部屬 WAF / Suricata 虛擬補丁，並在 24 小時內完成正式安全更新發布。'
+            ? '🚨 判定為 P0 最高急迫度！建議立即部屬 WAF / Suricata 虛擬漏洞更新，並在 24 小時內完成正式安全更新發布。'
             : '🛡️ 建議排入定期修補週期，並針對對外開放 Port 進行存取清單限制。'
         }
       };

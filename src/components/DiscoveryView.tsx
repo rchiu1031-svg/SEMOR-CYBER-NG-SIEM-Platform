@@ -658,7 +658,7 @@ function DrawerTabs({ selectedHost }: { selectedHost: HostAsset }) {
         {[
           { id: 'specs', label: '基本規格' },
           { id: 'software', label: '已安裝軟體清單' },
-          { id: 'patches', label: '缺失修補補丁' }
+          { id: 'patches', label: '缺失漏洞更新' }
         ].map(pt => (
           <button
             key={pt.id}

@@ -1508,7 +1508,7 @@ export default function CyberWargamingView() {
                             ))}
                           </div>
                         ) : (
-                          <div className="text-[10px] text-emerald-400">{isZh ? '已完成安全強化與熱補丁修復' : 'Hardened, No Critical CVE'}</div>
+                          <div className="text-[10px] text-emerald-400">{isZh ? '已完成安全強化與漏洞更新修復' : 'Hardened, No Critical CVE'}</div>
                         )}
                       </div>
                     </div>
