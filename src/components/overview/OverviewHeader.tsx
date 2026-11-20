@@ -78,7 +78,7 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className={cn("text-2xl lg:text-3xl font-black tracking-tight", isLight ? "text-slate-900" : "text-white")}>
-                  {t('common.war_room_dashboard', isZh ? '戰情室儀表板' : isJa ? '戦況室ダッシュボード' : 'War Room Dashboard')}
+                  {t('common.war_room_dashboard', isZh ? '戰情室儀表板' : isJa ? '戦況室ダッシュボード' : 'NG-SIEM Dashboard')}
                 </h1>
                 <span className={cn(
                   "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
