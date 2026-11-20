@@ -10,11 +10,12 @@ import {
   ZoomIn, ZoomOut, Maximize2, Minimize2, Gauge, Waves, Flame,
   SlidersHorizontal, Share2, Copy, Crosshair, Globe, ShieldX,
   Bug, Fingerprint, RadioTower, Sparkles, Shield, ArrowRight, CornerDownRight,
-  Code, RotateCcw, FileSpreadsheet
+  Code, RotateCcw, FileSpreadsheet, GitBranch, Router
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import * as d3 from 'd3';
 import { cn } from '../lib/utils';
+import { useTheme } from '../context/ThemeContext';
 
 export interface NetworkFlowRecord {
   id: string;
@@ -86,15 +87,64 @@ export interface NetworkDevice {
 }
 
 export interface NetworkConnection {
+  id?: string;
   from: string;
   to: string;
+  srcInterface?: string;
+  dstInterface?: string;
   speed: string;
+  speedMbps?: number;
   type: 'fiber' | 'copper' | 'wireless' | 'trunk';
   utilization: number;
+  txMbps?: number;
+  rxMbps?: number;
+  throughputMbps?: number;
+  throughputLabel?: string;
+  latencyMs?: number;
+  packetLossPct?: number;
+  status?: 'up' | 'degraded' | 'threat' | 'down';
+  activeFlowCount?: number;
+  hasThreatFlow?: boolean;
+  lastUpdated?: string;
 }
 
-const INITIAL_DEVICES: NetworkDevice[] = [];
 const _templateDevices: NetworkDevice[] = [
+  {
+    id: 'wan-rtr-01',
+    name: 'WAN-Edge-Router-ASR1K',
+    nameZh: '骨幹邊界 BGP 路由器',
+    type: 'router',
+    ip: '211.23.131.1',
+    mac: '00:1E:F7:22:91:00',
+    subnet: '211.23.131.0/29 (WAN/Uplink)',
+    vlan: 1,
+    status: 'online',
+    details: 'Cisco ASR 1001-X (Dual ISP BGP4 企業出口核心路由)',
+    cpu: 19,
+    ram: 38,
+    disk: 18,
+    disk_capacity: '128GB eUSB',
+    networkThroughput: '9.2 Gbps',
+    trafficIn: '5.8 Gbps',
+    trafficOut: '3.4 Gbps',
+    packetLoss: '0.001%',
+    latency: '1.2 ms',
+    software: ['Cisco IOS-XE 17.9.4a', 'BGP4 Routing Daemon', 'NetFlow v9 Exporter', 'SNMPv3'],
+    processes: ['bgpd', 'ospfd', 'ios-xe', 'snmpd', 'netflowd'],
+    os_version: 'Cisco IOS-XE 17.9.4a',
+    update_version: '2026 Q2 安全性修補包',
+    vendor: 'Cisco Systems',
+    model: 'ASR 1001-X',
+    openPorts: [
+      { port: 179, proto: 'TCP', service: 'BGP Peering', state: 'open' },
+      { port: 22, proto: 'TCP', service: 'SSH Management', state: 'open' },
+      { port: 161, proto: 'UDP', service: 'SNMPv3 Poll', state: 'open' }
+    ],
+    cveAlerts: [],
+    cpuThreshold: 80,
+    ramThreshold: 85,
+    diskThreshold: 85
+  },
   { 
     id: 'fw-01', 
     name: 'Gateway-Firewall-PA', 
@@ -389,7 +439,7 @@ const _templateDevices: NetworkDevice[] = [
     name: `SOC-Analyst-WS0${i+1}`,
     nameZh: `資安監控分析席工作站 0${i+1}`,
     type: 'endpoint' as const,
-    ip: `10.88.88.${100 + i}`,
+    ip: `10.88.88.${i === 3 ? 113 : 100 + i}`,
     mac: `00:E0:4C:68:${(10+i).toString(16).toUpperCase()}:${(20+i).toString(16).toUpperCase()}`,
     subnet: '10.88.88.0/24 (SOC Analyst VLAN)',
     vlan: 10,
@@ -420,35 +470,189 @@ const _templateDevices: NetworkDevice[] = [
     cpuThreshold: 80,
     ramThreshold: 85,
     diskThreshold: 90
+  })),
+  {
+    id: 'ws-rd-04',
+    name: 'WS-RD-DEV-04',
+    nameZh: '研發自動化測試工作站 04',
+    type: 'endpoint',
+    ip: '10.88.88.103',
+    mac: '00:E0:4C:68:3A:44',
+    subnet: '10.88.88.0/24 (User Access Segment)',
+    vlan: 10,
+    status: 'warning',
+    details: 'Ubuntu 24.04 Workstation (偵測到高頻外洩與 OT 異常跨網段封包)',
+    cpu: 76,
+    ram: 71,
+    disk: 48,
+    disk_capacity: '2TB NVMe SSD',
+    networkThroughput: '715 Mbps',
+    trafficIn: '125 Mbps',
+    trafficOut: '590 Mbps',
+    packetLoss: '0.01%',
+    latency: '0.9 ms',
+    software: ['Ubuntu 24.04 LTS', 'Docker Engine', 'CrowdStrike Falcon Sensor', 'Python 3.12'],
+    processes: ['dockerd', 'python3', 'falcon-sensor', 'sshd'],
+    os_version: 'Ubuntu 24.04 LTS',
+    update_version: 'Kernel 6.8.0-45-generic',
+    vendor: 'Dell Precision',
+    model: '5860 Tower',
+    openPorts: [
+      { port: 22, proto: 'TCP', service: 'SSH', state: 'open' }
+    ],
+    cveAlerts: [],
+    cpuThreshold: 80,
+    ramThreshold: 85,
+    diskThreshold: 90
+  },
+  {
+    id: 'ap-ctrl-01',
+    name: 'WiFi6E-AP-HQ-F3',
+    nameZh: '企業無線基地台 / 控制器-3F',
+    type: 'ap',
+    ip: '10.88.88.240',
+    mac: '9C:50:EE:12:44:A0',
+    subnet: '10.88.88.0/24 (User Access Segment)',
+    vlan: 10,
+    status: 'online',
+    details: 'Aruba AP-655 Wi-Fi 6E Tri-Band Enterprise Access Point',
+    cpu: 28,
+    ram: 41,
+    disk: 22,
+    disk_capacity: '64GB Flash',
+    networkThroughput: '1.85 Gbps',
+    trafficIn: '1.12 Gbps',
+    trafficOut: '730 Mbps',
+    packetLoss: '0.004%',
+    latency: '1.4 ms',
+    software: ['ArubaOS 10.6', '802.1X RADIUS Client', 'BLE/Zigbee IoT Radio'],
+    processes: ['sapd', 'stm', 'radsec', 'lldpd'],
+    os_version: 'ArubaOS 10.6.0.1',
+    update_version: 'Enterprise Wireless Patch 2',
+    vendor: 'Aruba (HPE)',
+    model: 'AP-655 Wi-Fi 6E',
+    openPorts: [
+      { port: 443, proto: 'TCP', service: 'CAPWAP Control', state: 'open' },
+      { port: 161, proto: 'UDP', service: 'SNMPv3', state: 'open' }
+    ],
+    cveAlerts: [],
+    cpuThreshold: 80,
+    ramThreshold: 85,
+    diskThreshold: 90
+  },
+  {
+    id: 'plc-turb-01',
+    name: 'PLC-STATION-TURBINE-02',
+    nameZh: '工控渦輪產線 PLC 控制器',
+    type: 'server',
+    ip: '192.168.100.88',
+    mac: '00:1D:9C:88:10:02',
+    subnet: '10.88.99.0/24 (OT / SCADA Diode)',
+    vlan: 99,
+    status: 'warning',
+    details: 'Siemens SIMATIC S7-1500 / Modbus TCP 產線控制閘道 (OT 安全隔離區)',
+    cpu: 44,
+    ram: 52,
+    disk: 30,
+    disk_capacity: '32GB Industrial CFast',
+    networkThroughput: '142 Mbps',
+    trafficIn: '84 Mbps',
+    trafficOut: '58 Mbps',
+    packetLoss: '0.000%',
+    latency: '0.6 ms',
+    software: ['SIMATIC Firmware v3.1', 'Modbus/TCP Server', 'S7Comm Daemon', 'OPC-UA'],
+    processes: ['s7-runtime', 'modbus-slave', 'opcua-srv'],
+    os_version: 'Siemens Industrial RTOS v3.1',
+    update_version: 'OT Security Patch 2026-04',
+    vendor: 'Siemens',
+    model: 'SIMATIC S7-1516-3 PN/DP',
+    openPorts: [
+      { port: 502, proto: 'TCP', service: 'Modbus/TCP', state: 'open' },
+      { port: 102, proto: 'TCP', service: 'ISO-TSAP / S7Comm', state: 'open' },
+      { port: 4840, proto: 'TCP', service: 'OPC-UA', state: 'open' }
+    ],
+    cveAlerts: [],
+    cpuThreshold: 80,
+    ramThreshold: 85,
+    diskThreshold: 90
+  }
+];
+
+const _templateConnections: NetworkConnection[] = [
+  { id: 'link-wan-fw', from: 'wan-rtr-01', to: 'fw-01', srcInterface: 'Gi0/0/0', dstInterface: 'eth1/1', speed: '40 Gbps', speedMbps: 40000, type: 'fiber', utilization: 26 },
+  { id: 'link-fw-core', from: 'fw-01', to: 'core-sw-01', srcInterface: 'eth1/2', dstInterface: 'Fo1/0/1', speed: '40 Gbps', speedMbps: 40000, type: 'fiber', utilization: 34 },
+  { id: 'link-core-srv', from: 'core-sw-01', to: 'srv-sw-01', srcInterface: 'Fo1/0/2', dstInterface: 'Eth1/49', speed: '40 Gbps', speedMbps: 40000, type: 'trunk', utilization: 42 },
+  { id: 'link-core-edge', from: 'core-sw-01', to: 'edge-sw-01', srcInterface: 'Te1/0/3', dstInterface: '1/1/49', speed: '10 Gbps', speedMbps: 10000, type: 'fiber', utilization: 28 },
+  { id: 'link-core-plc', from: 'core-sw-01', to: 'plc-turb-01', srcInterface: 'Gi1/0/12', dstInterface: 'PN/IE_1', speed: '1 Gbps', speedMbps: 1000, type: 'trunk', utilization: 18 },
+  { id: 'link-srv-db', from: 'srv-sw-01', to: 'srv-db-01', srcInterface: 'Eth1/1', dstInterface: 'eno1', speed: '10 Gbps', speedMbps: 10000, type: 'fiber', utilization: 55 },
+  { id: 'link-srv-app', from: 'srv-sw-01', to: 'srv-app-01', srcInterface: 'Eth1/2', dstInterface: 'ens192', speed: '10 Gbps', speedMbps: 10000, type: 'fiber', utilization: 62 },
+  { id: 'link-srv-ad', from: 'srv-sw-01', to: 'srv-ad-01', srcInterface: 'Eth1/3', dstInterface: 'Ethernet0', speed: '10 Gbps', speedMbps: 10000, type: 'copper', utilization: 18 },
+  { id: 'link-srv-siem', from: 'srv-sw-01', to: 'srv-siem-01', srcInterface: 'Eth1/4', dstInterface: 'ens3f0', speed: '25 Gbps', speedMbps: 25000, type: 'fiber', utilization: 78 },
+  { id: 'link-edge-ap', from: 'edge-sw-01', to: 'ap-ctrl-01', srcInterface: '1/0/48', dstInterface: 'eth0 (PoE++)', speed: '2.5 Gbps', speedMbps: 2500, type: 'wireless', utilization: 46 },
+  { id: 'link-edge-rd', from: 'edge-sw-01', to: 'ws-rd-04', srcInterface: '1/0/22', dstInterface: 'eth0', speed: '1 Gbps', speedMbps: 1000, type: 'copper', utilization: 71 },
+  ...Array.from({ length: 8 }).map((_, i) => ({
+    id: `link-edge-ws-${i + 1}`,
+    from: i >= 6 ? 'ap-ctrl-01' : 'edge-sw-01',
+    to: `ws-sec-${i + 1}`,
+    srcInterface: i >= 6 ? `WLAN-${i + 1}` : `1/0/${i + 1}`,
+    dstInterface: i >= 6 ? 'Wi-Fi 6E' : 'NIC0',
+    speed: i >= 6 ? '1.2 Gbps' : '1 Gbps',
+    speedMbps: i >= 6 ? 1200 : 1000,
+    type: (i >= 6 ? 'wireless' : 'copper') as 'wireless' | 'copper',
+    utilization: 12 + i * 5
   }))
 ];
 
-const INITIAL_CONNECTIONS: NetworkConnection[] = [];
-const _templateConnections: NetworkConnection[] = [
-  { from: 'fw-01', to: 'core-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 34 },
-  { from: 'core-sw-01', to: 'srv-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 42 },
-  { from: 'core-sw-01', to: 'edge-sw-01', speed: '10 Gbps', type: 'fiber', utilization: 28 },
-  { from: 'srv-sw-01', to: 'srv-db-01', speed: '10 Gbps', type: 'fiber', utilization: 55 },
-  { from: 'srv-sw-01', to: 'srv-app-01', speed: '10 Gbps', type: 'fiber', utilization: 62 },
-  { from: 'srv-sw-01', to: 'srv-ad-01', speed: '10 Gbps', type: 'copper', utilization: 18 },
-  { from: 'srv-sw-01', to: 'srv-siem-01', speed: '25 Gbps', type: 'fiber', utilization: 78 },
-  ...Array.from({ length: 8 }).map((_, i) => ({
-    from: 'edge-sw-01',
-    to: `ws-sec-${i+1}`,
-    speed: '1 Gbps',
-    type: 'copper' as const,
-    utilization: 12 + i * 4
-  }))
-];
+function formatLinkThroughput(totalMbps: number): string {
+  if (totalMbps >= 1000) return `${(totalMbps / 1000).toFixed(2)} Gbps`;
+  return `${Math.round(totalMbps)} Mbps`;
+}
+
+function enrichLocalConnections(conns: NetworkConnection[]): NetworkConnection[] {
+  return conns.map((c, idx) => {
+    const speedMbps = c.speedMbps || (c.speed.toLowerCase().includes('gbps') ? parseFloat(c.speed) * 1000 : parseFloat(c.speed) || 1000);
+    const totalMbps = Number(((speedMbps * c.utilization) / 100).toFixed(1));
+    const txMbps = Number((totalMbps * (0.45 + (idx % 4) * 0.04)).toFixed(1));
+    const rxMbps = Number((totalMbps - txMbps).toFixed(1));
+    return {
+      ...c,
+      id: c.id || `link-${c.from}-${c.to}`,
+      speedMbps,
+      txMbps,
+      rxMbps,
+      throughputMbps: totalMbps,
+      throughputLabel: formatLinkThroughput(totalMbps),
+      latencyMs: c.type === 'wireless' ? 1.5 : 0.3,
+      packetLossPct: 0,
+      status: c.utilization >= 75 ? 'degraded' : 'up',
+      activeFlowCount: 1 + (idx % 3),
+      hasThreatFlow: false
+    };
+  });
+}
+
+const INITIAL_DEVICES: NetworkDevice[] = _templateDevices;
+const INITIAL_CONNECTIONS: NetworkConnection[] = enrichLocalConnections(_templateConnections);
 
 export default function NetworkMonitorView() {
   const { i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
+  const { isLight } = useTheme();
 
   const [devices, setDevices] = useState<NetworkDevice[]>(INITIAL_DEVICES);
   const [connections, setConnections] = useState<NetworkConnection[]>(INITIAL_CONNECTIONS);
   const [viewMode, setViewMode] = useState<'map' | 'flows' | 'signatures' | 'table'>('map');
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [layoutMode, setLayoutMode] = useState<'hierarchical' | 'force'>('hierarchical');
+  const [lastDiscoverySummary, setLastDiscoverySummary] = useState<{
+    subnet: string;
+    scannedAt: string;
+    totalDevices: number;
+    newlyDiscovered: number;
+    totalLinks: number;
+    totalTrafficGbps: number;
+    protocolsUsed: string[];
+  } | null>(null);
   const [inspectedDevice, setInspectedDevice] = useState<NetworkDevice | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
@@ -835,21 +1039,67 @@ export default function NetworkMonitorView() {
     return () => clearInterval(timer);
   }, [autoRefresh, isScanning, isExecutingDiag, viewMode]);
 
-  // Filtered devices
+  // Filtered devices (preserving uplink hierarchy in topology map mode when filtering by zone)
   const filteredDevices = useMemo(() => {
-    return devices.filter(device => {
+    const matchesZone = (device: NetworkDevice, filter: string) => {
+      if (filter === 'all') return true;
+      const sub = (device.subnet || '').toLowerCase();
+      if (filter === 'WAN/Gateway') {
+        return sub.includes('wan') || sub.includes('gateway') || device.type === 'router' || device.type === 'firewall';
+      }
+      if (filter === 'Core Backbone') {
+        return sub.includes('core') || device.type === 'switch';
+      }
+      if (filter === 'DMZ') {
+        return (
+          sub.includes('dmz') ||
+          sub.includes('server') ||
+          sub.includes('db') ||
+          sub.includes('app') ||
+          sub.includes('identity') ||
+          sub.includes('security analytics') ||
+          sub.includes('ot') ||
+          sub.includes('scada') ||
+          device.type === 'server'
+        );
+      }
+      if (filter === 'User Access') {
+        return sub.includes('user access') || sub.includes('soc') || device.type === 'ap' || device.type === 'endpoint';
+      }
+      return sub.includes(filter.toLowerCase());
+    };
+
+    const directMatches = devices.filter(device => {
       const matchType = filterType === 'all' || device.type === filterType;
       const matchStatus = filterStatus === 'all' || device.status === filterStatus;
-      const matchSubnet = activeSubnetFilter === 'all' || device.subnet.includes(activeSubnetFilter);
-      const matchQuery = !searchQuery || 
-        device.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (device.nameZh && device.nameZh.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        device.ip.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        device.mac.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        device.os_version.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchSubnet = matchesZone(device, activeSubnetFilter);
+      const q = searchQuery.trim().toLowerCase();
+      const matchQuery = !q ||
+        device.name.toLowerCase().includes(q) ||
+        (device.nameZh && device.nameZh.toLowerCase().includes(q)) ||
+        device.ip.toLowerCase().includes(q) ||
+        device.mac.toLowerCase().includes(q) ||
+        device.os_version.toLowerCase().includes(q);
       return matchType && matchStatus && matchSubnet && matchQuery;
     });
-  }, [devices, filterType, filterStatus, activeSubnetFilter, searchQuery]);
+
+    if (viewMode === 'map' && activeSubnetFilter !== 'all' && !searchQuery.trim() && directMatches.length > 0) {
+      const includedIds = new Set(directMatches.map(d => d.id));
+      let added = true;
+      while (added) {
+        added = false;
+        connections.forEach(c => {
+          if (includedIds.has(c.to) && !includedIds.has(c.from)) {
+            includedIds.add(c.from);
+            added = true;
+          }
+        });
+      }
+      return devices.filter(d => includedIds.has(d.id));
+    }
+
+    return directMatches;
+  }, [devices, connections, viewMode, filterType, filterStatus, activeSubnetFilter, searchQuery]);
 
   // Filtered Flows
   const filteredFlows = useMemo(() => {
@@ -909,47 +1159,52 @@ export default function NetworkMonitorView() {
     };
   }, [devices, flows, flowStats]);
 
-  // Start deep scan via backend endpoint
+  // Start WhatsUp-style auto-discovery probe scan via backend endpoint
   const startScan = async () => {
     setIsScanning(true);
     setScanProgress(0);
+    setActiveSubnetFilter('all');
+    setFilterType('all');
+    setFilterStatus('all');
+    setViewMode('map');
     setScanLogList([
-      isZh ? '[系統探針] 啟動 Nmap ARP/ICMP 廣播掃描網段 10.88.88.0/24...' : '[SYSTEM] Initializing Nmap ping sweep on 10.88.88.0/24...'
+      isZh ? '[系統探針] 啟動 Nmap ARP/ICMP 廣播掃描全網段 (10.88.88.0/24 • 192.168.100.0/24)...' : '[SYSTEM] Initializing Nmap ping sweep on 10.88.88.0/24...'
     ]);
 
-    let progress = 12;
+    let progress = 14;
     const interval = setInterval(() => {
-      progress = Math.min(92, progress + Math.floor(Math.random() * 14) + 6);
+      progress = Math.min(92, progress + Math.floor(Math.random() * 14) + 7);
       setScanProgress(progress);
 
       if (progress > 15 && progress <= 35) {
         setScanLogList(prev => [
-          isZh ? '[LLDP/CDP] 成功與核心交換機 Catalyst 9500 (10.88.88.254) 完成 802.1AB 鄰居探測' : '[LLDP/CDP] LLDP negotiation completed with Core-SW (10.88.88.254)',
+          isZh ? '[LLDP/CDP] 成功與核心交換機 Catalyst 9500 (10.88.88.254) 及邊界路由器完成 802.1AB 鄰居探測' : '[LLDP/CDP] LLDP negotiation completed with Core-SW (10.88.88.254)',
           ...prev.filter((_, i) => i < 15)
         ]);
       } else if (progress > 35 && progress <= 60) {
         setScanLogList(prev => [
-          isZh ? '[SNMPv3] 取得 OID 1.3.6.1.2.1.2.2 介面流量統計與 MIB-II 拓撲矩陣' : '[SNMPv3] Fetched MIB-II topology and interface telemetry via OID',
+          isZh ? '[SNMPv3] 取得 OID 1.3.6.1.2.1.2.2 介面即時頻寬統計與 MIB-II L2/L3 拓撲矩陣' : '[SNMPv3] Fetched MIB-II topology and interface telemetry via OID',
           ...prev.filter((_, i) => i < 15)
         ]);
       } else if (progress > 60 && progress <= 85) {
         setScanLogList(prev => [
-          isZh ? '[NetFlow/IPFIX] 即時關聯 40Gbps 骨幹流量通訊路徑與 Session 負載' : '[NetFlow] Correlating NetFlow stream with active port traffic',
+          isZh ? '[NetFlow/IPFIX] 即時關聯 40Gbps 骨幹鏈路通訊吞吐量、Tx/Rx 速率與 Session 負載' : '[NetFlow] Correlating NetFlow stream with active port traffic',
           ...prev.filter((_, i) => i < 15)
         ]);
       } else if (progress > 85) {
         setScanLogList(prev => [
-          isZh ? '[安全防護] 掃描各端點 EDR 探針與 CVE 漏洞庫特徵比對完成' : '[SECURITY] Verified EDR agents and CVE vulnerability hashes',
+          isZh ? '[安全防護] 掃描各端點 EDR 探針、OT PLC 與 CVE 漏洞庫特徵比對完成' : '[SECURITY] Verified EDR agents and CVE vulnerability hashes',
           ...prev.filter((_, i) => i < 15)
         ]);
       }
-    }, 140);
+    }, 130);
 
     try {
+      const targetSubnet = activeSubnetFilter !== 'all' ? activeSubnetFilter : '10.88.88.0/24';
       const res = await fetch('/api/v1/network/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subnet: activeSubnetFilter !== 'all' ? activeSubnetFilter : '10.88.88.0/24' })
+        body: JSON.stringify({ subnet: targetSubnet })
       });
 
       clearInterval(interval);
@@ -957,23 +1212,65 @@ export default function NetworkMonitorView() {
 
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.devices)) setDevices(data.devices);
-        if (Array.isArray(data.connections)) setConnections(data.connections);
-        if (Array.isArray(data.logs)) {
+        const discoveredDevices = Array.isArray(data.devices) && data.devices.length > 0 ? data.devices : _templateDevices;
+        const discoveredConns = Array.isArray(data.connections) && data.connections.length > 0
+          ? data.connections
+          : enrichLocalConnections(_templateConnections);
+
+        setDevices(discoveredDevices);
+        setConnections(discoveredConns);
+        setBackendConnected(true);
+        setLastRefreshedAt(new Date());
+
+        const totalTrafficGbps = Number(
+          (discoveredConns.reduce((acc: number, c: NetworkConnection) => acc + (c.throughputMbps || 0), 0) / 1000).toFixed(2)
+        );
+        setLastDiscoverySummary(data.discoverySummary || {
+          subnet: targetSubnet,
+          scannedAt: new Date().toISOString(),
+          totalDevices: discoveredDevices.length,
+          newlyDiscovered: discoveredDevices.length,
+          totalLinks: discoveredConns.length,
+          totalTrafficGbps,
+          protocolsUsed: ['ARP/ICMP Sweep', 'LLDP/CDP 802.1AB', 'SNMPv3 MIB-II', 'NetFlow v9']
+        });
+
+        if (Array.isArray(data.logs) && data.logs.length > 0) {
           setScanLogList(data.logs);
         }
-        triggerToast(isZh ? '網路拓撲與主機探針掃描完成，已同步後端最新實體與虛擬鏈路狀態！' : 'Topology & probe scan completed.');
+        fetchFlowsAndStats(true);
+        triggerToast(
+          isZh
+            ? `自動發現完成：已繪製 ${discoveredDevices.length} 台設備與 ${discoveredConns.length} 條即時流量鏈路！`
+            : `Auto-discovery complete: ${discoveredDevices.length} devices & ${discoveredConns.length} links.`
+        );
       } else {
-        triggerToast(isZh ? '網路拓撲探針掃描完成 (本地模擬通道)' : 'Scan finished (fallback)');
+        throw new Error(`HTTP ${res.status}`);
       }
     } catch (e) {
       clearInterval(interval);
       setScanProgress(100);
-      triggerToast(isZh ? '探針掃描完成 (本地模式)' : 'Scan finished');
+      const fallbackConns = enrichLocalConnections(_templateConnections);
+      setDevices(_templateDevices);
+      setConnections(fallbackConns);
+      const totalTrafficGbps = Number(
+        (fallbackConns.reduce((acc, c) => acc + (c.throughputMbps || 0), 0) / 1000).toFixed(2)
+      );
+      setLastDiscoverySummary({
+        subnet: '10.88.88.0/24',
+        scannedAt: new Date().toISOString(),
+        totalDevices: _templateDevices.length,
+        newlyDiscovered: _templateDevices.length,
+        totalLinks: fallbackConns.length,
+        totalTrafficGbps,
+        protocolsUsed: ['ARP/ICMP Sweep', 'LLDP/CDP 802.1AB', 'SNMPv3 MIB-II', 'NetFlow v9']
+      });
+      triggerToast(isZh ? `本地探針發現完成：已重建 ${_templateDevices.length} 台設備拓撲` : 'Local discovery fallback completed');
     } finally {
       setTimeout(() => {
         setIsScanning(false);
-      }, 700);
+        setViewMode('map');
+      }, 500);
     }
   };
 
@@ -1164,29 +1461,40 @@ export default function NetworkMonitorView() {
     triggerToast(isIsolated ? '已解除隔離並恢復通訊' : '已將設備隔離至 VLAN 999');
   };
 
-  // Export CSV from backend
+  // Export CSV from backend without window.open
   const handleExportCSV = () => {
-    window.open('/api/v1/network/export', '_blank');
+    const link = document.createElement('a');
+    link.href = '/api/v1/network/export';
+    link.download = `network-assets-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     triggerToast(isZh ? '正在從後端伺服器匯出最新全網資產拓撲清冊 CSV 報表...' : 'Exporting CSV report...');
   };
 
   // Reset to Baseline
   const handleResetBaseline = async () => {
+    setActiveSubnetFilter('all');
+    setFilterType('all');
+    setFilterStatus('all');
+    setSearchQuery('');
     try {
       const res = await fetch('/api/v1/network/reset', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        if (data.devices) setDevices(data.devices);
-        if (data.connections) setConnections(data.connections);
-        triggerToast(data.message || (isZh ? '網路拓撲已重置回標準基準線' : 'Topology reset'));
+        if (Array.isArray(data.devices) && data.devices.length > 0) setDevices(data.devices);
+        if (Array.isArray(data.connections) && data.connections.length > 0) setConnections(data.connections);
+        setLastDiscoverySummary(null);
+        triggerToast(data.message || (isZh ? '網路拓撲與資產清冊已重置回標準基準線' : 'Topology reset'));
         return;
       }
     } catch (e) {
       // fallback
     }
-    setDevices(INITIAL_DEVICES);
-    setConnections(INITIAL_CONNECTIONS);
-    triggerToast(isZh ? '網路拓撲已重置回標準基準線' : 'Topology reset');
+    setDevices(_templateDevices);
+    setConnections(enrichLocalConnections(_templateConnections));
+    setLastDiscoverySummary(null);
+    triggerToast(isZh ? '網路拓撲與資產清冊已重置回標準基準線' : 'Topology reset');
   };
 
   return (
@@ -1485,6 +1793,65 @@ export default function NetworkMonitorView() {
       ) : viewMode === 'map' ? (
         /* TOPOLOGY MAP VIEW */
         <div className="space-y-4">
+          {/* WhatsUp Gold Auto-Discovery & Live Link Traffic Strip */}
+          <div className={cn(
+            "flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl border transition-colors",
+            isLight
+              ? "bg-blue-50/90 border-blue-200 text-slate-800"
+              : "bg-gradient-to-r from-blue-950/35 via-[#111114] to-cyan-950/30 border-blue-500/25 text-gray-200"
+          )}>
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <div className="flex items-center gap-2 font-black whitespace-nowrap">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className={isLight ? "text-blue-700" : "text-blue-400"}>
+                  {lastDiscoverySummary
+                    ? (isZh ? 'WhatsUp 自動發現拓撲已完成同步' : 'WhatsUp Auto-Discovery Synced')
+                    : (isZh ? 'WhatsUp 自動拓撲探索引擎待命' : 'WhatsUp Auto-Topology Active')}
+                </span>
+              </div>
+              <span className={cn("font-mono text-[11px] whitespace-nowrap", isLight ? "text-slate-600" : "text-gray-400")}>
+                {isZh
+                  ? `已發現 ${devices.length} 台設備 • ${connections.length} 條實體/無線鏈路 • 總鏈路即時流量 ${(connections.reduce((s, c) => s + (c.throughputMbps || 0), 0) / 1000).toFixed(2)} Gbps`
+                  : `${devices.length} devices • ${connections.length} links • ${(connections.reduce((s, c) => s + (c.throughputMbps || 0), 0) / 1000).toFixed(2)} Gbps total link load`}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn("text-[10px] font-mono hidden xl:inline", isLight ? "text-slate-500" : "text-gray-500")}>
+                {(lastDiscoverySummary?.protocolsUsed || ['ARP/ICMP', 'LLDP/CDP', 'SNMPv3', 'NetFlow v9']).join(' • ')}
+              </span>
+              <div className={cn(
+                "flex items-center p-0.5 rounded-xl border",
+                isLight ? "bg-white border-slate-200" : "bg-black/40 border-gray-800"
+              )}>
+                <button
+                  onClick={() => setLayoutMode('hierarchical')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap",
+                    layoutMode === 'hierarchical'
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : (isLight ? "text-slate-600 hover:text-slate-900" : "text-gray-400 hover:text-white")
+                  )}
+                >
+                  <GitBranch size={12} />
+                  <span>{isZh ? '階層架構 (WhatsUp)' : 'Hierarchical'}</span>
+                </button>
+                <button
+                  onClick={() => setLayoutMode('force')}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 whitespace-nowrap",
+                    layoutMode === 'force'
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : (isLight ? "text-slate-600 hover:text-slate-900" : "text-gray-400 hover:text-white")
+                  )}
+                >
+                  <Share2 size={12} />
+                  <span>{isZh ? '力導向 (Force)' : 'Force'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Filter Toolbar for Topology */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-[#111114] border border-gray-800/80 p-4 rounded-2xl">
             <div className="flex flex-wrap items-center gap-2">
@@ -1493,16 +1860,16 @@ export default function NetworkMonitorView() {
               </span>
               {[
                 { id: 'all', label: isZh ? '全部網段 (All)' : 'All Subnets' },
-                { id: 'WAN/Gateway', label: isZh ? '出口防火牆 (WAN)' : 'WAN/FW' },
-                { id: 'Core Backbone', label: isZh ? '核心骨幹 (Core)' : 'Core SW' },
-                { id: 'DMZ', label: isZh ? '伺服器機房 (Server Farm)' : 'Servers' },
-                { id: 'User Access', label: isZh ? 'SOC與辦公端點 (Endpoints)' : 'Workstations' }
+                { id: 'WAN/Gateway', label: isZh ? '出口邊界 (WAN/FW)' : 'WAN/FW' },
+                { id: 'Core Backbone', label: isZh ? '核心交換骨幹 (Core)' : 'Core SW' },
+                { id: 'DMZ', label: isZh ? '機房與工控區 (Server/OT)' : 'Servers/OT' },
+                { id: 'User Access', label: isZh ? '終端與無線 (Endpoints/AP)' : 'Workstations/AP' }
               ].map(sub => (
                 <button
                   key={sub.id}
                   onClick={() => setActiveSubnetFilter(sub.id)}
                   className={cn(
-                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all",
+                    "px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap",
                     activeSubnetFilter === sub.id 
                       ? "bg-blue-600 text-white shadow-md shadow-blue-600/20" 
                       : "bg-gray-800/50 hover:bg-gray-800 text-gray-400 hover:text-white border border-gray-800"
@@ -1519,7 +1886,7 @@ export default function NetworkMonitorView() {
                 <button
                   onClick={() => setShowFlowAnimation(!showFlowAnimation)}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap",
                     showFlowAnimation ? "bg-blue-600/30 text-blue-400 border border-blue-500/40" : "text-gray-500 hover:text-gray-300"
                   )}
                   title={isZh ? '開關鏈路流量粒子動效' : 'Toggle link flow animation'}
@@ -1530,18 +1897,18 @@ export default function NetworkMonitorView() {
                 <button
                   onClick={() => setShowBandwidthBadges(!showBandwidthBadges)}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap",
                     showBandwidthBadges ? "bg-purple-600/30 text-purple-400 border border-purple-500/40" : "text-gray-500 hover:text-gray-300"
                   )}
-                  title={isZh ? '開關鏈路頻寬負載標籤' : 'Toggle bandwidth badges'}
+                  title={isZh ? '開關鏈路即時流量標籤' : 'Toggle live link traffic badges'}
                 >
                   <Activity size={13} />
-                  <span className="hidden sm:inline text-[10px]">{isZh ? '頻寬標籤' : 'Load'}</span>
+                  <span className="hidden sm:inline text-[10px]">{isZh ? '即時流量' : 'Traffic'}</span>
                 </button>
                 <button
                   onClick={() => setShowThreatHalo(!showThreatHalo)}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5",
+                    "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap",
                     showThreatHalo ? "bg-red-600/30 text-red-400 border border-red-500/40" : "text-gray-500 hover:text-gray-300"
                   )}
                   title={isZh ? '開關威脅節點示警光暈' : 'Toggle threat beacon'}
@@ -1580,6 +1947,10 @@ export default function NetworkMonitorView() {
                 showThreatHalo={showThreatHalo}
                 flows={flows}
                 onSelectLink={(link) => setSelectedLink(link)}
+                layoutMode={layoutMode}
+                onChangeLayoutMode={setLayoutMode}
+                isLight={isLight}
+                onTriggerScan={startScan}
                 isZh={isZh}
               />
             </div>
@@ -1609,13 +1980,17 @@ export default function NetworkMonitorView() {
                       <div className={cn(
                         "p-3 rounded-2xl border",
                         inspectedDevice.type === 'firewall' ? "bg-red-500/10 border-red-500/30 text-red-400" :
+                        inspectedDevice.type === 'router' ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400" :
                         inspectedDevice.type === 'switch' ? "bg-blue-500/10 border-blue-500/30 text-blue-400" :
                         inspectedDevice.type === 'server' ? "bg-purple-500/10 border-purple-500/30 text-purple-400" :
+                        inspectedDevice.type === 'ap' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" :
                         "bg-gray-500/10 border-gray-500/30 text-gray-300"
                       )}>
                         {inspectedDevice.type === 'firewall' && <ShieldAlert size={22} />}
+                        {inspectedDevice.type === 'router' && <Router size={22} />}
                         {inspectedDevice.type === 'switch' && <Network size={22} />}
                         {inspectedDevice.type === 'server' && <Server size={22} />}
+                        {inspectedDevice.type === 'ap' && <Wifi size={22} />}
                         {inspectedDevice.type === 'endpoint' && <Monitor size={22} />}
                       </div>
                       <div className="pr-6">
@@ -2739,9 +3114,11 @@ export default function NetworkMonitorView() {
                 className="bg-black/40 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
               >
                 <option value="all">{isZh ? '所有設備類型 (All)' : 'All Types'}</option>
+                <option value="router">{isZh ? '邊界路由器 (Router)' : 'Router'}</option>
                 <option value="firewall">{isZh ? '防火牆 (Firewall)' : 'Firewall'}</option>
                 <option value="switch">{isZh ? '交換機 (Switch)' : 'Switch'}</option>
-                <option value="server">{isZh ? '伺服器 (Server)' : 'Server'}</option>
+                <option value="server">{isZh ? '伺服器 / PLC (Server)' : 'Server / PLC'}</option>
+                <option value="ap">{isZh ? '無線基地台 (Wi-Fi AP)' : 'Wireless AP'}</option>
                 <option value="endpoint">{isZh ? '端點工作站 (Endpoint)' : 'Endpoint'}</option>
               </select>
 
@@ -2805,13 +3182,17 @@ export default function NetworkMonitorView() {
                             <div className={cn(
                               "p-2 rounded-xl border",
                               device.type === 'firewall' ? "bg-red-500/10 border-red-500/20 text-red-400" :
+                              device.type === 'router' ? "bg-cyan-500/10 border-cyan-500/20 text-cyan-400" :
                               device.type === 'switch' ? "bg-blue-500/10 border-blue-500/20 text-blue-400" :
                               device.type === 'server' ? "bg-purple-500/10 border-purple-500/20 text-purple-400" :
+                              device.type === 'ap' ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" :
                               "bg-gray-500/10 border-gray-500/20 text-gray-400"
                             )}>
                               {device.type === 'firewall' && <ShieldAlert size={16} />}
+                              {device.type === 'router' && <Router size={16} />}
                               {device.type === 'switch' && <Network size={16} />}
                               {device.type === 'server' && <Server size={16} />}
+                              {device.type === 'ap' && <Wifi size={16} />}
                               {device.type === 'endpoint' && <Monitor size={16} />}
                             </div>
                             <div>
@@ -3011,6 +3392,44 @@ export default function NetworkMonitorView() {
                     </React.Fragment>
                   );
                 })}
+                {filteredDevices.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-16 text-center">
+                      <div className="flex flex-col items-center justify-center space-y-3">
+                        <div className="p-3 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                          <Database size={24} />
+                        </div>
+                        <p className="text-sm font-black text-white">
+                          {devices.length === 0
+                            ? (isZh ? '目前資產清冊尚無探索到設備' : 'No discovered assets yet')
+                            : (isZh ? '查無符合目前篩選條件的資產設備' : 'No assets match current filters')}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          {devices.length > 0 && (
+                            <button
+                              onClick={() => {
+                                setFilterType('all');
+                                setFilterStatus('all');
+                                setActiveSubnetFilter('all');
+                                setSearchQuery('');
+                              }}
+                              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-bold transition-colors"
+                            >
+                              {isZh ? '清除篩選條件' : 'Clear Filters'}
+                            </button>
+                          )}
+                          <button
+                            onClick={startScan}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                          >
+                            <Play size={12} className="fill-current" />
+                            <span>{isZh ? '執行全網探針掃描' : 'Run Auto-Discovery'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -3390,12 +3809,19 @@ export default function NetworkMonitorView() {
             >
               <div className="p-5 border-b border-gray-800 flex items-center justify-between bg-[#0d0d10]">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-blue-600/10 border border-blue-500/20 rounded-2xl text-blue-400">
+                  <div className={cn(
+                    "p-2.5 border rounded-2xl",
+                    selectedLink.hasThreatFlow || selectedLink.status === 'threat'
+                      ? "bg-red-600/15 border-red-500/30 text-red-400"
+                      : "bg-blue-600/10 border-blue-500/20 text-blue-400"
+                  )}>
                     <Activity size={20} />
                   </div>
                   <div>
-                    <h3 className="text-base font-black text-white">{isZh ? '實體拓撲鏈路即時 Telemetry' : 'Physical Link Telemetry'}</h3>
-                    <p className="text-xs text-gray-400 font-mono mt-0.5">{selectedLink.from} ➔ {selectedLink.to}</p>
+                    <h3 className="text-base font-black text-white">{isZh ? '實體拓撲鏈路即時流量 Telemetry' : 'Physical Link Live Telemetry'}</h3>
+                    <p className="text-xs text-gray-400 font-mono mt-0.5">
+                      {selectedLink.from} {selectedLink.srcInterface ? `(${selectedLink.srcInterface})` : ''} ➔ {selectedLink.to} {selectedLink.dstInterface ? `(${selectedLink.dstInterface})` : ''}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -3407,20 +3833,41 @@ export default function NetworkMonitorView() {
               </div>
 
               <div className="p-5 space-y-4 text-xs">
-                <div className="grid grid-cols-2 gap-3 bg-[#09090b] p-4 rounded-2xl border border-gray-800">
+                <div className="grid grid-cols-3 gap-3 bg-[#09090b] p-4 rounded-2xl border border-gray-800">
                   <div>
-                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '介面容量' : 'Capacity'}</span>
-                    <strong className="text-white font-mono text-sm">{selectedLink.speed}</strong>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '當前負載率' : 'Utilization'}</span>
-                    <strong className={cn("font-mono text-sm", selectedLink.utilization > 70 ? "text-red-400" : "text-emerald-400")}>
-                      {selectedLink.utilization}%
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '即時總吞吐量' : 'Live Throughput'}</span>
+                    <strong className="text-cyan-400 font-mono text-sm">
+                      {selectedLink.throughputLabel || `${Math.round(((selectedLink.speedMbps || 1000) * selectedLink.utilization) / 100)} Mbps`}
                     </strong>
                   </div>
-                  <div className="col-span-2 pt-2 border-t border-gray-800 flex justify-between text-gray-400">
-                    <span>鏈路材質: <strong className="text-blue-400 font-mono uppercase">{selectedLink.type}</strong></span>
-                    <span>介面協定: <strong className="text-gray-300 font-mono">IEEE 802.3ba</strong></span>
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '介面容量 / 負載' : 'Capacity / Load'}</span>
+                    <strong className={cn("font-mono text-sm", selectedLink.utilization > 70 ? "text-amber-400" : "text-emerald-400")}>
+                      {selectedLink.speed} ({selectedLink.utilization}%)
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 text-[10px] font-bold block">{isZh ? '鏈路狀態' : 'Link Status'}</span>
+                    <strong className={cn(
+                      "font-mono text-sm uppercase",
+                      selectedLink.hasThreatFlow || selectedLink.status === 'threat'
+                        ? "text-red-400"
+                        : selectedLink.status === 'degraded'
+                        ? "text-amber-400"
+                        : "text-emerald-400"
+                    )}>
+                      {selectedLink.hasThreatFlow ? 'THREAT' : (selectedLink.status || 'UP')}
+                    </strong>
+                  </div>
+                  <div className="col-span-3 pt-2.5 border-t border-gray-800 grid grid-cols-3 gap-2 text-gray-400 font-mono text-[11px]">
+                    <span>TX ↑ <strong className="text-blue-400">{selectedLink.txMbps ?? 0} Mbps</strong></span>
+                    <span>RX ↓ <strong className="text-purple-400">{selectedLink.rxMbps ?? 0} Mbps</strong></span>
+                    <span>RTT <strong className="text-gray-200">{selectedLink.latencyMs ?? 0.3} ms</strong></span>
+                  </div>
+                  <div className="col-span-3 pt-2 border-t border-gray-800/70 flex justify-between text-gray-400">
+                    <span>{isZh ? '鏈路介質:' : 'Medium:'} <strong className="text-blue-400 font-mono uppercase">{selectedLink.type}</strong></span>
+                    <span>{isZh ? '丟包率:' : 'Loss:'} <strong className="text-emerald-400 font-mono">{selectedLink.packetLossPct ?? 0}%</strong></span>
+                    <span>{isZh ? '活躍流:' : 'Active Flows:'} <strong className="text-white font-mono">{selectedLink.activeFlowCount ?? 0}</strong></span>
                   </div>
                 </div>
 
@@ -3429,24 +3876,35 @@ export default function NetworkMonitorView() {
                   <h4 className="text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">
                     {isZh ? '行經此鏈路之 NetFlow 串流' : 'Traversing NetFlow Streams'}
                   </h4>
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                    {flows.filter(f => 
-                      f.srcDeviceId === selectedLink.from || f.dstDeviceId === selectedLink.to ||
-                      f.srcDeviceId === selectedLink.to || f.dstDeviceId === selectedLink.from
-                    ).slice(0, 5).map(f => (
-                      <div key={f.id} className="p-2.5 bg-black/40 border border-gray-800 rounded-xl flex items-center justify-between font-mono text-[11px]">
-                        <div>
-                          <span className="text-blue-400 font-bold">{f.protocol}</span>
-                          <span className="text-gray-400 ml-2">{f.srcIp}:{f.srcPort} ➔ {f.dstIp}:{f.dstPort}</span>
+                  <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scrollbar">
+                    {(() => {
+                      const matched = flows.filter(f =>
+                        f.srcDeviceId === selectedLink.from || f.dstDeviceId === selectedLink.to ||
+                        f.srcDeviceId === selectedLink.to || f.dstDeviceId === selectedLink.from
+                      );
+                      if (matched.length === 0) {
+                        return (
+                          <div className="p-3 bg-black/30 border border-gray-800 rounded-xl text-gray-500 font-mono text-[11px] text-center">
+                            {isZh ? '目前以背景 Keepalive / LLDP / SNMP 基礎流量為主' : 'Baseline keepalive & management traffic active'}
+                          </div>
+                        );
+                      }
+                      return matched.slice(0, 6).map(f => (
+                        <div key={f.id} className="p-2.5 bg-black/40 border border-gray-800 rounded-xl flex items-center justify-between font-mono text-[11px]">
+                          <div>
+                            <span className="text-blue-400 font-bold">{f.protocol}</span>
+                            <span className="text-gray-300 ml-2">{f.srcIp}:{f.srcPort} ➔ {f.dstIp}:{f.dstPort}</span>
+                          </div>
+                          <span className={cn(
+                            "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
+                            f.threatLevel === 'malicious' ? "bg-red-500/20 text-red-400" :
+                            f.threatLevel === 'suspicious' ? "bg-amber-500/20 text-amber-400" : "bg-gray-800 text-gray-400"
+                          )}>
+                            {f.threatLevel}
+                          </span>
                         </div>
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
-                          f.threatLevel === 'malicious' ? "bg-red-500/20 text-red-400" : "bg-gray-800 text-gray-400"
-                        )}>
-                          {f.threatLevel}
-                        </span>
-                      </div>
-                    ))}
+                      ));
+                    })()}
                   </div>
                 </div>
               </div>
@@ -3767,8 +4225,131 @@ export default function NetworkMonitorView() {
 }
 
 // -------------------------------------------------------------
-// D3 Force-Directed Network Topology Canvas Component
+// WhatsUp Gold–Style Auto-Discovery & Live Link Traffic Canvas
 // -------------------------------------------------------------
+function computeWhatsUpHierarchicalPositions(
+  devices: NetworkDevice[],
+  width: number,
+  height: number
+): Map<string, { x: number; y: number }> {
+  const pos = new Map<string, { x: number; y: number }>();
+  const padX = 90;
+  const usableW = Math.max(720, width - padX * 2);
+
+  // Tier 0: WAN Router & Security Perimeter Firewall
+  const tier0Ids = ['wan-rtr-01', 'fw-01'];
+  const tier0Extras = devices.filter(
+    d => (d.type === 'router' || d.type === 'firewall') && !tier0Ids.includes(d.id)
+  );
+  const tier0List = [
+    ...tier0Ids.map(id => devices.find(d => d.id === id)).filter((d): d is NetworkDevice => Boolean(d)),
+    ...tier0Extras
+  ];
+  tier0List.forEach((d, idx) => {
+    const spread = Math.min(260, usableW * 0.25);
+    const startX = width / 2 - ((tier0List.length - 1) * spread) / 2;
+    pos.set(d.id, { x: startX + idx * spread, y: 84 });
+  });
+
+  // Tier 1: Core Switch
+  const coreNodes = devices.filter(
+    d => d.id === 'core-sw-01' || (d.type === 'switch' && (d.subnet || '').toLowerCase().includes('core'))
+  );
+  coreNodes.forEach((d, idx) => {
+    const startX = width / 2 - ((coreNodes.length - 1) * 220) / 2;
+    pos.set(d.id, { x: startX + idx * 220, y: 205 });
+  });
+
+  // Tier 2: Distribution Switches, OT PLC & Wireless AP Controller
+  const tier2Specs: { id: string; ratio: number }[] = [
+    { id: 'srv-sw-01', ratio: 0.24 },
+    { id: 'plc-turb-01', ratio: 0.48 },
+    { id: 'edge-sw-01', ratio: 0.70 },
+    { id: 'ap-ctrl-01', ratio: 0.90 }
+  ];
+  tier2Specs.forEach(spec => {
+    if (devices.some(d => d.id === spec.id) && !pos.has(spec.id)) {
+      pos.set(spec.id, { x: padX + usableW * spec.ratio, y: 335 });
+    }
+  });
+  const otherSwitchesOrAPs = devices.filter(
+    d => (d.type === 'switch' || d.type === 'ap') && !pos.has(d.id)
+  );
+  otherSwitchesOrAPs.forEach((d, idx) => {
+    pos.set(d.id, { x: padX + usableW * (0.3 + idx * 0.15), y: 335 });
+  });
+
+  // Tier 3 Left: Server Farm VLAN 20
+  const serverNodes = devices.filter(d => d.type === 'server' && !pos.has(d.id));
+  serverNodes.forEach((d, idx) => {
+    const cols = Math.max(2, Math.min(4, serverNodes.length));
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const zoneLeft = padX + 10;
+    const zoneW = usableW * 0.42;
+    const step = cols > 1 ? zoneW / (cols - 1) : 0;
+    pos.set(d.id, {
+      x: cols === 1 ? zoneLeft + zoneW * 0.5 : zoneLeft + col * step,
+      y: 495 + row * 105
+    });
+  });
+
+  // Tier 3 Right: Endpoints & Wi-Fi Clients VLAN 10
+  const endpointNodes = devices.filter(d => d.type === 'endpoint' && !pos.has(d.id));
+  const wifiEndpointIds = new Set(['ws-sec-7', 'ws-sec-8']);
+  const wiredEndpoints = endpointNodes.filter(d => !wifiEndpointIds.has(d.id));
+  const wifiEndpoints = endpointNodes.filter(d => wifiEndpointIds.has(d.id));
+
+  wiredEndpoints.forEach((d, idx) => {
+    const cols = 4;
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const zoneLeft = padX + usableW * 0.52;
+    const zoneW = usableW * 0.30;
+    const step = cols > 1 ? zoneW / (cols - 1) : 0;
+    pos.set(d.id, {
+      x: zoneLeft + col * step,
+      y: 480 + row * 105
+    });
+  });
+
+  wifiEndpoints.forEach((d, idx) => {
+    pos.set(d.id, {
+      x: padX + usableW * 0.90 + (idx % 2 === 0 ? -42 : 42),
+      y: 485 + Math.floor(idx / 2) * 100
+    });
+  });
+
+  // Catch-all for any unmapped device
+  devices.forEach((d, idx) => {
+    if (!pos.has(d.id)) {
+      pos.set(d.id, {
+        x: padX + ((idx * 110) % usableW),
+        y: Math.min(height - 70, 560)
+      });
+    }
+  });
+
+  return pos;
+}
+
+function getHardwareSvgGlyph(type: NetworkDevice['type']): string {
+  switch (type) {
+    case 'router':
+      return `<circle cx="0" cy="0" r="10.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M-7 0 L7 0 M0 -7 L0 7 M-5 -3 L-8 0 L-5 3 M5 -3 L8 0 L5 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+    case 'firewall':
+      return `<path d="M0 -11 L9 -7 V1 C9 6.5 4.8 10.5 0 12 C-4.8 10.5 -9 6.5 -9 1 V-7 Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M-5 -1 H5 M-5 3.5 H5 M0 -5 V3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>`;
+    case 'switch':
+      return `<rect x="-11" y="-8" width="22" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M-7 -3 H7 M4 -5.5 L7 -3 L4 -0.5 M7 3 H-7 M-4 0.5 L-7 3 L-4 5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+    case 'server':
+      return `<rect x="-10" y="-10" width="20" height="8.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="-10" y="1.5" width="20" height="8.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="-5.5" cy="-5.8" r="1.2" fill="currentColor"/><circle cx="-5.5" cy="5.8" r="1.2" fill="currentColor"/><path d="M-1 -5.8 H6 M-1 5.8 H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>`;
+    case 'ap':
+      return `<circle cx="0" cy="4" r="2.2" fill="currentColor"/><path d="M-5.5 0.5 A7.5 7.5 0 0 1 5.5 0.5 M-9 -3 A12.5 12.5 0 0 1 9 -3 M0 6 V11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`;
+    default:
+      return `<rect x="-10" y="-8" width="20" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M-4 9 H4 M0 5 V9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>`;
+  }
+}
+
 function NetworkTopologyCanvas({
   devices,
   connections,
@@ -3779,6 +4360,10 @@ function NetworkTopologyCanvas({
   showThreatHalo = true,
   flows = [],
   onSelectLink,
+  layoutMode = 'hierarchical',
+  onChangeLayoutMode,
+  isLight = false,
+  onTriggerScan,
   isZh
 }: {
   devices: NetworkDevice[];
@@ -3790,23 +4375,62 @@ function NetworkTopologyCanvas({
   showThreatHalo?: boolean;
   flows?: NetworkFlowRecord[];
   onSelectLink?: (link: any) => void;
+  layoutMode?: 'hierarchical' | 'force';
+  onChangeLayoutMode?: (mode: 'hierarchical' | 'force') => void;
+  isLight?: boolean;
+  onTriggerScan?: () => void;
   isZh: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const zoomBehaviorRef = useRef<any>(null);
+  const nodePositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const zoomTransformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
+  const lastLayoutSignatureRef = useRef<string>('');
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number }>({ width: 1080, height: 660 });
+  const [relayoutTick, setRelayoutTick] = useState<number>(0);
+  const [hoveredLinkInfo, setHoveredLinkInfo] = useState<{
+    link: NetworkConnection;
+    fromName: string;
+    toName: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
-  // Zoom control buttons
+  // Track container dimensions accurately via ResizeObserver
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 120) {
+        setCanvasSize({ width: Math.round(rect.width), height: 660 });
+      }
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Zoom & Arrange control buttons
   const handleZoom = (scaleFactor: number) => {
     if (!svgRef.current || !zoomBehaviorRef.current) return;
     const svg = d3.select(svgRef.current);
-    svg.transition().duration(300).call(zoomBehaviorRef.current.scaleBy, scaleFactor);
+    svg.transition().duration(280).call(zoomBehaviorRef.current.scaleBy, scaleFactor);
   };
 
   const handleResetZoom = () => {
     if (!svgRef.current || !zoomBehaviorRef.current) return;
     const svg = d3.select(svgRef.current);
-    svg.transition().duration(400).call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+    zoomTransformRef.current = d3.zoomIdentity;
+    svg.transition().duration(350).call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+  };
+
+  const handleAutoArrange = () => {
+    lastLayoutSignatureRef.current = '';
+    zoomTransformRef.current = d3.zoomIdentity;
+    setRelayoutTick(t => t + 1);
   };
 
   useEffect(() => {
@@ -3815,302 +4439,718 @@ function NetworkTopologyCanvas({
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const width = svgRef.current.clientWidth || 900;
-    const height = 620;
+    const width = Math.max(760, canvasSize.width);
+    const height = canvasSize.height || 660;
+    const deviceIdsKey = devices.map(d => d.id).sort().join(',');
+    const layoutSignature = `${layoutMode}::${width}::${deviceIdsKey}`;
+    const shouldRecomputeLayout = lastLayoutSignatureRef.current !== layoutSignature;
 
-    // Clone data to avoid mutating react state
-    const nodes = devices.map(d => ({ ...d }));
+    const hierarchicalDefaults = computeWhatsUpHierarchicalPositions(devices, width, height);
+    if (shouldRecomputeLayout) {
+      lastLayoutSignatureRef.current = layoutSignature;
+      if (layoutMode === 'hierarchical') {
+        devices.forEach(d => {
+          const p = hierarchicalDefaults.get(d.id);
+          if (p) nodePositionsRef.current.set(d.id, { ...p });
+        });
+      }
+    }
+
+    const nodes = devices.map(d => {
+      const saved = nodePositionsRef.current.get(d.id) || hierarchicalDefaults.get(d.id) || { x: width / 2, y: height / 2 };
+      nodePositionsRef.current.set(d.id, { ...saved });
+      return { ...d, x: saved.x, y: saved.y };
+    });
+
+    const nodeById = new Map(nodes.map(n => [n.id, n]));
     const links = connections
-      .filter(c => nodes.some(n => n.id === c.from) && nodes.some(n => n.id === c.to))
-      .map(c => ({ ...c, source: c.from, target: c.to }));
+      .filter(c => nodeById.has(c.from) && nodeById.has(c.to))
+      .map((c, idx) => {
+        const speedMbps = c.speedMbps || (c.speed.toLowerCase().includes('gbps') ? parseFloat(c.speed) * 1000 : parseFloat(c.speed) || 1000);
+        const totalMbps = c.throughputMbps ?? Number(((speedMbps * c.utilization) / 100).toFixed(1));
+        const throughputLabel = c.throughputLabel || (totalMbps >= 1000 ? `${(totalMbps / 1000).toFixed(2)} Gbps` : `${Math.round(totalMbps)} Mbps`);
+        return {
+          ...c,
+          idx,
+          speedMbps,
+          throughputMbps: totalMbps,
+          throughputLabel,
+          source: nodeById.get(c.from)!,
+          target: nodeById.get(c.to)!
+        };
+      });
 
-    const simulation = d3.forceSimulation(nodes as any)
-      .force('link', d3.forceLink(links as any).id((d: any) => d.id).distance(140))
-      .force('charge', d3.forceManyBody().strength(-800))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(50));
-
-    // Defs for gradients & filters
+    // Defs for filters & crisp blueprint grid
     const defs = svg.append('defs');
 
-    // Glow filter for selected node
-    const filter = defs.append('filter')
+    const gridPattern = defs.append('pattern')
+      .attr('id', 'whatsup-grid')
+      .attr('width', 28)
+      .attr('height', 28)
+      .attr('patternUnits', 'userSpaceOnUse');
+    gridPattern.append('path')
+      .attr('d', 'M 28 0 L 0 0 0 28')
+      .attr('fill', 'none')
+      .attr('stroke', isLight ? 'rgba(148, 163, 184, 0.22)' : 'rgba(51, 65, 85, 0.24)')
+      .attr('stroke-width', 1);
+
+    const glowFilter = defs.append('filter')
       .attr('id', 'glow')
-      .attr('x', '-50%')
-      .attr('y', '-50%')
-      .attr('width', '200%')
-      .attr('height', '200%');
-    filter.append('feGaussianBlur')
-      .attr('stdDeviation', '4')
-      .attr('result', 'coloredBlur');
-    const feMerge = filter.append('feMerge');
+      .attr('x', '-40%').attr('y', '-40%').attr('width', '180%').attr('height', '180%');
+    glowFilter.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'coloredBlur');
+    const feMerge = glowFilter.append('feMerge');
     feMerge.append('feMergeNode').attr('in', 'coloredBlur');
     feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Red threat glow
     const threatFilter = defs.append('filter')
       .attr('id', 'threat-glow')
-      .attr('x', '-50%')
-      .attr('y', '-50%')
-      .attr('width', '200%')
-      .attr('height', '200%');
-    threatFilter.append('feGaussianBlur')
-      .attr('stdDeviation', '6')
-      .attr('result', 'coloredBlur');
+      .attr('x', '-40%').attr('y', '-40%').attr('width', '180%').attr('height', '180%');
+    threatFilter.append('feGaussianBlur').attr('stdDeviation', '5').attr('result', 'coloredBlur');
     const tMerge = threatFilter.append('feMerge');
     tMerge.append('feMergeNode').attr('in', 'coloredBlur');
     tMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
+    // Subtle engineering grid backdrop
+    svg.append('rect')
+      .attr('width', '100%')
+      .attr('height', '100%')
+      .attr('fill', 'url(#whatsup-grid)')
+      .attr('pointer-events', 'none');
+
     const g = svg.append('g');
 
-    // Zoom behavior
-    const zoom = d3.zoom().on('zoom', (event) => {
-      g.attr('transform', event.transform);
-    });
+    // Zoom behavior preserving pan/zoom transform across telemetry ticks
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.45, 2.4])
+      .on('zoom', (event) => {
+        zoomTransformRef.current = event.transform;
+        g.attr('transform', event.transform.toString());
+      });
     zoomBehaviorRef.current = zoom;
     svg.call(zoom as any);
+    svg.call(zoom.transform as any, zoomTransformRef.current);
+
+    // Zone containers (drawn behind links/nodes in Hierarchical WhatsUp mode)
+    const zonesLayer = g.append('g').attr('class', 'zone-groups');
+    const renderZoneBoxes = () => {
+      zonesLayer.selectAll('*').remove();
+      if (layoutMode !== 'hierarchical') return;
+
+      const zoneDefs = [
+        {
+          title: isZh ? 'WAN / 邊界安全閘道' : 'WAN / Perimeter Security',
+          color: '#ef4444',
+          match: (d: any) => d.type === 'router' || d.type === 'firewall'
+        },
+        {
+          title: isZh ? 'Core & 伺服器群 (VLAN 20)' : 'Core & Server Farm (VLAN 20)',
+          color: '#8b5cf6',
+          match: (d: any) => d.id === 'srv-sw-01' || d.type === 'server' && d.id !== 'plc-turb-01'
+        },
+        {
+          title: isZh ? 'OT / 工控 SCADA (VLAN 99)' : 'OT / SCADA Zone (VLAN 99)',
+          color: '#f59e0b',
+          match: (d: any) => d.id === 'plc-turb-01' || (d.subnet || '').toLowerCase().includes('ot')
+        },
+        {
+          title: isZh ? '辦公端點與無線接取 (VLAN 10)' : 'User Access & Wi-Fi (VLAN 10)',
+          color: '#10b981',
+          match: (d: any) => d.id === 'edge-sw-01' || d.type === 'ap' || d.type === 'endpoint'
+        }
+      ];
+
+      zoneDefs.forEach(z => {
+        const members = nodes.filter(z.match);
+        if (members.length === 0) return;
+        const minX = Math.min(...members.map(m => m.x)) - 58;
+        const maxX = Math.max(...members.map(m => m.x)) + 58;
+        const minY = Math.min(...members.map(m => m.y)) - 42;
+        const maxY = Math.max(...members.map(m => m.y)) + 52;
+
+        const zg = zonesLayer.append('g');
+        zg.append('rect')
+          .attr('x', minX)
+          .attr('y', minY)
+          .attr('width', Math.max(120, maxX - minX))
+          .attr('height', Math.max(94, maxY - minY))
+          .attr('rx', 16)
+          .attr('fill', isLight ? `${z.color}0a` : `${z.color}10`)
+          .attr('stroke', `${z.color}40`)
+          .attr('stroke-width', 1.2)
+          .attr('stroke-dasharray', '5,4');
+
+        zg.append('text')
+          .attr('x', minX + 12)
+          .attr('y', minY + 15)
+          .attr('fill', isLight ? '#475569' : '#94a3b8')
+          .attr('font-size', '10px')
+          .attr('font-weight', '800')
+          .attr('letter-spacing', '0.03em')
+          .text(z.title);
+      });
+    };
+    renderZoneBoxes();
+
+    const getLinkColor = (d: any) => {
+      if (d.hasThreatFlow || d.status === 'threat') return '#ef4444';
+      if (d.status === 'degraded' || d.utilization >= 75) return '#f59e0b';
+      if (d.utilization >= 45) return '#06b6d4';
+      if (d.type === 'wireless') return '#10b981';
+      if (d.type === 'fiber' || d.type === 'trunk') return '#3b82f6';
+      return isLight ? '#64748b' : '#6b7280';
+    };
 
     // Render Links
     const linkGroup = g.append('g').attr('class', 'links');
-    const link = linkGroup.selectAll('line')
+    const linkHitArea = linkGroup.selectAll('line.hit')
       .data(links)
       .enter().append('line')
-      .attr('stroke', (d: any) => d.type === 'fiber' ? '#3b82f6' : d.type === 'trunk' ? '#8b5cf6' : '#4b5563')
-      .attr('stroke-width', (d: any) => d.type === 'fiber' ? 2.5 : 1.5)
-      .attr('stroke-dasharray', (d: any) => {
-        if (showFlowAnimation) return '6,4';
-        return d.type === 'wireless' ? '4,4' : 'none';
-      })
-      .attr('opacity', 0.65)
-      .attr('cursor', 'pointer')
-      .on('click', (event, d: any) => {
-        event.stopPropagation();
-        if (onSelectLink) onSelectLink(d);
-      });
+      .attr('class', 'hit')
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 16)
+      .attr('cursor', 'pointer');
 
-    // Optional link bandwidth badges
-    let linkBadges: any;
-    if (showBandwidthBadges) {
-      const badgeGroup = g.append('g').attr('class', 'link-badges');
-      linkBadges = badgeGroup.selectAll('text')
+    const link = linkGroup.selectAll('line.cable')
+      .data(links)
+      .enter().append('line')
+      .attr('class', 'cable')
+      .attr('stroke', getLinkColor)
+      .attr('stroke-width', (d: any) => {
+        if (d.hasThreatFlow || d.status === 'threat') return 3.2;
+        if (d.speedMbps >= 25000) return 3;
+        if (d.speedMbps >= 10000) return 2.4;
+        return 1.8;
+      })
+      .attr('stroke-dasharray', (d: any) => (d.type === 'wireless' ? '5,4' : 'none'))
+      .attr('opacity', isLight ? 0.85 : 0.78)
+      .attr('pointer-events', 'none');
+
+    // Hover & Click interaction for links
+    const attachLinkEvents = (sel: any) => {
+      sel
+        .on('mouseenter', function(event: any, d: any) {
+          const rect = containerRef.current?.getBoundingClientRect();
+          setHoveredLinkInfo({
+            link: d,
+            fromName: d.source.name,
+            toName: d.target.name,
+            x: rect ? event.clientX - rect.left : 200,
+            y: rect ? event.clientY - rect.top : 200
+          });
+        })
+        .on('mousemove', function(event: any, d: any) {
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (rect) {
+            setHoveredLinkInfo(prev => prev ? {
+              ...prev,
+              x: event.clientX - rect.left,
+              y: event.clientY - rect.top
+            } : null);
+          }
+        })
+        .on('mouseleave', () => setHoveredLinkInfo(null))
+        .on('click', (event: any, d: any) => {
+          event.stopPropagation();
+          if (onSelectLink) onSelectLink(d);
+        });
+    };
+    attachLinkEvents(linkHitArea);
+
+    // Animated Directional Flow Particles
+    let flowDotsFwd: any = null;
+    let flowDotsRev: any = null;
+    let flowTimer: d3.Timer | null = null;
+    if (showFlowAnimation) {
+      const flowLayer = g.append('g').attr('class', 'flow-particles').attr('pointer-events', 'none');
+      flowDotsFwd = flowLayer.selectAll('circle.fwd')
         .data(links)
-        .enter().append('text')
-        .attr('text-anchor', 'middle')
-        .attr('dy', -5)
-        .attr('fill', '#94a3b8')
-        .attr('font-size', '9px')
-        .attr('font-family', 'monospace')
-        .attr('font-weight', '600')
-        .attr('pointer-events', 'none')
-        .text((d: any) => `${d.speed} (${d.utilization}%)`);
+        .enter().append('circle')
+        .attr('class', 'fwd')
+        .attr('r', (d: any) => (d.hasThreatFlow ? 4 : d.utilization >= 50 ? 3.2 : 2.5))
+        .attr('fill', (d: any) => (d.hasThreatFlow ? '#f87171' : d.utilization >= 75 ? '#fbbf24' : '#38bdf8'))
+        .attr('opacity', 0.95);
+
+      flowDotsRev = flowLayer.selectAll('circle.rev')
+        .data(links.filter((l: any) => l.utilization >= 25))
+        .enter().append('circle')
+        .attr('class', 'rev')
+        .attr('r', 2.2)
+        .attr('fill', (d: any) => (d.hasThreatFlow ? '#ef4444' : '#a78bfa'))
+        .attr('opacity', 0.75);
+
+      flowTimer = d3.timer((elapsed) => {
+        flowDotsFwd
+          .attr('cx', (d: any) => {
+            const speed = 0.00028 + (Math.min(100, d.utilization) / 100) * 0.00055;
+            const t = (elapsed * speed + d.idx * 0.17) % 1;
+            return d.source.x + (d.target.x - d.source.x) * t;
+          })
+          .attr('cy', (d: any) => {
+            const speed = 0.00028 + (Math.min(100, d.utilization) / 100) * 0.00055;
+            const t = (elapsed * speed + d.idx * 0.17) % 1;
+            return d.source.y + (d.target.y - d.source.y) * t;
+          });
+
+        flowDotsRev
+          .attr('cx', (d: any) => {
+            const speed = 0.00022 + (Math.min(100, d.utilization) / 100) * 0.00042;
+            const t = 1 - ((elapsed * speed + d.idx * 0.23) % 1);
+            return d.source.x + (d.target.x - d.source.x) * t;
+          })
+          .attr('cy', (d: any) => {
+            const speed = 0.00022 + (Math.min(100, d.utilization) / 100) * 0.00042;
+            const t = 1 - ((elapsed * speed + d.idx * 0.23) % 1);
+            return d.source.y + (d.target.y - d.source.y) * t;
+          });
+      });
     }
 
-    // Render Nodes
+    // Live Link Traffic Pill Badges (staggered along links to avoid overlaps)
+    let badgeGroups: any = null;
+    if (showBandwidthBadges) {
+      const badgeLayer = g.append('g').attr('class', 'link-badges');
+      badgeGroups = badgeLayer.selectAll('g.badge')
+        .data(links)
+        .enter().append('g')
+        .attr('class', 'badge')
+        .attr('cursor', 'pointer');
+
+      attachLinkEvents(badgeGroups);
+
+      badgeGroups.append('rect')
+        .attr('x', -44)
+        .attr('y', -10)
+        .attr('width', 88)
+        .attr('height', 19)
+        .attr('rx', 6)
+        .attr('fill', isLight ? 'rgba(255,255,255,0.94)' : 'rgba(9, 11, 16, 0.92)')
+        .attr('stroke', (d: any) => {
+          if (d.hasThreatFlow || d.status === 'threat') return '#ef4444';
+          if (d.utilization >= 75) return '#f59e0b';
+          return isLight ? '#cbd5e1' : '#334155';
+        })
+        .attr('stroke-width', 1);
+
+      badgeGroups.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', 3)
+        .attr('font-size', '9.5px')
+        .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
+        .attr('font-weight', '700')
+        .attr('fill', (d: any) => {
+          if (d.hasThreatFlow || d.status === 'threat') return isLight ? '#dc2626' : '#f87171';
+          if (d.utilization >= 75) return isLight ? '#d97706' : '#fbbf24';
+          if (d.utilization >= 45) return isLight ? '#0284c7' : '#38bdf8';
+          return isLight ? '#334155' : '#cbd5e1';
+        })
+        .text((d: any) => `${d.throughputLabel} • ${d.utilization}%`);
+    }
+
+    // Render Hardware Nodes (WhatsUp Gold Card Style)
     const nodeGroup = g.append('g').attr('class', 'nodes');
-    const node = nodeGroup.selectAll('g')
+    const node = nodeGroup.selectAll('g.node')
       .data(nodes)
       .enter().append('g')
-      .attr('class', 'cursor-pointer')
-      .call(d3.drag()
-        .on('start', dragstarted)
-        .on('drag', dragged)
-        .on('end', dragended) as any)
+      .attr('class', 'node cursor-pointer')
       .on('click', (event, d: any) => {
         event.stopPropagation();
         onSelectDevice(d);
       });
 
-    // Threat Halo Beacons (Outer pulsing ring if device has malicious flows or warning)
+    const getAccentColor = (d: any) => {
+      if (d.id === selectedDeviceId) return '#3b82f6';
+      if (d.status === 'warning') return '#f59e0b';
+      if (d.type === 'firewall') return '#ef4444';
+      if (d.type === 'router') return '#06b6d4';
+      if (d.type === 'switch') return '#3b82f6';
+      if (d.type === 'server') return '#a855f7';
+      if (d.type === 'ap') return '#10b981';
+      return '#64748b';
+    };
+
+    // Threat Halo Beacon
     if (showThreatHalo) {
       node.each(function(d: any) {
-        const hasMalFlow = flows.some(f => (f.srcDeviceId === d.id || f.dstDeviceId === d.id) && f.threatLevel === 'malicious' && f.status === 'active');
+        const hasMalFlow = flows.some(
+          f => (f.srcDeviceId === d.id || f.dstDeviceId === d.id) && f.threatLevel === 'malicious' && f.status === 'active'
+        );
         if (hasMalFlow || d.status === 'warning') {
           d3.select(this)
-            .append('circle')
-            .attr('r', 36)
+            .append('rect')
+            .attr('x', -29)
+            .attr('y', -29)
+            .attr('width', 58)
+            .attr('height', 58)
+            .attr('rx', 16)
             .attr('fill', 'none')
             .attr('stroke', hasMalFlow ? '#ef4444' : '#f59e0b')
-            .attr('stroke-width', 2)
+            .attr('stroke-width', 2.2)
             .attr('stroke-dasharray', '4,3')
-            .attr('opacity', 0.8)
+            .attr('opacity', 0.9)
             .attr('filter', 'url(#threat-glow)');
         }
       });
     }
 
-    // Outer Circle (Glow & Status Ring)
-    node.append('circle')
-      .attr('r', 28)
-      .attr('fill', (d: any) => 
-        d.type === 'firewall' ? 'rgba(239, 68, 68, 0.15)' :
-        d.type === 'switch' ? 'rgba(59, 130, 246, 0.15)' :
-        d.type === 'server' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(107, 114, 128, 0.15)'
-      )
-      .attr('stroke', (d: any) => 
-        d.id === selectedDeviceId ? '#60a5fa' :
-        d.status === 'warning' ? '#f59e0b' :
-        d.type === 'firewall' ? '#ef4444' :
-        d.type === 'switch' ? '#3b82f6' :
-        d.type === 'server' ? '#a855f7' : '#9ca3af'
-      )
-      .attr('stroke-width', (d: any) => d.id === selectedDeviceId ? 3.5 : 2)
-      .attr('filter', (d: any) => d.id === selectedDeviceId ? 'url(#glow)' : 'none');
+    // Hardware Tile Card
+    node.append('rect')
+      .attr('x', -23)
+      .attr('y', -23)
+      .attr('width', 46)
+      .attr('height', 46)
+      .attr('rx', 12)
+      .attr('fill', (d: any) => {
+        if (isLight) return d.id === selectedDeviceId ? '#eff6ff' : '#ffffff';
+        return d.id === selectedDeviceId ? '#172554' : '#111827';
+      })
+      .attr('stroke', getAccentColor)
+      .attr('stroke-width', (d: any) => (d.id === selectedDeviceId ? 3 : 1.8))
+      .attr('filter', (d: any) => (d.id === selectedDeviceId ? 'url(#glow)' : 'none'));
 
-    // Inner Emoji / Icon representation
-    node.append('text')
-      .attr('text-anchor', 'middle')
-      .attr('dy', '.35em')
-      .attr('font-size', '16px')
-      .text((d: any) => 
-        d.type === 'firewall' ? '🛡️' :
-        d.type === 'switch' ? '🔀' :
-        d.type === 'server' ? '🖥️' : '💻'
-      );
+    // Vector Hardware Icon inside Tile
+    node.append('g')
+      .attr('color', getAccentColor)
+      .html((d: any) => getHardwareSvgGlyph(d.type));
 
-    // Status Ping Dot
+    // Status LED Dot (Top-Right)
     node.append('circle')
-      .attr('cx', 18)
-      .attr('cy', -18)
+      .attr('cx', 20)
+      .attr('cy', -20)
       .attr('r', 5)
-      .attr('fill', (d: any) => 
-        d.status === 'online' ? '#10b981' :
-        d.status === 'warning' ? '#f59e0b' : '#ef4444'
+      .attr('fill', (d: any) =>
+        d.status === 'online' ? '#10b981' : d.status === 'warning' ? '#f59e0b' : '#ef4444'
       )
-      .attr('stroke', '#111114')
-      .attr('stroke-width', 1.5);
+      .attr('stroke', isLight ? '#ffffff' : '#09090b')
+      .attr('stroke-width', 2);
 
-    // Primary Label (Device Name)
-    const labelGroup = node.append('g')
-      .attr('transform', 'translate(0, 42)');
+    // CPU% Mini Tag (Top-Left)
+    const cpuTag = node.append('g').attr('transform', 'translate(-24, -24)');
+    cpuTag.append('rect')
+      .attr('x', -4)
+      .attr('y', -5)
+      .attr('width', 26)
+      .attr('height', 13)
+      .attr('rx', 4)
+      .attr('fill', isLight ? '#f1f5f9' : '#09090b')
+      .attr('stroke', isLight ? '#cbd5e1' : '#334155')
+      .attr('stroke-width', 0.8);
+    cpuTag.append('text')
+      .attr('x', 9)
+      .attr('y', 4)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '8px')
+      .attr('font-family', 'ui-monospace, monospace')
+      .attr('font-weight', '700')
+      .attr('fill', (d: any) => (d.cpu > d.cpuThreshold ? '#ef4444' : isLight ? '#334155' : '#94a3b8'))
+      .text((d: any) => `${d.cpu}%`);
 
+    // Device Name & IP Plaque below tile
+    const labelGroup = node.append('g').attr('transform', 'translate(0, 34)');
     labelGroup.append('text')
       .attr('text-anchor', 'middle')
-      .attr('fill', '#ffffff')
+      .attr('fill', isLight ? '#0f172a' : '#f8fafc')
       .attr('font-size', '11px')
       .attr('font-weight', '800')
-      .attr('letter-spacing', '0.02em')
       .text((d: any) => d.name);
 
-    // Secondary Label (IP Address)
     labelGroup.append('text')
       .attr('text-anchor', 'middle')
-      .attr('dy', '14px')
-      .attr('fill', '#9ca3af')
-      .attr('font-size', '10px')
-      .attr('font-family', 'monospace')
+      .attr('dy', '13px')
+      .attr('fill', isLight ? '#475569' : '#94a3b8')
+      .attr('font-size', '9.5px')
+      .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .attr('font-weight', '600')
-      .text((d: any) => d.ip.split(' ')[0]);
+      .text((d: any) => `${d.ip.split(' ')[0]} • V${d.vlan}`);
 
-    // Tick update
-    simulation.on('tick', () => {
+    const updatePositions = () => {
+      linkHitArea
+        .attr('x1', (d: any) => d.source.x)
+        .attr('y1', (d: any) => d.source.y)
+        .attr('x2', (d: any) => d.target.x)
+        .attr('y2', (d: any) => d.target.y);
+
       link
         .attr('x1', (d: any) => d.source.x)
         .attr('y1', (d: any) => d.source.y)
         .attr('x2', (d: any) => d.target.x)
         .attr('y2', (d: any) => d.target.y);
 
-      if (linkBadges) {
-        linkBadges
-          .attr('x', (d: any) => (d.source.x + d.target.x) / 2)
-          .attr('y', (d: any) => (d.source.y + d.target.y) / 2);
+      if (badgeGroups) {
+        badgeGroups.attr('transform', (d: any) => {
+          // Stagger label along link to prevent adjacent links from piling at midpoint
+          const staggerOffset = ((d.idx % 3) - 1) * 0.11;
+          const t = 0.5 + staggerOffset;
+          const bx = d.source.x + (d.target.x - d.source.x) * t;
+          const by = d.source.y + (d.target.y - d.source.y) * t;
+          return `translate(${bx}, ${by})`;
+        });
       }
 
       node.attr('transform', (d: any) => `translate(${d.x},${d.y})`);
-    });
+    };
 
-    function dragstarted(event: any) {
-      if (!event.active) simulation.alphaTarget(0.3).restart();
-      event.subject.fx = event.subject.x;
-      event.subject.fy = event.subject.y;
+    // Initial deterministic position paint
+    updatePositions();
+
+    // Force simulation ONLY when user picks 'force' mode AND layout recompute is requested
+    let simulation: d3.Simulation<any, undefined> | null = null;
+    if (layoutMode === 'force' && shouldRecomputeLayout) {
+      simulation = d3.forceSimulation(nodes as any)
+        .force('link', d3.forceLink(links as any).id((d: any) => d.id).distance(135))
+        .force('charge', d3.forceManyBody().strength(-720))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(52));
+
+      simulation.on('tick', () => {
+        nodes.forEach(n => {
+          n.x = Math.max(60, Math.min(width - 60, n.x));
+          n.y = Math.max(60, Math.min(height - 60, n.y));
+          nodePositionsRef.current.set(n.id, { x: n.x, y: n.y });
+        });
+        updatePositions();
+      });
     }
 
-    function dragged(event: any) {
-      event.subject.fx = event.x;
-      event.subject.fy = event.y;
-    }
+    // Smooth dragging in both Hierarchical & Force modes, persisting custom node coordinates
+    node.call(
+      d3.drag<SVGGElement, any>()
+        .on('start', (event, d: any) => {
+          if (simulation && !event.active) simulation.alphaTarget(0.25).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on('drag', (event, d: any) => {
+          d.x = event.x;
+          d.y = event.y;
+          d.fx = event.x;
+          d.fy = event.y;
+          nodePositionsRef.current.set(d.id, { x: event.x, y: event.y });
+          updatePositions();
+          renderZoneBoxes();
+        })
+        .on('end', (event, d: any) => {
+          if (simulation && !event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        }) as any
+    );
 
-    function dragended(event: any) {
-      if (!event.active) simulation.alphaTarget(0);
-      event.subject.fx = null;
-      event.subject.fy = null;
-    }
-
-    // Background click to deselect
     svg.on('click', () => {
       onSelectDevice(null);
     });
 
     return () => {
-      simulation.stop();
+      if (simulation) simulation.stop();
+      if (flowTimer) flowTimer.stop();
     };
-  }, [devices, connections, selectedDeviceId, onSelectDevice, showFlowAnimation, showBandwidthBadges, showThreatHalo, flows, onSelectLink]);
+  }, [
+    devices,
+    connections,
+    selectedDeviceId,
+    onSelectDevice,
+    showFlowAnimation,
+    showBandwidthBadges,
+    showThreatHalo,
+    flows,
+    onSelectLink,
+    layoutMode,
+    canvasSize.width,
+    canvasSize.height,
+    relayoutTick,
+    isLight,
+    isZh
+  ]);
+
+  if (devices.length === 0) {
+    return (
+      <div
+        ref={containerRef}
+        className={cn(
+          "w-full border rounded-3xl min-h-[620px] flex flex-col items-center justify-center p-10 text-center space-y-4 shadow-2xl",
+          isLight ? "bg-slate-50 border-slate-200 text-slate-800" : "bg-[#0a0a0c] border-gray-800 text-gray-200"
+        )}
+      >
+        <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-500">
+          <Network size={32} />
+        </div>
+        <h3 className="text-lg font-black">
+          {isZh ? '尚未載入或探索到網路拓撲節點' : 'No Network Topology Discovered Yet'}
+        </h3>
+        <p className={cn("text-xs max-w-md", isLight ? "text-slate-500" : "text-gray-400")}>
+          {isZh
+            ? '點擊下方按鈕啟動 ARP/ICMP、LLDP 與 SNMPv3 全網自動發現，即時繪製 WhatsUp 階層拓撲圖與鏈路流量。'
+            : 'Click below to run full-network ARP/LLDP/SNMP auto-discovery and render live link traffic.'}
+        </p>
+        {onTriggerScan && (
+          <button
+            onClick={onTriggerScan}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-xs font-black flex items-center gap-2 shadow-lg shadow-blue-600/25"
+          >
+            <Play size={14} className="fill-current" />
+            <span>{isZh ? '執行全網探針掃描' : 'Run Auto-Discovery Scan'}</span>
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
-    <div ref={containerRef} className="w-full bg-[#0a0a0c] border border-gray-800 rounded-3xl overflow-hidden relative min-h-[620px] shadow-2xl">
+    <div
+      ref={containerRef}
+      className={cn(
+        "w-full border rounded-3xl overflow-hidden relative min-h-[660px] shadow-2xl transition-colors",
+        isLight ? "bg-slate-50 border-slate-200" : "bg-[#0a0a0c] border-gray-800"
+      )}
+    >
       {/* Topology Map Legend */}
-      <div className="absolute top-5 left-5 z-10 flex flex-wrap gap-2">
-        <div className="px-4 py-2.5 bg-[#111114]/90 backdrop-blur-md border border-gray-800 rounded-2xl flex items-center gap-4 text-xs shadow-lg">
+      <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2">
+        <div className={cn(
+          "px-3.5 py-2 backdrop-blur-md border rounded-2xl flex flex-wrap items-center gap-3 text-[11px] shadow-lg",
+          isLight ? "bg-white/90 border-slate-200 text-slate-700" : "bg-[#111114]/90 border-gray-800 text-gray-300"
+        )}>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-cyan-500" />
+            <span className="font-bold">{isZh ? '邊界路由' : 'Router'}</span>
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-red-500" />
-            <span className="font-bold text-gray-300">{isZh ? '邊界防火牆' : 'Firewall'}</span>
+            <span className="font-bold">{isZh ? '防火牆' : 'Firewall'}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-blue-500" />
-            <span className="font-bold text-gray-300">{isZh ? '核心/分發交換機' : 'Switch'}</span>
+            <span className="font-bold">{isZh ? '交換機' : 'Switch'}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-purple-500" />
-            <span className="font-bold text-gray-300">{isZh ? '機房伺服器群' : 'Server Farm'}</span>
+            <span className="font-bold">{isZh ? '伺服器 / PLC' : 'Server / PLC'}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-gray-400" />
-            <span className="font-bold text-gray-300">{isZh ? 'SOC/使用者端點' : 'Endpoints'}</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="font-bold">{isZh ? '無線 AP' : 'Wi-Fi AP'}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />
+            <span className="font-bold">{isZh ? '端點主機' : 'Endpoint'}</span>
           </div>
         </div>
       </div>
 
-      {/* Floating Canvas Controls HUD (Zoom In / Zoom Out / Reset Center) */}
-      <div className="absolute top-5 right-5 z-10 flex items-center gap-1.5 bg-[#111114]/90 backdrop-blur-md border border-gray-800 p-1.5 rounded-2xl shadow-xl">
+      {/* Floating Canvas Controls HUD (Layout Toggle / Auto Arrange / Zoom) */}
+      <div className={cn(
+        "absolute top-4 right-4 z-10 flex items-center gap-1 backdrop-blur-md border p-1.5 rounded-2xl shadow-xl",
+        isLight ? "bg-white/90 border-slate-200 text-slate-700" : "bg-[#111114]/90 border-gray-800 text-gray-300"
+      )}>
+        {onChangeLayoutMode && (
+          <button
+            onClick={() => onChangeLayoutMode(layoutMode === 'hierarchical' ? 'force' : 'hierarchical')}
+            className={cn(
+              "px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-colors flex items-center gap-1 whitespace-nowrap",
+              isLight ? "hover:bg-slate-100 text-blue-600" : "hover:bg-gray-800 text-blue-400"
+            )}
+            title={isZh ? '切換階層架構與力導向拓撲模式' : 'Switch layout algorithm'}
+          >
+            {layoutMode === 'hierarchical' ? <GitBranch size={13} /> : <Share2 size={13} />}
+            <span className="hidden md:inline">{layoutMode === 'hierarchical' ? (isZh ? '階層' : 'Tree') : (isZh ? '力導向' : 'Force')}</span>
+          </button>
+        )}
+        <button
+          onClick={handleAutoArrange}
+          className={cn(
+            "px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-colors flex items-center gap-1 whitespace-nowrap",
+            isLight ? "hover:bg-slate-100 text-slate-700" : "hover:bg-gray-800 text-gray-300 hover:text-white"
+          )}
+          title={isZh ? '一鍵自動排列節點 (WhatsUp Auto-Layout)' : 'Auto-Arrange Nodes'}
+        >
+          <RotateCcw size={13} />
+          <span className="hidden md:inline">{isZh ? '自動排版' : 'Arrange'}</span>
+        </button>
+        <div className={cn("w-px h-4 mx-0.5", isLight ? "bg-slate-200" : "bg-gray-800")} />
         <button
           onClick={() => handleZoom(1.25)}
-          className="p-2 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl transition-colors"
+          className={cn("p-1.5 rounded-xl transition-colors", isLight ? "hover:bg-slate-100" : "hover:bg-gray-800 hover:text-white")}
           title={isZh ? '放大畫布' : 'Zoom In'}
         >
           <ZoomIn size={15} />
         </button>
         <button
           onClick={() => handleZoom(0.8)}
-          className="p-2 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl transition-colors"
+          className={cn("p-1.5 rounded-xl transition-colors", isLight ? "hover:bg-slate-100" : "hover:bg-gray-800 hover:text-white")}
           title={isZh ? '縮小畫布' : 'Zoom Out'}
         >
           <ZoomOut size={15} />
         </button>
         <button
           onClick={handleResetZoom}
-          className="p-2 hover:bg-gray-800 text-gray-300 hover:text-white rounded-xl transition-colors"
+          className={cn("p-1.5 rounded-xl transition-colors", isLight ? "hover:bg-slate-100" : "hover:bg-gray-800 hover:text-white")}
           title={isZh ? '重置畫布至中央' : 'Reset View'}
         >
           <Crosshair size={15} />
         </button>
       </div>
 
-      {/* Control Tips */}
-      <div className="absolute bottom-5 right-5 z-10">
-        <div className="p-3.5 bg-[#111114]/90 backdrop-blur-md border border-blue-500/20 rounded-2xl shadow-xl space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-            <span className="text-xs font-black text-blue-400">
-              {isZh ? '次世代力導向拓撲與 NetFlow 引擎運作中' : 'Topology & NetFlow Active'}
+      {/* Live Link Hover Telemetry Tooltip */}
+      {hoveredLinkInfo && (
+        <div
+          className={cn(
+            "absolute z-20 pointer-events-none px-3.5 py-2.5 rounded-2xl border shadow-2xl text-[11px] font-mono backdrop-blur-md min-w-[230px]",
+            isLight ? "bg-white/95 border-slate-300 text-slate-800" : "bg-[#0d1017]/95 border-blue-500/40 text-gray-200"
+          )}
+          style={{
+            left: Math.min(Math.max(16, hoveredLinkInfo.x + 14), Math.max(240, canvasSize.width - 260)),
+            top: Math.min(Math.max(60, hoveredLinkInfo.y - 12), 540)
+          }}
+        >
+          <div className="font-black text-blue-500 mb-1 flex items-center justify-between gap-2">
+            <span>{hoveredLinkInfo.fromName} ➔ {hoveredLinkInfo.toName}</span>
+            <span className="uppercase text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15">
+              {hoveredLinkInfo.link.type}
             </span>
           </div>
-          <p className="text-[11px] text-gray-400">
-            {isZh ? '點擊節點檢視主機 Telemetry 與活躍流量 • 點擊鏈路檢視頻寬與行經 Session • 拖曳節點重構佈局' : 'Click node/link to inspect • Drag to reorder • Scroll to zoom'}
+          <div className="space-y-0.5 text-[10px]">
+            <div>
+              {isZh ? '介面:' : 'IF:'}{' '}
+              <span className="font-bold">
+                {hoveredLinkInfo.link.srcInterface || 'eth0'} ↔ {hoveredLinkInfo.link.dstInterface || 'eth0'}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>{isZh ? '即時流量:' : 'Traffic:'} <strong className="text-cyan-400">{hoveredLinkInfo.link.throughputLabel}</strong></span>
+              <span>{isZh ? '負載:' : 'Util:'} <strong>{hoveredLinkInfo.link.utilization}%</strong> / {hoveredLinkInfo.link.speed}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>TX ↑ <strong className="text-blue-400">{hoveredLinkInfo.link.txMbps ?? 0} Mbps</strong></span>
+              <span>RX ↓ <strong className="text-purple-400">{hoveredLinkInfo.link.rxMbps ?? 0} Mbps</strong></span>
+            </div>
+            <div className="flex justify-between gap-3 pt-1 opacity-75">
+              <span>RTT {hoveredLinkInfo.link.latencyMs ?? 0.3}ms</span>
+              <span>{hoveredLinkInfo.link.activeFlowCount ?? 0} NetFlows</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Control Tips & Live Link Color Legend */}
+      <div className="absolute bottom-4 right-4 z-10">
+        <div className={cn(
+          "px-4 py-2.5 backdrop-blur-md border rounded-2xl shadow-xl space-y-1",
+          isLight ? "bg-white/90 border-slate-200 text-slate-700" : "bg-[#111114]/90 border-blue-500/20 text-gray-300"
+        )}>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+            <span className={cn("text-xs font-black", isLight ? "text-blue-700" : "text-blue-400")}>
+              {isZh ? 'WhatsUp 自動發現拓撲與即時鏈路流量引擎運作中' : 'WhatsUp Auto-Discovery & Live Traffic Engine Active'}
+            </span>
+          </div>
+          <p className={cn("text-[10px]", isLight ? "text-slate-500" : "text-gray-400")}>
+            {isZh
+              ? '點擊節點檢視主機 Telemetry • 懸停或點擊連線檢視即時 Tx/Rx 頻寬與 NetFlow • 拖曳節點微調位置'
+              : 'Click node/link to inspect live Tx/Rx traffic & NetFlow • Drag nodes to customize'}
           </p>
         </div>
       </div>
 
       {/* SVG Canvas */}
-      <svg ref={svgRef} className="w-full h-[620px] cursor-grab active:cursor-grabbing" />
+      <svg ref={svgRef} className="w-full h-[660px] cursor-grab active:cursor-grabbing block" />
     </div>
   );
 }

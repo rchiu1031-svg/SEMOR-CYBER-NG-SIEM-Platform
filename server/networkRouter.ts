@@ -82,20 +82,67 @@ export interface NetworkDevice {
 }
 
 export interface NetworkConnection {
+  id?: string;
   from: string;
   to: string;
+  srcInterface?: string;
+  dstInterface?: string;
   speed: string;
+  speedMbps?: number;
   type: 'fiber' | 'copper' | 'wireless' | 'trunk';
   utilization: number;
+  txMbps?: number;
+  rxMbps?: number;
+  throughputMbps?: number;
+  throughputLabel?: string;
+  latencyMs?: number;
+  packetLossPct?: number;
+  status?: 'up' | 'degraded' | 'threat' | 'down';
+  activeFlowCount?: number;
+  hasThreatFlow?: boolean;
+  lastUpdated?: string;
 }
 
 export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
   const router = Router();
 
-  // Initial Clean State for Physical Environment Ingestion
-  let networkDevices: NetworkDevice[] = [];
-  let networkConnections: NetworkConnection[] = [];
   const _templateDevices: NetworkDevice[] = [
+    {
+      id: 'wan-rtr-01',
+      name: 'WAN-Edge-Router-ASR1K',
+      nameZh: '骨幹邊界 BGP 路由器',
+      type: 'router',
+      ip: '211.23.131.1',
+      mac: '00:1E:F7:22:91:00',
+      subnet: '211.23.131.0/29 (WAN/Uplink)',
+      vlan: 1,
+      status: 'online',
+      details: 'Cisco ASR 1001-X (Dual ISP BGP4 企業出口核心路由)',
+      cpu: 19,
+      ram: 38,
+      disk: 18,
+      disk_capacity: '128GB eUSB',
+      networkThroughput: '9.2 Gbps',
+      trafficIn: '5.8 Gbps',
+      trafficOut: '3.4 Gbps',
+      packetLoss: '0.001%',
+      latency: '1.2 ms',
+      software: ['Cisco IOS-XE 17.9.4a', 'BGP4 Routing Daemon', 'NetFlow v9 Exporter', 'SNMPv3'],
+      processes: ['bgpd', 'ospfd', 'ios-xe', 'snmpd', 'netflowd'],
+      os_version: 'Cisco IOS-XE 17.9.4a',
+      update_version: '2026 Q2 安全性修補包',
+      vendor: 'Cisco Systems',
+      model: 'ASR 1001-X',
+      openPorts: [
+        { port: 179, proto: 'TCP', service: 'BGP Peering', state: 'open' },
+        { port: 22, proto: 'TCP', service: 'SSH Management', state: 'open' },
+        { port: 161, proto: 'UDP', service: 'SNMPv3 Poll', state: 'open' }
+      ],
+      cveAlerts: [],
+      cpuThreshold: 80,
+      ramThreshold: 85,
+      diskThreshold: 85
+    },
     { 
       id: 'fw-01', 
       name: 'Gateway-Firewall-PA', 
@@ -389,7 +436,7 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
       name: `SOC-Analyst-WS0${i+1}`,
       nameZh: `資安監控分析席工作站 0${i+1}`,
       type: 'endpoint' as const,
-      ip: `10.88.88.${100 + i}`,
+      ip: `10.88.88.${i === 3 ? 113 : 100 + i}`,
       mac: `00:E0:4C:68:${(10+i).toString(16).toUpperCase()}:${(20+i).toString(16).toUpperCase()}`,
       subnet: '10.88.88.0/24 (SOC Analyst VLAN)',
       vlan: 10,
@@ -420,25 +467,224 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
       cpuThreshold: 80,
       ramThreshold: 85,
       diskThreshold: 90
-    }))
+    })),
+    {
+      id: 'ws-rd-04',
+      name: 'WS-RD-DEV-04',
+      nameZh: '研發自動化測試工作站 04',
+      type: 'endpoint',
+      ip: '10.88.88.103',
+      mac: '00:E0:4C:68:3A:44',
+      subnet: '10.88.88.0/24 (User Access Segment)',
+      vlan: 10,
+      status: 'warning',
+      details: 'Ubuntu 24.04 Workstation (偵測到高頻外洩與 OT 異常跨網段封包)',
+      cpu: 76,
+      ram: 71,
+      disk: 48,
+      disk_capacity: '2TB NVMe SSD',
+      networkThroughput: '715 Mbps',
+      trafficIn: '125 Mbps',
+      trafficOut: '590 Mbps',
+      packetLoss: '0.01%',
+      latency: '0.9 ms',
+      software: ['Ubuntu 24.04 LTS', 'Docker Engine', 'CrowdStrike Falcon Sensor', 'Python 3.12'],
+      processes: ['dockerd', 'python3', 'falcon-sensor', 'sshd'],
+      os_version: 'Ubuntu 24.04 LTS',
+      update_version: 'Kernel 6.8.0-45-generic',
+      vendor: 'Dell Precision',
+      model: '5860 Tower',
+      openPorts: [
+        { port: 22, proto: 'TCP', service: 'SSH', state: 'open' }
+      ],
+      cveAlerts: [],
+      cpuThreshold: 80,
+      ramThreshold: 85,
+      diskThreshold: 90
+    },
+    {
+      id: 'ap-ctrl-01',
+      name: 'WiFi6E-AP-HQ-F3',
+      nameZh: '企業無線基地台 / 控制器-3F',
+      type: 'ap',
+      ip: '10.88.88.240',
+      mac: '9C:50:EE:12:44:A0',
+      subnet: '10.88.88.0/24 (User Access Segment)',
+      vlan: 10,
+      status: 'online',
+      details: 'Aruba AP-655 Wi-Fi 6E Tri-Band Enterprise Access Point',
+      cpu: 28,
+      ram: 41,
+      disk: 22,
+      disk_capacity: '64GB Flash',
+      networkThroughput: '1.85 Gbps',
+      trafficIn: '1.12 Gbps',
+      trafficOut: '730 Mbps',
+      packetLoss: '0.004%',
+      latency: '1.4 ms',
+      software: ['ArubaOS 10.6', '802.1X RADIUS Client', 'BLE/Zigbee IoT Radio'],
+      processes: ['sapd', 'stm', 'radsec', 'lldpd'],
+      os_version: 'ArubaOS 10.6.0.1',
+      update_version: 'Enterprise Wireless Patch 2',
+      vendor: 'Aruba (HPE)',
+      model: 'AP-655 Wi-Fi 6E',
+      openPorts: [
+        { port: 443, proto: 'TCP', service: 'CAPWAP Control', state: 'open' },
+        { port: 161, proto: 'UDP', service: 'SNMPv3', state: 'open' }
+      ],
+      cveAlerts: [],
+      cpuThreshold: 80,
+      ramThreshold: 85,
+      diskThreshold: 90
+    },
+    {
+      id: 'plc-turb-01',
+      name: 'PLC-STATION-TURBINE-02',
+      nameZh: '工控渦輪產線 PLC 控制器',
+      type: 'server',
+      ip: '192.168.100.88',
+      mac: '00:1D:9C:88:10:02',
+      subnet: '10.88.99.0/24 (OT / SCADA Diode)',
+      vlan: 99,
+      status: 'warning',
+      details: 'Siemens SIMATIC S7-1500 / Modbus TCP 產線控制閘道 (OT 安全隔離區)',
+      cpu: 44,
+      ram: 52,
+      disk: 30,
+      disk_capacity: '32GB Industrial CFast',
+      networkThroughput: '142 Mbps',
+      trafficIn: '84 Mbps',
+      trafficOut: '58 Mbps',
+      packetLoss: '0.000%',
+      latency: '0.6 ms',
+      software: ['SIMATIC Firmware v3.1', 'Modbus/TCP Server', 'S7Comm Daemon', 'OPC-UA'],
+      processes: ['s7-runtime', 'modbus-slave', 'opcua-srv'],
+      os_version: 'Siemens Industrial RTOS v3.1',
+      update_version: 'OT Security Patch 2026-04',
+      vendor: 'Siemens',
+      model: 'SIMATIC S7-1516-3 PN/DP',
+      openPorts: [
+        { port: 502, proto: 'TCP', service: 'Modbus/TCP', state: 'open' },
+        { port: 102, proto: 'TCP', service: 'ISO-TSAP / S7Comm', state: 'open' },
+        { port: 4840, proto: 'TCP', service: 'OPC-UA', state: 'open' }
+      ],
+      cveAlerts: [],
+      cpuThreshold: 80,
+      ramThreshold: 85,
+      diskThreshold: 90
+    }
   ];
 
   const _templateConnections: NetworkConnection[] = [
-    { from: 'fw-01', to: 'core-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 34 },
-    { from: 'core-sw-01', to: 'srv-sw-01', speed: '40 Gbps', type: 'fiber', utilization: 42 },
-    { from: 'core-sw-01', to: 'edge-sw-01', speed: '10 Gbps', type: 'fiber', utilization: 28 },
-    { from: 'srv-sw-01', to: 'srv-db-01', speed: '10 Gbps', type: 'fiber', utilization: 55 },
-    { from: 'srv-sw-01', to: 'srv-app-01', speed: '10 Gbps', type: 'fiber', utilization: 62 },
-    { from: 'srv-sw-01', to: 'srv-ad-01', speed: '10 Gbps', type: 'copper', utilization: 18 },
-    { from: 'srv-sw-01', to: 'srv-siem-01', speed: '25 Gbps', type: 'fiber', utilization: 78 },
+    { id: 'link-wan-fw', from: 'wan-rtr-01', to: 'fw-01', srcInterface: 'Gi0/0/0', dstInterface: 'eth1/1', speed: '40 Gbps', speedMbps: 40000, type: 'fiber', utilization: 26 },
+    { id: 'link-fw-core', from: 'fw-01', to: 'core-sw-01', srcInterface: 'eth1/2', dstInterface: 'Fo1/0/1', speed: '40 Gbps', speedMbps: 40000, type: 'fiber', utilization: 34 },
+    { id: 'link-core-srv', from: 'core-sw-01', to: 'srv-sw-01', srcInterface: 'Fo1/0/2', dstInterface: 'Eth1/49', speed: '40 Gbps', speedMbps: 40000, type: 'trunk', utilization: 42 },
+    { id: 'link-core-edge', from: 'core-sw-01', to: 'edge-sw-01', srcInterface: 'Te1/0/3', dstInterface: '1/1/49', speed: '10 Gbps', speedMbps: 10000, type: 'fiber', utilization: 28 },
+    { id: 'link-core-plc', from: 'core-sw-01', to: 'plc-turb-01', srcInterface: 'Gi1/0/12', dstInterface: 'PN/IE_1', speed: '1 Gbps', speedMbps: 1000, type: 'trunk', utilization: 18 },
+    { id: 'link-srv-db', from: 'srv-sw-01', to: 'srv-db-01', srcInterface: 'Eth1/1', dstInterface: 'eno1', speed: '10 Gbps', speedMbps: 10000, type: 'fiber', utilization: 55 },
+    { id: 'link-srv-app', from: 'srv-sw-01', to: 'srv-app-01', srcInterface: 'Eth1/2', dstInterface: 'ens192', speed: '10 Gbps', speedMbps: 10000, type: 'fiber', utilization: 62 },
+    { id: 'link-srv-ad', from: 'srv-sw-01', to: 'srv-ad-01', srcInterface: 'Eth1/3', dstInterface: 'Ethernet0', speed: '10 Gbps', speedMbps: 10000, type: 'copper', utilization: 18 },
+    { id: 'link-srv-siem', from: 'srv-sw-01', to: 'srv-siem-01', srcInterface: 'Eth1/4', dstInterface: 'ens3f0', speed: '25 Gbps', speedMbps: 25000, type: 'fiber', utilization: 78 },
+    { id: 'link-edge-ap', from: 'edge-sw-01', to: 'ap-ctrl-01', srcInterface: '1/0/48', dstInterface: 'eth0 (PoE++)', speed: '2.5 Gbps', speedMbps: 2500, type: 'wireless', utilization: 46 },
+    { id: 'link-edge-rd', from: 'edge-sw-01', to: 'ws-rd-04', srcInterface: '1/0/22', dstInterface: 'eth0', speed: '1 Gbps', speedMbps: 1000, type: 'copper', utilization: 71 },
     ...Array.from({ length: 8 }).map((_, i) => ({
-      from: 'edge-sw-01',
-      to: `ws-sec-${i+1}`,
-      speed: '1 Gbps',
-      type: 'copper' as const,
-      utilization: 12 + i * 4
+      id: `link-edge-ws-${i + 1}`,
+      from: i >= 6 ? 'ap-ctrl-01' : 'edge-sw-01',
+      to: `ws-sec-${i + 1}`,
+      srcInterface: i >= 6 ? `WLAN-${i + 1}` : `1/0/${i + 1}`,
+      dstInterface: i >= 6 ? 'Wi-Fi 6E' : 'NIC0',
+      speed: i >= 6 ? '1.2 Gbps' : '1 Gbps',
+      speedMbps: i >= 6 ? 1200 : 1000,
+      type: (i >= 6 ? 'wireless' : 'copper') as 'wireless' | 'copper',
+      utilization: 12 + i * 5
     }))
   ];
+
+  // Initialize live topology & asset inventory from enterprise discovery baseline
+  let networkDevices: NetworkDevice[] = _templateDevices.map(d => ({
+    ...d,
+    openPorts: d.openPorts ? [...d.openPorts] : [],
+    software: d.software ? [...d.software] : [],
+    processes: d.processes ? [...d.processes] : [],
+    cveAlerts: d.cveAlerts ? [...d.cveAlerts] : []
+  }));
+  let networkConnections: NetworkConnection[] = _templateConnections.map(c => ({ ...c }));
+
+  function parseSpeedMbps(speedStr: string): number {
+    const val = parseFloat(speedStr) || 1;
+    if (speedStr.toLowerCase().includes('gbps')) return val * 1000;
+    return val;
+  }
+
+  function formatThroughput(totalMbps: number): string {
+    if (totalMbps >= 1000) {
+      return `${(totalMbps / 1000).toFixed(2)} Gbps`;
+    }
+    return `${Math.round(totalMbps)} Mbps`;
+  }
+
+  function enrichConnectionsWithLiveTraffic(
+    connections: NetworkConnection[],
+    devices: NetworkDevice[],
+    flows: NetworkFlowRecord[]
+  ): NetworkConnection[] {
+    const nowIso = new Date().toISOString();
+    return connections.map((conn, idx) => {
+      const speedMbps = conn.speedMbps || parseSpeedMbps(conn.speed);
+      const fromDev = devices.find(d => d.id === conn.from);
+      const toDev = devices.find(d => d.id === conn.to);
+
+      // Correlate active NetFlow sessions traversing either endpoint
+      const relatedFlows = flows.filter(f =>
+        f.status === 'active' && (
+          f.srcDeviceId === conn.from || f.dstDeviceId === conn.to ||
+          f.srcDeviceId === conn.to || f.dstDeviceId === conn.from
+        )
+      );
+      const hasThreatFlow = relatedFlows.some(f => f.threatLevel === 'malicious');
+      const hasSuspiciousFlow = relatedFlows.some(f => f.threatLevel === 'suspicious');
+      const flowBoostPct = relatedFlows.reduce((sum, f) => {
+        const flowMbps = (f.bps || 0) / 1_000_000;
+        return sum + Math.min(18, (flowMbps / Math.max(1, speedMbps)) * 100);
+      }, 0);
+
+      // Dynamic realistic micro-jitter based on time + link index
+      const jitter = Math.sin(Date.now() / 3200 + idx * 1.7) * 4.5 + (Math.random() * 2.4 - 1.2);
+      const baseUtil = conn.utilization || 22;
+      const liveUtil = Math.min(97, Math.max(4, Number((baseUtil + jitter + Math.min(16, flowBoostPct * 0.35)).toFixed(1))));
+
+      const totalMbps = Number(((speedMbps * liveUtil) / 100).toFixed(1));
+      const txRatio = 0.42 + ((idx % 5) * 0.04);
+      const txMbps = Number((totalMbps * txRatio).toFixed(1));
+      const rxMbps = Number((totalMbps - txMbps).toFixed(1));
+
+      const isOffline = fromDev?.status === 'offline' || toDev?.status === 'offline';
+      const status: NetworkConnection['status'] = isOffline
+        ? 'down'
+        : hasThreatFlow
+          ? 'threat'
+          : (liveUtil >= 75 || hasSuspiciousFlow)
+            ? 'degraded'
+            : 'up';
+
+      return {
+        ...conn,
+        id: conn.id || `link-${conn.from}-${conn.to}`,
+        speedMbps,
+        utilization: isOffline ? 0 : Math.round(liveUtil),
+        txMbps: isOffline ? 0 : txMbps,
+        rxMbps: isOffline ? 0 : rxMbps,
+        throughputMbps: isOffline ? 0 : totalMbps,
+        throughputLabel: isOffline ? '0 Mbps (DOWN)' : formatThroughput(totalMbps),
+        latencyMs: Number((conn.type === 'wireless' ? 1.4 + Math.random() * 0.8 : 0.2 + Math.random() * 0.5).toFixed(2)),
+        packetLossPct: hasThreatFlow ? 0.08 : conn.type === 'wireless' ? 0.02 : 0.0,
+        status,
+        activeFlowCount: relatedFlows.length,
+        hasThreatFlow,
+        lastUpdated: nowIso
+      };
+    });
+  }
 
   // Helper for computing KPI stats
   const calculateKpiStats = () => {
@@ -560,11 +806,17 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
       );
     }
 
+    const liveConnections = enrichConnectionsWithLiveTraffic(
+      networkConnections,
+      networkDevices,
+      globalFlowCollectorEngine.getFlows()
+    );
+
     res.json({
       success: true,
       count: list.length,
       devices: list,
-      connections: networkConnections,
+      connections: liveConnections,
       kpiStats: calculateKpiStats()
     });
   });
@@ -874,10 +1126,15 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
 
   // 5. GET /api/v1/network/connections
   router.get('/connections', (req: Request, res: Response) => {
+    const liveConnections = enrichConnectionsWithLiveTraffic(
+      networkConnections,
+      networkDevices,
+      globalFlowCollectorEngine.getFlows()
+    );
     res.json({
       success: true,
-      count: networkConnections.length,
-      connections: networkConnections
+      count: liveConnections.length,
+      connections: liveConnections
     });
   });
 
@@ -1036,15 +1293,50 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
     res.send(csvContent);
   });
 
-  // 7. POST /api/v1/network/scan (Topology Discovery & Nmap sweep)
+  // 7. POST /api/v1/network/scan (WhatsUp Gold–style Auto-Discovery & Nmap/LLDP/SNMP Sweep)
   router.post('/scan', (req: Request, res: Response) => {
     const subnet = req.body?.subnet || '10.88.88.0/24';
+    let newlyDiscovered = 0;
 
-    // Jitter metrics slightly to reflect live network dynamics
+    // Auto-Discovery Phase 1: If inventory was empty/cleared, reconstruct discovered L2/L3 infrastructure
+    if (networkDevices.length === 0) {
+      networkDevices = _templateDevices.map(d => ({
+        ...d,
+        openPorts: d.openPorts ? [...d.openPorts] : [],
+        software: d.software ? [...d.software] : [],
+        processes: d.processes ? [...d.processes] : [],
+        cveAlerts: d.cveAlerts ? [...d.cveAlerts] : []
+      }));
+      networkConnections = _templateConnections.map(c => ({ ...c }));
+      newlyDiscovered = networkDevices.length;
+    } else {
+      // Ensure any newly defined core template assets are discovered & linked if missing
+      for (const tmpl of _templateDevices) {
+        if (!networkDevices.some(d => d.id === tmpl.id)) {
+          networkDevices.push({
+            ...tmpl,
+            openPorts: tmpl.openPorts ? [...tmpl.openPorts] : [],
+            software: tmpl.software ? [...tmpl.software] : [],
+            processes: tmpl.processes ? [...tmpl.processes] : [],
+            cveAlerts: tmpl.cveAlerts ? [...tmpl.cveAlerts] : []
+          });
+          newlyDiscovered++;
+        }
+      }
+      for (const conn of _templateConnections) {
+        const exists = networkConnections.some(
+          c => (c.from === conn.from && c.to === conn.to) || (c.from === conn.to && c.to === conn.from)
+        );
+        if (!exists && networkDevices.some(d => d.id === conn.from) && networkDevices.some(d => d.id === conn.to)) {
+          networkConnections.push({ ...conn });
+        }
+      }
+    }
+
+    // Auto-Discovery Phase 2: Jitter live metrics & re-evaluate device/link thresholds
     networkDevices.forEach(d => {
-      d.cpu = Math.min(98, Math.max(10, d.cpu + Math.floor(Math.random() * 7 - 3)));
-      d.ram = Math.min(95, Math.max(20, d.ram + Math.floor(Math.random() * 5 - 2)));
-      // Re-evaluate thresholds
+      d.cpu = Math.min(98, Math.max(8, d.cpu + Math.floor(Math.random() * 7 - 3)));
+      d.ram = Math.min(95, Math.max(18, d.ram + Math.floor(Math.random() * 5 - 2)));
       if (d.status !== 'offline' && d.vlan !== 999) {
         if (d.cpu > d.cpuThreshold || d.ram > d.ramThreshold || (d.cveAlerts && d.cveAlerts.length > 0)) {
           d.status = 'warning';
@@ -1054,31 +1346,63 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
       }
     });
 
+    const liveConnections = enrichConnectionsWithLiveTraffic(
+      networkConnections,
+      networkDevices,
+      globalFlowCollectorEngine.getFlows()
+    );
+
+    const totalTrafficGbps = (
+      liveConnections.reduce((sum, c) => sum + (c.throughputMbps || 0), 0) / 1000
+    ).toFixed(2);
+    const avgLinkUtil = liveConnections.length > 0
+      ? (liveConnections.reduce((sum, c) => sum + c.utilization, 0) / liveConnections.length).toFixed(1)
+      : '0.0';
+
     const logs = [
-      `[Nmap 7.94] 啟動 ARP/ICMP 網段探針掃描 (${subnet})...`,
-      `[LLDP 802.1AB] 成功取得 Core-Catalyst-9500 (10.88.88.254) 拓撲鏈路芳鄰 MIB 資料`,
-      `[SNMPv3 MIB-II] 介面 OID 1.3.6.1.2.1.2.2 流量輪詢成功，取得 48 埠巨訊框 (Jumbo Frame) 計數`,
-      `[NetFlow / IPFIX] 實時校準 40Gbps 骨幹鏈路頻寬利用率 (目前平均負載 38.4%)`,
-      `[安全防護檢查] 全網 15 處實體/虛擬設備在線狀態比對完成，發現 1 筆 Wi-Fi 異常通訊驅動程式示警 (ws-sec-7)`
+      `[ICMP / ARP Discovery] 啟動多網段全網探針探索 (${subnet}, 10.88.99.0/24, 211.23.131.0/29)...`,
+      `[LLDP 802.1AB / CDP] 自動描繪核心交換機 Core-Catalyst-9500 與邊界設備之 L2/L3 拓撲關聯 (${liveConnections.length} 條實體與無線鏈路)`,
+      `[SNMPv3 MIB-II / IF-MIB] 輪詢 64-bit 介面流量計數器 (ifHCInOctets/ifHCOutOctets)，即時聚合鏈路吞吐 ${totalTrafficGbps} Gbps`,
+      `[NetFlow v9 / IPFIX] 實時校準全網鏈路即時頻寬與連線負載 (目前平均負載 ${avgLinkUtil}%)`,
+      `[WhatsUp Auto-Map] 已產出最新階層式網路拓撲圖與 ${networkDevices.length} 筆資產清冊 (本次新納管 ${newlyDiscovered} 台設備)`
     ];
 
+    const scannedAt = new Date().toISOString();
     latestScanJob = {
       inProgress: false,
       progressPct: 100,
-      lastScannedAt: new Date().toISOString(),
+      lastScannedAt: scannedAt,
       subnet,
       logs
     };
 
+    if (broadcastUpdate) {
+      broadcastUpdate({
+        type: 'network_scan_completed',
+        discoveredDevicesCount: networkDevices.length,
+        activeConnectionsCount: liveConnections.length
+      });
+    }
+
     res.json({
       success: true,
-      message: '全網拓撲與主機探針掃描已成功執行完成',
+      message: `全網自動發現完成：已掃描並產出 ${networkDevices.length} 台設備與 ${liveConnections.length} 條即時流量連線拓撲`,
       subnet,
       discoveredDevicesCount: networkDevices.length,
-      activeConnectionsCount: networkConnections.length,
+      newlyDiscoveredCount: newlyDiscovered,
+      activeConnectionsCount: liveConnections.length,
+      discoverySummary: {
+        subnet,
+        scannedAt,
+        totalDevices: networkDevices.length,
+        newlyDiscovered,
+        totalLinks: liveConnections.length,
+        totalTrafficGbps: Number(totalTrafficGbps),
+        protocolsUsed: ['ICMP/ARP', 'LLDP 802.1AB', 'CDP', 'SNMPv3', 'NetFlow v9']
+      },
       logs,
       devices: networkDevices,
-      connections: networkConnections,
+      connections: liveConnections,
       kpiStats: calculateKpiStats()
     });
   });
@@ -1206,23 +1530,26 @@ export function createNetworkRouter(broadcastUpdate?: (data: any) => void) {
 
   // 10. POST /api/v1/network/reset
   router.post('/reset', (req: Request, res: Response) => {
-    networkDevices.forEach(d => {
-      if (d.id === 'ws-sec-7') {
-        d.status = 'warning';
-        d.vlan = 10;
-      } else {
-        d.status = 'online';
-        if (d.vlan === 999) {
-          d.vlan = d.type === 'server' ? 20 : (d.type === 'switch' ? 1 : 10);
-        }
-      }
-    });
+    networkDevices = _templateDevices.map(d => ({
+      ...d,
+      openPorts: d.openPorts ? [...d.openPorts] : [],
+      software: d.software ? [...d.software] : [],
+      processes: d.processes ? [...d.processes] : [],
+      cveAlerts: d.cveAlerts ? [...d.cveAlerts] : []
+    }));
+    networkConnections = _templateConnections.map(c => ({ ...c }));
+
+    const liveConnections = enrichConnectionsWithLiveTraffic(
+      networkConnections,
+      networkDevices,
+      globalFlowCollectorEngine.getFlows()
+    );
 
     res.json({
       success: true,
       message: '網路設備狀態與拓撲矩陣已重置回標準基準線',
       devices: networkDevices,
-      connections: networkConnections,
+      connections: liveConnections,
       kpiStats: calculateKpiStats()
     });
   });
