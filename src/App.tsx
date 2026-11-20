@@ -7386,7 +7386,7 @@ function HoneypotMapView() {
                       y={-15} 
                       style={{ fontFamily: "Inter", fill: "#fff", fontSize: "10px", fontWeight: "bold", textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}
                     >
-                      Local Node (T-Pot)
+                      Local Node (SEMOR-POT)
                     </text>
                   </Marker>
                 </ComposableMap>
@@ -7440,7 +7440,7 @@ function HoneypotMapView() {
               </div>
 
               <div className="bg-[#111114] border border-gray-800 rounded-xl p-6">
-                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">T-Pot Engine Status</h3>
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">SEMOR-POT Engine Status</h3>
                 <div className="space-y-4">
                   {honeypotStats.map((stat) => (
                     <div key={stat.name} className="p-3 bg-gray-900/50 border border-gray-800 rounded-lg">
@@ -7469,9 +7469,9 @@ function HoneypotMapView() {
             <div className="bg-red-600/20 p-4 rounded-full border border-red-500/30 mb-6">
               <Crosshair className="w-12 h-12 text-red-500" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">T-Pot Deception Platform</h3>
+            <h3 className="text-xl font-bold text-white mb-2">SEMOR-POT Deception Platform</h3>
             <p className="text-gray-400 max-w-md text-sm leading-relaxed">
-              T-Pot is an all-in-one honeypot platform. It combines more than 20 honeypots with the ELK stack for visualization and analysis.
+              SEMOR-POT is an all-in-one honeypot platform. It combines more than 20 honeypots with the ELK stack for visualization and analysis.
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-12 w-full max-w-2xl">
               {['Cowrie', 'Dionaea', 'HoneyTrap', 'Mailoney', 'Adbhoney', 'Conpot', 'Elasticpot', 'Snare'].map(hp => (
@@ -7503,7 +7503,7 @@ function HoneypotMapView() {
         <div className="flex bg-gray-900 p-1 rounded-xl border border-gray-800 overflow-x-auto custom-scrollbar">
           {[
             { id: 'map', label: 'Attack Map', icon: <Globe className="w-3.5 h-3.5" /> },
-            { id: 'honeypot', label: 'T-Pot Engines', icon: <Crosshair className="w-3.5 h-3.5" /> },
+            { id: 'honeypot', label: 'SEMOR-POT Engines', icon: <Crosshair className="w-3.5 h-3.5" /> },
           ].map((tab) => (
             <button
               key={tab.id}

@@ -682,7 +682,7 @@ export function createEngineMonitoringRouter() {
     },
     {
       id: 'tpot',
-      name: 'T-POT',
+      name: 'SEMOR-POT',
       category: 'misc',
       categoryLabel: '工具與周邊系統',
       status: 'active',

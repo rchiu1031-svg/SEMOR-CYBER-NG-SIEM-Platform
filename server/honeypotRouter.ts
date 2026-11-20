@@ -61,7 +61,7 @@ export function createHoneypotRouter() {
     }
   ];
 
-  // 1. T-Pot Platform Status & Health
+  // 1. SEMOR-POT Platform Status & Health
   router.get('/tpot-status', (req: Request, res: Response) => {
     const summary = tpotEngine.getTelemetrySummary();
     const containers = tpotEngine.getContainers();
@@ -69,7 +69,7 @@ export function createHoneypotRouter() {
 
     res.json({
       success: true,
-      platform: 'T-Pot Multi-Honeypot Framework',
+      platform: 'SEMOR-POT Multi-Honeypot Framework',
       version: summary.tpotVersion,
       status: summary.platformHealth,
       elasticStatus: summary.elasticClusterStatus,
@@ -175,7 +175,7 @@ export function createHoneypotRouter() {
 
     res.json({
       success: true,
-      message: `已向 T-Pot 蜜罐平台成功發送模擬入侵流量 (${simulatedEvent.honeypot} - ${simulatedEvent.attackType})`,
+      message: `已向 SEMOR-POT 蜜罐平台成功發送模擬入侵流量 (${simulatedEvent.honeypot} - ${simulatedEvent.attackType})`,
       event: simulatedEvent
     });
   });
@@ -192,7 +192,7 @@ export function createHoneypotRouter() {
   router.get('/ioc/export', (req: Request, res: Response) => {
     const format = (req.query.format as any) || 'suricata';
     const rules = tpotEngine.exportIocRules(format);
-    res.setHeader('Content-Disposition', `attachment; filename="tpot_ioc_${format}.${format === 'stix' ? 'json' : 'rules'}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="semor_pot_ioc_${format}.${format === 'stix' ? 'json' : 'rules'}"`);
     res.setHeader('Content-Type', format === 'stix' ? 'application/json' : 'text/plain');
     res.send(rules);
   });

@@ -262,7 +262,7 @@ class TPotEngine {
     this.sensorNodes = [
       {
         id: 'node-central-taipei',
-        name: 'TPOT-HIVE-CENTRAL (Taipei HQ)',
+        name: 'SEMOR-POT-HIVE-CENTRAL (Taipei HQ)',
         location: 'Taipei, Taiwan',
         lat: 25.0330,
         lng: 121.5654,
@@ -278,7 +278,7 @@ class TPotEngine {
       },
       {
         id: 'node-sensor-tokyo',
-        name: 'TPOT-SENSOR-APAC (Tokyo Edge)',
+        name: 'SEMOR-POT-SENSOR-APAC (Tokyo Edge)',
         location: 'Tokyo, Japan',
         lat: 35.6762,
         lng: 139.6503,
@@ -294,7 +294,7 @@ class TPotEngine {
       },
       {
         id: 'node-sensor-frankfurt',
-        name: 'TPOT-SENSOR-EU (Frankfurt Cloud)',
+        name: 'SEMOR-POT-SENSOR-EU (Frankfurt Cloud)',
         location: 'Frankfurt, Germany',
         lat: 50.1109,
         lng: 8.6821,
@@ -310,7 +310,7 @@ class TPotEngine {
       },
       {
         id: 'node-sensor-oregon',
-        name: 'TPOT-SENSOR-US-WEST (Oregon AWS)',
+        name: 'SEMOR-POT-SENSOR-US-WEST (Oregon AWS)',
         location: 'Portland, OR, USA',
         lat: 45.5152,
         lng: -122.6784,
@@ -326,7 +326,7 @@ class TPotEngine {
       },
       {
         id: 'node-sensor-singapore',
-        name: 'TPOT-SENSOR-ASEAN (Singapore DMZ)',
+        name: 'SEMOR-POT-SENSOR-ASEAN (Singapore DMZ)',
         location: 'Singapore, SG',
         lat: 1.3521,
         lng: 103.8198,
@@ -447,7 +447,7 @@ class TPotEngine {
         countryCode: 'RU',
         blockedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
         reason: 'Cowrie SSH automated dictionary spray & Mirai dropper download attempt',
-        blockedBy: 'T-Pot Automated NAC / Firewall Response Policy',
+        blockedBy: 'SEMOR-POT Automated NAC / Firewall Response Policy',
         honeypotTrap: 'Cowrie (node-central-taipei)',
         attacksCountBeforeBlock: 142,
         nacSyncStatus: 'SYNCED_NAC_AND_FW' as const
@@ -650,14 +650,14 @@ class TPotEngine {
     const existingAtk = this.liveAttacks.find(a => a.sourceIp === ip);
     const country = existingAtk ? existingAtk.sourceGeo.country : 'Unknown Country';
     const countryCode = existingAtk ? existingAtk.sourceGeo.countryCode : 'XX';
-    const honeypot = existingAtk ? `${existingAtk.honeypot} (${existingAtk.targetNodeName})` : 'T-Pot Edge Trap';
+    const honeypot = existingAtk ? `${existingAtk.honeypot} (${existingAtk.targetNodeName})` : 'SEMOR-POT Edge Trap';
 
     const record: BlockedAttackerRecord = {
       ip,
       country,
       countryCode,
       blockedAt: new Date().toISOString(),
-      reason: reason || 'T-Pot 蜜罐誘捕惡意行為，已觸發自動化 NAC 隔離與邊界防火牆黑洞阻斷',
+      reason: reason || 'SEMOR-POT 蜜罐誘捕惡意行為，已觸發自動化 NAC 隔離與邊界防火牆黑洞阻斷',
       blockedBy,
       honeypotTrap: honeypot,
       attacksCountBeforeBlock: Math.floor(Math.random() * 40) + 12,
@@ -774,14 +774,14 @@ class TPotEngine {
     const blocked = Array.from(this.blockedAttackers.values());
     if (format === 'suricata' || format === 'snort') {
       return blocked.map((b, index) => 
-        `alert ip ${b.ip} any -> $HOME_NET any (msg:"T-POT IOC Auto-Block [${b.countryCode}] - ${b.reason.slice(0, 40)}"; sid:${9000000 + index}; rev:1; classtype:trojan-activity; priority:1;)`
+        `alert ip ${b.ip} any -> $HOME_NET any (msg:"SEMOR-POT IOC Auto-Block [${b.countryCode}] - ${b.reason.slice(0, 40)}"; sid:${9000000 + index}; rev:1; classtype:trojan-activity; priority:1;)`
       ).join('\n');
     }
 
     // STIX 2.1 format
     return JSON.stringify({
       type: "bundle",
-      id: `bundle--tpot-${Date.now()}`,
+      id: `bundle--semor-pot-${Date.now()}`,
       objects: blocked.map(b => ({
         type: "indicator",
         id: `indicator--${b.ip.replace(/\./g, '-')}`,

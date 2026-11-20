@@ -164,10 +164,10 @@ export const MODULES: ModuleInfo[] = [
     id: 'honeypot-map',
     name: 'Honeypot & Attack Map',
     nameZh: '誘捕與攻擊地圖',
-    description: 'Active Deception: T-Pot (20+ honeypots) and real-time global attack visualization.',
-    descriptionZh: '主動誘捕防禦：整合 T-Pot (20+ 蜜罐引擎) 與即時全球攻擊視覺化地圖。',
+    description: 'Active Deception: SEMOR-POT (20+ honeypots) and real-time global attack visualization.',
+    descriptionZh: '主動誘捕防禦：整合 SEMOR-POT (20+ 蜜罐引擎) 與即時全球攻擊視覺化地圖。',
     category: 'INTEL',
-    engines: ['T-Pot', 'Cowrie', 'Dionaea', 'HoneyTrap'],
+    engines: ['SEMOR-POT', 'Cowrie', 'Dionaea', 'HoneyTrap'],
     icon: 'Map'
   },
   {

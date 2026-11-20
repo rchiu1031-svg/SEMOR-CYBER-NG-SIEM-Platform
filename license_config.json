@@ -1,5 +1,5 @@
 {
-  "savedAt": "2026-10-27T08:46:28.134Z",
+  "savedAt": "2026-11-20T10:38:44.883Z",
   "license": {
     "licenseKey": "SEMOR-ENT-2026-8841-9923-SEC8",
     "tier": "Enterprise",
@@ -12,12 +12,12 @@
       "contractId": "CTR-2026-TW-CIP-9011",
       "country": "Taiwan (ROC)"
     },
-    "hardwareFingerprint": "HWID-E5FC-C0D1-98EB-EE81",
+    "hardwareFingerprint": "HWID-F597-6B4E-BBA3-7EFB",
     "isNodeLocked": false,
     "issuedDate": "2026-01-01T00:00:00Z",
     "expiryDate": "2028-12-31T23:59:59.000Z",
     "gracePeriodDays": 14,
-    "daysRemaining": 730,
+    "daysRemaining": 773,
     "maxNodes": 500,
     "currentNodes": 142,
     "nodeBreakdown": {
@@ -27,22 +27,22 @@
         "description": "主控中樞 HA 集群節點"
       },
       "workerNodes": {
-        "active": 4,
+        "active": 8,
         "max": 8,
         "description": "日誌解析與關聯運算 Worker"
       },
       "flowSensors": {
-        "active": 12,
+        "active": 21,
         "max": 25,
         "description": "全流量深包檢測 (DPI) 探針"
       },
       "endpointAgents": {
-        "active": 110,
+        "active": 95,
         "max": 400,
         "description": "EDR/FIM 主機微代理"
       },
       "otProbes": {
-        "active": 15,
+        "active": 17,
         "max": 65,
         "description": "工控 Purdue 隔離邊界安全探針"
       }
@@ -63,7 +63,6 @@
       "industrial",
       "intel",
       "malware-analysis",
-      "ndr-analytics",
       "soar",
       "ueba-investigation",
       "vulnerability",
@@ -79,14 +78,22 @@
     },
     "issuer": "SEMOR GLOBAL ENTITLEMENT ROOT CA",
     "certificateSerial": "CERT-SN-89F1-44B7-A189",
-    "lastVerifiedAt": "2026-10-27T08:46:28.133Z",
-    "lastSyncAt": "2026-10-27T08:46:28.133Z",
-    "digitalSignature": "D1926AA27616609C81D7CA24745CAE8FBC141C3B2BD7806AA9CC6E71B202D913"
+    "lastVerifiedAt": "2026-11-20T10:37:46.439Z",
+    "lastSyncAt": "2026-11-20T10:38:44.883Z",
+    "digitalSignature": "54D26D5C80DDA1438B09F49EBFECDC9FBDDA2168D4C5F8EB16BAD0E2CA69192B"
   },
   "auditLogs": [
     {
-      "id": "AUD-1793090788134-01",
-      "timestamp": "2026-10-27T08:46:28.134Z",
+      "id": "AUD-1795171105253",
+      "timestamp": "2026-11-20T10:38:25.253Z",
+      "action": "QUOTA_SYNC",
+      "operator": "Sync Agent",
+      "details": "與叢集底層同步節點數量：目前活躍 142 / 配額上限 500",
+      "status": "SUCCESS"
+    },
+    {
+      "id": "AUD-1795171066439-01",
+      "timestamp": "2026-11-20T10:37:46.439Z",
       "action": "INITIALIZE",
       "operator": "System Kernel",
       "details": "平台授權引擎初始化成功，載入企業旗艦版 (Enterprise) 憑證，簽章校驗通過。",

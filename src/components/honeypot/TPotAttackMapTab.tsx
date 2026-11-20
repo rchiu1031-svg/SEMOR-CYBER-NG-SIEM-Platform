@@ -32,10 +32,8 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react';
-import { ComposableMap, Geographies, Geography, Marker, Line as MapLine } from 'react-simple-maps';
 import { cn } from '../../lib/utils';
-
-const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+import McAfeeThreatMapCanvas, { type ThreatMapAttack, type ThreatMapNode } from './McAfeeThreatMapCanvas';
 
 export interface GeoLocation {
   city: string;
@@ -264,7 +262,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
     try {
       const reason = eventObj 
         ? `${eventObj.honeypot} 蜜罐捕獲: ${eventObj.attackType} (${eventObj.payloadSummary.slice(0, 50)})`
-        : 'T-Pot 攻擊地圖分析師主動封鎖惡意探針';
+        : 'SEMOR-POT 攻擊地圖分析師主動封鎖惡意探針';
 
       const res = await fetch('/api/v1/honeypot/block-attacker', {
         method: 'POST',
@@ -318,24 +316,30 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
     }
   };
 
-  // Handle Manual Attack Simulation
-  const handleTriggerSimulation = async () => {
+  // Handle Manual Attack Simulation (supports direct overrides from quick buttons)
+  const handleTriggerSimulation = async (overrides?: {
+    countryCode?: string;
+    honeypot?: 'Cowrie' | 'Dionaea' | 'Conpot' | 'Tanner' | 'Log4pot';
+    targetNodeId?: string;
+    severity?: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  }) => {
     setSimSubmitting(true);
     try {
+      const payload = {
+        countryCode: overrides?.countryCode ?? simCountry,
+        honeypot: overrides?.honeypot ?? simHoneypot,
+        targetNodeId: overrides?.targetNodeId ?? simTargetNode,
+        severity: overrides?.severity ?? simSeverity
+      };
       const res = await fetch('/api/v1/honeypot/simulate-attack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          countryCode: simCountry,
-          honeypot: simHoneypot,
-          targetNodeId: simTargetNode,
-          severity: simSeverity
-        })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.success) {
         playAlertSound('danger');
-        if (onNotify) onNotify(`已成功向 T-Pot 注入模擬流量: ${data.event.attackType}`, 'warning');
+        if (onNotify) onNotify(`已成功向 SEMOR-POT 注入模擬流量: ${data.event.attackType}`, 'warning');
         await fetchAttackMapData();
         setShowSimulatorModal(false);
       }
@@ -429,7 +433,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-black text-white font-mono tracking-tight">
-                    T-POT 24.04-HEXA 全球即時攻擊地圖 (Attack Map)
+                    SEMOR-POT 24.04-HEXA 全球即時攻擊地圖 (Attack Map)
                   </h2>
                   <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -437,7 +441,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                   </span>
                 </div>
                 <p className="text-xs text-gray-400 font-mono mt-0.5">
-                  Deutsche Telekom T-Pot 多層級蜜罐集群 • Cowrie, Dionaea, Conpot, Tanner, Log4pot, Honeytrap, Suricata IDS 實時關聯
+                  SEMOR-POT 多層級分散式蜜罐集群 • Cowrie, Dionaea, Conpot, Tanner, Log4pot, Honeytrap, Suricata IDS 實時關聯
                 </p>
               </div>
             </div>
@@ -591,18 +595,18 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
       {/* 2. MAIN BATTLEFIELD CANVAS: 2-COLUMN VIEW (MAP ON LEFT, LIVE FEED ON RIGHT) */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         
-        {/* LEFT COLUMN: INTERACTIVE T-POT WORLD ATTACK MAP (8 COLS) */}
+        {/* LEFT COLUMN: INTERACTIVE SEMOR-POT WORLD ATTACK MAP (8 COLS) */}
         <div className="xl:col-span-8 bg-[#0c0f16] border border-gray-850 rounded-2xl p-5 relative overflow-hidden flex flex-col justify-between shadow-2xl">
           {/* Header & Map Filters */}
           <div className="flex flex-wrap items-center justify-between gap-3 pb-3 mb-3 border-b border-gray-850">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[#FF3366] animate-ping"></span>
               <h3 className="text-xs font-black font-mono uppercase tracking-wider text-white">
-                T-Pot Global Infiltration Corridor (全球攻擊航道視覺化)
+                SEMOR-POT Global Infiltration Corridor (全球攻擊航道視覺化)
               </h3>
             </div>
 
-            {/* Filter Pills */}
+            {/* Filter Controls */}
             <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
               <span className="text-gray-500 mr-1 text-[10px]">蜜罐過濾:</span>
               {['All', 'Cowrie', 'Dionaea', 'Conpot', 'Tanner', 'Log4pot', 'Honeytrap'].map(hp => (
@@ -622,129 +626,61 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
             </div>
           </div>
 
-          {/* Map Visualizer Area */}
-          <div className="bg-black/70 rounded-xl border border-gray-850/80 p-2 relative min-h-[440px] flex items-center justify-center overflow-hidden">
-            <ComposableMap 
-              projectionConfig={{ scale: 195, center: [20, 15] }}
-              className="w-full h-full max-h-[500px]"
-            >
-              <Geographies geography={GEO_URL}>
-                {({ geographies }) =>
-                  geographies.map((geo) => (
-                    <Geography
-                      key={geo.rsmKey}
-                      geography={geo}
-                      fill="#121620"
-                      stroke="#222b3b"
-                      strokeWidth={0.5}
-                      style={{
-                        default: { outline: "none" },
-                        hover: { fill: "#1c2333", outline: "none" },
-                        pressed: { outline: "none" },
-                      }}
-                    />
-                  ))
-                }
-              </Geographies>
+          {/* McAfee-Style 60fps Animated Global Threat Map Visualizer */}
+          <div className="relative">
+            <McAfeeThreatMapCanvas
+              nodes={nodes.map((n): ThreatMapNode => ({
+                id: n.id,
+                name: n.name.replace(/TPOT-/gi, 'SEMOR-POT-'),
+                location: n.location,
+                lat: n.lat,
+                lng: n.lng,
+                type: n.type,
+                status: n.status,
+                attacksCapturedCount: n.attacksCapturedCount,
+              }))}
+              attacks={filteredAttacks.slice(0, 28).map((atk): ThreatMapAttack => ({
+                id: atk.id,
+                sourceIp: atk.sourceIp,
+                sourceCity: atk.sourceGeo.city,
+                sourceCountry: atk.sourceGeo.country,
+                sourceCountryCode: atk.sourceGeo.countryCode,
+                sourceLat: atk.sourceGeo.lat,
+                sourceLng: atk.sourceGeo.lng,
+                targetNodeId: atk.targetNodeId,
+                targetNodeName: atk.targetNodeName.replace(/TPOT-/gi, 'SEMOR-POT-'),
+                targetLat: atk.targetGeo.lat,
+                targetLng: atk.targetGeo.lng,
+                honeypot: atk.honeypot,
+                protocol: atk.protocol,
+                attackType: atk.attackType,
+                severity: atk.severity,
+                isBlocked: atk.actionTaken === 'BLOCKED_BY_NAC',
+                timestamp: atk.timestamp,
+                payloadSummary: atk.payloadSummary,
+              }))}
+              isPlaying={isPlaying}
+              velocity={velocity}
+              compact={false}
+              heightClassName="h-[460px] lg:h-[500px]"
+              focusedAttackId={focusedAttack?.id ?? null}
+              focusedNodeId={focusedNode?.id ?? null}
+              legendTitle="SEMOR-POT 攻擊向量航道圖例"
+              onSelectAttack={(mapped) => {
+                const found = attacks.find((a) => a.id === mapped.id);
+                if (found) setFocusedAttack(found);
+              }}
+              onSelectNode={(mapped) => {
+                const found = nodes.find((n) => n.id === mapped.id);
+                if (found) setFocusedNode(found);
+              }}
+            />
 
-              {/* Dynamic Attack Lines Flying from Source to Target */}
-              {filteredAttacks.slice(0, 20).map((atk) => {
-                const strokeColor = getHoneypotColor(atk.honeypot);
-                const isBlocked = atk.actionTaken === 'BLOCKED_BY_NAC';
-                return (
-                  <MapLine
-                    key={atk.id}
-                    from={[atk.sourceGeo.lng, atk.sourceGeo.lat]}
-                    to={[atk.targetGeo.lng, atk.targetGeo.lat]}
-                    stroke={isBlocked ? "#64748B" : strokeColor}
-                    strokeWidth={atk.severity === 'CRITICAL' ? 1.8 : 1.2}
-                    strokeLinecap="round"
-                    strokeDasharray={isBlocked ? "3,3" : atk.severity === 'CRITICAL' ? "none" : "4,2"}
-                    className={cn(!isBlocked && "animate-pulse")}
-                  />
-                );
-              })}
-
-              {/* Target Honey Hive & Sensor Node Markers */}
-              {nodes.map(node => (
-                <Marker 
-                  key={node.id} 
-                  coordinates={[node.lng, node.lat]}
-                  onClick={() => setFocusedNode(node)}
-                >
-                  <circle r={node.type === 'HIVE' ? 7 : 5} fill="#10B981" className="animate-ping opacity-75" />
-                  <circle r={node.type === 'HIVE' ? 5 : 3.5} fill="#10B981" stroke="#ffffff" strokeWidth={1.5} />
-                  <text 
-                    textAnchor="middle" 
-                    y={-10} 
-                    className="text-[8px] font-mono fill-emerald-300 font-bold pointer-events-none select-none drop-shadow"
-                  >
-                    {node.type === 'HIVE' ? '★ TAIPEI HIVE' : node.name.split(' ')[0].replace('TPOT-SENSOR-', '')}
-                  </text>
-                </Marker>
-              ))}
-
-              {/* Source Attack Origin Markers */}
-              {filteredAttacks.slice(0, 25).map((atk) => {
-                const markerColor = getHoneypotColor(atk.honeypot);
-                const isBlocked = atk.actionTaken === 'BLOCKED_BY_NAC';
-
-                return (
-                  <Marker
-                    key={`src-${atk.id}`}
-                    coordinates={[atk.sourceGeo.lng, atk.sourceGeo.lat]}
-                    onClick={() => setFocusedAttack(atk)}
-                    className="cursor-pointer group"
-                  >
-                    <circle 
-                      r={atk.severity === 'CRITICAL' ? 4 : 3} 
-                      fill={isBlocked ? "#64748B" : markerColor} 
-                      stroke="#ffffff"
-                      strokeWidth={0.7}
-                      className={cn(!isBlocked && atk.severity === 'CRITICAL' && "animate-ping")}
-                    />
-                  </Marker>
-                );
-              })}
-            </ComposableMap>
-
-            {/* Map Legend Overlay */}
-            <div className="absolute left-3 bottom-3 bg-black/85 backdrop-blur-md border border-gray-800 rounded-xl p-3 text-[10px] font-mono space-y-1.5 z-10 select-none shadow-xl">
-              <span className="text-gray-400 font-bold uppercase tracking-wider block mb-1">蜜罐攻擊協議走廊圖例</span>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#10B981] ring-2 ring-emerald-500/20"></span>
-                <span className="text-gray-200">T-Pot 誘捕節點 (HIVE / Edge Sensors)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444]"></span>
-                <span className="text-gray-200">Dionaea SMB / MS17-010 / 惡意 Payload</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#F97316]"></span>
-                <span className="text-gray-200">Cowrie SSH / Telnet 密碼爆破</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]"></span>
-                <span className="text-gray-200">Conpot 工控 SCADA Modbus 探針</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#A855F7]"></span>
-                <span className="text-gray-200">Tanner Web / SQLi 注入探針</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#EC4899]"></span>
-                <span className="text-gray-200">Log4pot JNDI 漏洞試探 (CVE-2021-44228)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#64748B]"></span>
-                <span className="text-gray-400">已由 NAC 阻斷隔離的來源</span>
-              </div>
-            </div>
-
-            {/* Quick Action Floating Widget */}
-            <div className="absolute right-3 top-3 bg-black/80 backdrop-blur-md border border-gray-800 rounded-xl px-3 py-2 text-[10px] font-mono text-gray-300 flex items-center gap-2 z-10 shadow-lg">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>分散式探針在線: <b>{nodes.filter(n => n.status === 'ONLINE').length} / {nodes.length}</b></span>
+            {/* Online Distributed Sensors Badge */}
+            <div className="pointer-events-none absolute right-3 top-3 bg-[#050914]/85 backdrop-blur-md border border-slate-800 rounded-xl px-3 py-1.5 text-[10px] font-mono text-gray-300 flex items-center gap-2 z-10 shadow-lg">
+              <span className="text-emerald-400 font-bold">ONLINE</span>
+              <span className="text-slate-600">·</span>
+              <span>分散式探針在線: <b className="text-white tabular-nums">{nodes.filter(n => n.status === 'ONLINE').length} / {nodes.length}</b></span>
             </div>
           </div>
 
@@ -760,7 +696,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                   setSimCountry('RU');
                   setSimHoneypot('Cowrie');
                   setSimSeverity('CRITICAL');
-                  handleTriggerSimulation();
+                  handleTriggerSimulation({ countryCode: 'RU', honeypot: 'Cowrie', severity: 'CRITICAL' });
                 }}
                 disabled={simSubmitting}
                 className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white flex items-center gap-1"
@@ -772,7 +708,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                   setSimCountry('CN');
                   setSimHoneypot('Tanner');
                   setSimSeverity('HIGH');
-                  handleTriggerSimulation();
+                  handleTriggerSimulation({ countryCode: 'CN', honeypot: 'Tanner', severity: 'HIGH' });
                 }}
                 disabled={simSubmitting}
                 className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white flex items-center gap-1"
@@ -784,7 +720,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                   setSimCountry('US');
                   setSimHoneypot('Dionaea');
                   setSimSeverity('CRITICAL');
-                  handleTriggerSimulation();
+                  handleTriggerSimulation({ countryCode: 'US', honeypot: 'Dionaea', severity: 'CRITICAL' });
                 }}
                 disabled={simSubmitting}
                 className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white flex items-center gap-1"
@@ -796,7 +732,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                   setSimCountry('KP');
                   setSimHoneypot('Conpot');
                   setSimSeverity('CRITICAL');
-                  handleTriggerSimulation();
+                  handleTriggerSimulation({ countryCode: 'KP', honeypot: 'Conpot', severity: 'CRITICAL' });
                 }}
                 disabled={simSubmitting}
                 className="px-2.5 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 hover:text-white flex items-center gap-1"
@@ -947,7 +883,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                 <div className="flex items-center gap-2 mb-2">
                   <Server size={14} className="text-emerald-400" />
                   <span className="text-xs uppercase font-mono font-black text-white">
-                    T-Pot 誘捕節點詳情
+                    SEMOR-POT 誘捕節點詳情
                   </span>
                 </div>
                 <div className="space-y-2 text-xs font-mono">
@@ -1083,7 +1019,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
               </div>
               <div>
                 <h3 className="text-base font-black text-white font-mono">
-                  T-Pot 蜜罐突襲演練控制器 (War Gaming Injector)
+                  SEMOR-POT 蜜罐突襲演練控制器 (War Gaming Injector)
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
                   手動模擬全球 APT 威脅或殭屍網路入侵，驗證蜜罐誘捕與阻斷聯動
@@ -1170,7 +1106,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
               </button>
               <button
                 type="button"
-                onClick={handleTriggerSimulation}
+                onClick={() => handleTriggerSimulation()}
                 disabled={simSubmitting}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-red-900/30"
               >
@@ -1202,7 +1138,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
                   NAC & 邊界防火牆主動阻斷庫 ({blockedList.length})
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
-                  所有經由 T-Pot 誘捕後下發自動隔離阻斷的惡意 IP 清單
+                  所有經由 SEMOR-POT 誘捕後下發自動隔離阻斷的惡意 IP 清單
                 </p>
               </div>
             </div>
@@ -1278,7 +1214,7 @@ export default function TPotAttackMapTab({ onNotify, synthSoundEnabled = true }:
               </div>
               <div>
                 <h3 className="text-base font-black text-white font-mono">
-                  T-Pot 容器服務狀態矩陣 (Honeypot Daemons)
+                  SEMOR-POT 容器服務狀態矩陣 (Honeypot Daemons)
                 </h3>
                 <p className="text-xs text-gray-400 font-mono">
                   管理 Docker Compose 誘捕守護進程，即時重置各埠口監聽監控

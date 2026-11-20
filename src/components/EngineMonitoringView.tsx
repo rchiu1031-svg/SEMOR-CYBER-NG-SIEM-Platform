@@ -146,7 +146,7 @@ export default function EngineMonitoringView({ isReadOnly = false }: EngineMonit
       thehive: 'TheHive',
       opencve: 'OpenCVE',
       lab_dfir_soc: 'Lab-DFIR-SOC',
-      tpot: 'T-POT'
+      tpot: 'SEMOR-POT'
     };
     return map[id] || id.charAt(0).toUpperCase() + id.slice(1);
   };
