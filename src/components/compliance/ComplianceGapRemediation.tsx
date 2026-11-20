@@ -1,21 +1,23 @@
-import React, { useState } from 'react';
-import { RemediationTask, Severity, FrameworkId } from './types';
+import React, { useState, useEffect } from 'react';
+import { RemediationTask, Severity } from './types';
 import { cn } from '../../lib/utils';
 import {
-  AlertTriangle, CheckCircle2, Clock, Play, UserCheck, ShieldAlert,
-  Search, Filter, HardDrive, Check, ExternalLink, ArrowRight
+  CheckCircle2, Clock, Play, UserCheck,
+  Search, HardDrive, Check
 } from 'lucide-react';
 
 interface ComplianceGapRemediationProps {
   tasks: RemediationTask[];
   isZh: boolean;
-  onRunAction?: (task: RemediationTask) => void;
+  onRunAction?: (task: RemediationTask) => Promise<void> | void;
+  onResolveTask?: (taskId: string) => Promise<void> | void;
 }
 
 export const ComplianceGapRemediation: React.FC<ComplianceGapRemediationProps> = ({
   tasks: initialTasks,
   isZh,
-  onRunAction
+  onRunAction,
+  onResolveTask
 }) => {
   const [tasks, setTasks] = useState<RemediationTask[]>(initialTasks);
   const [filterFramework, setFilterFramework] = useState<string>('ALL');
@@ -23,24 +25,31 @@ export const ComplianceGapRemediation: React.FC<ComplianceGapRemediationProps> =
   const [searchQuery, setSearchQuery] = useState('');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
-  const handleResolve = (taskId: string) => {
+  useEffect(() => {
+    setTasks(initialTasks);
+  }, [initialTasks]);
+
+  const handleResolve = async (taskId: string) => {
     setTasks(prev =>
       prev.map(t => (t.id === taskId ? { ...t, status: 'Resolved' } : t))
     );
+    if (onResolveTask) {
+      await onResolveTask(taskId);
+    }
     const notice = isZh
-      ? `工單 ${taskId} 已標記為處置完成，將於下次 WORM 週期進行自動重測核實。`
-      : `Task ${taskId} marked as resolved. Automated verification will occur on next audit cycle.`;
+      ? `工單 ${taskId} 已標記為處置完成，合規分數已即時重算並寫入 WORM 存證鏈。`
+      : `Task ${taskId} resolved. Compliance score recalculated and sealed to WORM ledger.`;
     setActionNotice(notice);
     setTimeout(() => setActionNotice(null), 4000);
   };
 
-  const handleRunPlaybook = (task: RemediationTask) => {
-    if (onRunAction) {
-      onRunAction(task);
-    }
+  const handleRunPlaybook = async (task: RemediationTask) => {
     setTasks(prev =>
       prev.map(t => (t.id === task.id ? { ...t, status: 'In-Progress' } : t))
     );
+    if (onRunAction) {
+      await onRunAction(task);
+    }
     const notice = isZh
       ? `已執行修復劇本 [${task.playbookId || '自動化修補'}] 針對資產 ${task.affectedAsset}`
       : `Executed playbook [${task.playbookId || 'Auto-Patch'}] for asset ${task.affectedAsset}`;

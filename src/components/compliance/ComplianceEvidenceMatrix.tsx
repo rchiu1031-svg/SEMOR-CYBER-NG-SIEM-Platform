@@ -93,7 +93,7 @@ export const ComplianceEvidenceMatrix: React.FC<ComplianceEvidenceMatrixProps> =
         );
       case 'Violated':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/20">
             <ShieldAlert size={11} />
             {isZh ? '未達標違規' : 'Violated'}
           </span>

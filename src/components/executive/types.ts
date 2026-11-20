@@ -1,6 +1,31 @@
+import type {
+  FrameworkId,
+  ComplianceFrameworkMeta,
+  ComplianceControl,
+  WormLedgerRecord,
+  RemediationTask
+} from '../compliance/types';
+
 export type ExecutiveTimeRange = '7d' | '30d' | '90d' | '365d';
 
-export type ExecutivePersona = 'ciso' | 'ceo' | 'cfo' | 'board';
+export type ExecutivePersona = 'cto' | 'board' | 'ceo' | 'cfo' | 'ciso';
+
+export interface CtoTechPillar {
+  id: string;
+  nameZh: string;
+  nameEn: string;
+  domain: string;
+  score: number;
+  target: number;
+  status: 'optimal' | 'warning' | 'critical';
+  keyMetricLabelZh: string;
+  keyMetricLabelEn: string;
+  keyMetricValue: string;
+  owner: string;
+  summaryZh: string;
+  summaryEn: string;
+  linkedFrameworks: FrameworkId[];
+}
 
 export interface BusinessServiceHealth {
   id: string;
@@ -66,6 +91,8 @@ export interface ExecutiveApprovalItem {
   businessImpact: string;
   affectedEntities: string[];
   status: 'pending' | 'approved' | 'rejected';
+  decidedBy?: string;
+  decidedAt?: string;
 }
 
 export interface ExecutiveTrendDataPoint {
@@ -76,4 +103,76 @@ export interface ExecutiveTrendDataPoint {
   mttrMinutes: number;
   riskIndex: number;
   lossesPreventedUsd: number;
+}
+
+export interface AssetCoverageItem {
+  id: string;
+  labelZh: string;
+  labelEn: string;
+  coveragePct: number;
+  standard: string;
+  nodeCount: number;
+}
+
+export interface CtoOverviewMetrics {
+  healthIndex: number;
+  healthIndexDelta: number;
+  healthGrade: string;
+  valueAtRiskUsd: number;
+  valueAtRiskDelta: number;
+  industryPeerAvgVaR: number;
+  deflectionRatio: number;
+  analystHoursSaved: number;
+  costSavingsUsd: number;
+  mttdMinutes: number;
+  mttdIndustryMinutes: number;
+  mttrMinutes: number;
+  mttrIndustryMinutes: number;
+  businessUptime: number;
+  criticalIncidentsActive: number;
+  unresolvedHighRisks: number;
+  sbomSignedCoverage: number;
+  pqcReadinessPct: number;
+  zeroTrustAdoptionPct: number;
+  totalWormBlocks: number;
+}
+
+export interface ComplianceSummaryMetrics {
+  averageScore: number;
+  totalControls: number;
+  totalPassed: number;
+  totalWarnings: number;
+  totalViolations: number;
+  pendingApprovalsCount: number;
+}
+
+export interface CtoBriefingResponse {
+  persona: ExecutivePersona;
+  generatedAt: string;
+  customPromptApplied: string | null;
+  title: string;
+  targetAudience: string;
+  summaryText: string;
+  highlights: string[];
+  actionItems: string[];
+}
+
+export interface CtoGovernanceOverviewResponse {
+  success?: boolean;
+  lastUpdated: string;
+  overviewMetrics: CtoOverviewMetrics;
+  techPillars: CtoTechPillar[];
+  activeTimeRange: ExecutiveTimeRange;
+  activeTrends: ExecutiveTrendDataPoint[];
+  businessServices: BusinessServiceHealth[];
+  departmentRisks: DepartmentRisk[];
+  financialExposure: FinancialCyberRisk;
+  strategicRoadmap: StrategicRoadmapItem[];
+  approvals: ExecutiveApprovalItem[];
+  frameworks: ComplianceFrameworkMeta[];
+  controls: ComplianceControl[];
+  wormLedger: WormLedgerRecord[];
+  remediationTasks: RemediationTask[];
+  assetCoverage: AssetCoverageItem[];
+  complianceSummary: ComplianceSummaryMetrics;
 }

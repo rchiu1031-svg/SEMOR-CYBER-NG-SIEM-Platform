@@ -10,21 +10,26 @@ import {
   YAxis,
   Tooltip
 } from 'recharts';
-import { ShieldCheck, TrendingDown, DollarSign, Activity } from 'lucide-react';
+import { ShieldCheck, DollarSign, Activity } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useTheme } from '../../context/ThemeContext';
 import { ExecutiveTimeRange, ExecutiveTrendDataPoint } from './types';
 import { TREND_DATA_7D, TREND_DATA_30D, TREND_DATA_90D } from './executiveData';
 
 interface ExecutiveTrendChartProps {
   timeRange: ExecutiveTimeRange;
   isZh: boolean;
+  data?: ExecutiveTrendDataPoint[];
 }
 
-export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProps) {
+export function ExecutiveTrendChart({ timeRange, isZh, data: externalData }: ExecutiveTrendChartProps) {
+  const { isLight } = useTheme();
   const [chartMode, setChartMode] = useState<'threats' | 'financial'>('threats');
 
   const data: ExecutiveTrendDataPoint[] =
-    timeRange === '7d'
+    externalData && externalData.length > 0
+      ? externalData
+      : timeRange === '7d'
       ? TREND_DATA_7D
       : timeRange === '30d'
       ? TREND_DATA_30D
@@ -33,15 +38,26 @@ export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProp
   const totalAttacks = data.reduce((acc, d) => acc + d.attacksDetected, 0);
   const totalNeutralized = data.reduce((acc, d) => acc + d.threatsNeutralized, 0);
   const totalLossesPrevented = data.reduce((acc, d) => acc + d.lossesPreventedUsd, 0);
+  const deflectionPct = totalAttacks > 0 ? ((totalNeutralized / totalAttacks) * 100).toFixed(1) : '100.0';
+
+  const gridStroke = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.06)';
+  const axisTickColor = isLight ? '#475569' : '#9ca3af';
+  const tooltipStyle = {
+    backgroundColor: isLight ? '#ffffff' : '#111114',
+    borderColor: isLight ? '#cbd5e1' : 'rgba(255,255,255,0.12)',
+    color: isLight ? '#0f172a' : '#f8fafc',
+    borderRadius: '0.75rem',
+    boxShadow: '0 10px 25px -5px rgba(0,0,0,0.2)'
+  };
 
   return (
-    <div className="bg-[#111114] border border-white/5 rounded-3xl p-6 lg:p-8 shadow-xl space-y-6">
+    <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Activity size={18} className="text-blue-500" />
+            <Activity size={17} className="text-blue-500 shrink-0" />
             <h3 className="text-base font-black text-white tracking-tight">
-              {isZh ? '戰略威脅趨勢與財務風險避險成效' : 'Strategic Threat Velocity & Financial Loss Mitigation'}
+              {isZh ? '戰略威脅攔截趨勢與財務風險避險成效' : 'Strategic Threat Velocity & Financial Loss Mitigation'}
             </h3>
           </div>
           <p className="text-xs text-gray-400 mt-1">
@@ -52,15 +68,15 @@ export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProp
         </div>
 
         {/* View Toggle */}
-        <div className="flex items-center gap-1.5 p-1 bg-black/40 border border-white/5 rounded-2xl shrink-0">
+        <div className="flex items-center gap-1 p-1 bg-black/40 border border-white/10 rounded-xl shrink-0">
           <button
             type="button"
             onClick={() => setChartMode('threats')}
             className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all",
+              'px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap',
               chartMode === 'threats'
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                : "text-gray-400 hover:text-white"
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-400 hover:text-white'
             )}
           >
             {isZh ? '威脅與防禦攔截 (件數)' : 'Threats vs Defended'}
@@ -69,10 +85,10 @@ export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProp
             type="button"
             onClick={() => setChartMode('financial')}
             className={cn(
-              "px-3 py-1.5 rounded-xl text-xs font-bold transition-all",
+              'px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap',
               chartMode === 'financial'
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
-                : "text-gray-400 hover:text-white"
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-400 hover:text-white'
             )}
           >
             {isZh ? '預期財務避險 (USD)' : 'Losses Averted ($)'}
@@ -81,78 +97,67 @@ export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProp
       </div>
 
       {/* Snapshot Summary Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-black/30 border border-white/5 rounded-2xl">
-        <div className="flex items-center justify-between sm:justify-start gap-4">
-          <div>
-            <span className="text-[10px] uppercase font-mono text-gray-500 block">
-              {isZh ? '區間總偵測威脅' : 'Attacks Detected'}
-            </span>
-            <span className="text-xl font-black font-mono text-white">
-              {totalAttacks.toLocaleString()}
-            </span>
-          </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-3 px-4 bg-black/30 border border-white/5 rounded-xl">
+        <div>
+          <span className="text-[10px] uppercase font-mono text-gray-400 block">
+            {isZh ? '區間總偵測威脅' : 'Attacks Detected'}
+          </span>
+          <span className="text-xl font-black font-mono tabular-nums text-white">
+            {totalAttacks.toLocaleString()}
+          </span>
         </div>
 
-        <div className="flex items-center justify-between sm:justify-start gap-4 sm:border-l sm:border-white/5 sm:pl-4">
-          <div>
-            <span className="text-[10px] uppercase font-mono text-gray-500 block">
-              {isZh ? '自動中和處置率' : 'Neutralized Deflection'}
-            </span>
-            <span className="text-xl font-black font-mono text-emerald-400 flex items-center gap-1.5">
-              <ShieldCheck size={18} />
-              {((totalNeutralized / totalAttacks) * 100).toFixed(1)}%
-            </span>
-          </div>
+        <div className="sm:border-l sm:border-white/10 sm:pl-4">
+          <span className="text-[10px] uppercase font-mono text-gray-400 block">
+            {isZh ? '自動中和處置率' : 'Neutralized Deflection'}
+          </span>
+          <span className="text-xl font-black font-mono tabular-nums text-emerald-400 flex items-center gap-1.5">
+            <ShieldCheck size={17} />
+            {deflectionPct}%
+          </span>
         </div>
 
-        <div className="flex items-center justify-between sm:justify-start gap-4 sm:border-l sm:border-white/5 sm:pl-4">
-          <div>
-            <span className="text-[10px] uppercase font-mono text-gray-500 block">
-              {isZh ? '避險財務總值' : 'Prevented Loss Value'}
-            </span>
-            <span className="text-xl font-black font-mono text-blue-400 flex items-center gap-1">
-              <DollarSign size={16} />
-              ${(totalLossesPrevented / 1000000).toFixed(2)}M
-            </span>
-          </div>
+        <div className="sm:border-l sm:border-white/10 sm:pl-4">
+          <span className="text-[10px] uppercase font-mono text-gray-400 block">
+            {isZh ? '避險財務總值' : 'Prevented Loss Value'}
+          </span>
+          <span className="text-xl font-black font-mono tabular-nums text-blue-400 flex items-center gap-1">
+            <DollarSign size={16} />
+            ${(totalLossesPrevented / 1000000).toFixed(2)}M
+          </span>
         </div>
       </div>
 
       {/* Main Chart Area */}
-      <div className="h-72 w-full pt-2">
+      <div className="h-72 w-full pt-1">
         <ResponsiveContainer width="100%" height="100%">
           {chartMode === 'threats' ? (
             <AreaChart data={data}>
               <defs>
                 <linearGradient id="colorAttacks" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="colorBlocked" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.28} />
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
               <XAxis
                 dataKey="date"
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }}
+                tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 600 }}
                 dy={8}
               />
               <YAxis
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }}
+                tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 600 }}
               />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: '#111114',
-                  borderColor: 'rgba(255,255,255,0.1)',
-                  borderRadius: '1rem',
-                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)'
-                }}
+                contentStyle={tooltipStyle}
                 itemStyle={{ fontSize: 12, fontWeight: 700 }}
               />
               <Area
@@ -176,18 +181,18 @@ export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProp
             </AreaChart>
           ) : (
             <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ffffff08" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
               <XAxis
                 dataKey="date"
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }}
+                tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 600 }}
                 dy={8}
               />
               <YAxis
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }}
+                tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 600 }}
                 tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
               />
               <Tooltip
@@ -195,17 +200,13 @@ export function ExecutiveTrendChart({ timeRange, isZh }: ExecutiveTrendChartProp
                   `$${Number(value).toLocaleString()} USD`,
                   isZh ? '預估避險金額' : 'Losses Averted'
                 ]}
-                contentStyle={{
-                  backgroundColor: '#111114',
-                  borderColor: 'rgba(255,255,255,0.1)',
-                  borderRadius: '1rem'
-                }}
+                contentStyle={tooltipStyle}
               />
               <Bar
                 name={isZh ? '預估避險金額 (USD)' : 'Losses Averted'}
                 dataKey="lossesPreventedUsd"
                 fill="#3b82f6"
-                radius={[8, 8, 0, 0]}
+                radius={[6, 6, 0, 0]}
               />
             </BarChart>
           )}

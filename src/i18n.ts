@@ -4,7 +4,14 @@ import en from './locales/en.json';
 import zh from './locales/zh.json';
 import ja from './locales/ja.json';
 
-const savedLng = typeof window !== 'undefined' ? (localStorage.getItem('i18nextLng') || 'zh') : 'zh';
+let savedLng = 'zh';
+try {
+  if (typeof window !== 'undefined') {
+    savedLng = localStorage.getItem('i18nextLng') || 'zh';
+  }
+} catch {
+  savedLng = 'zh';
+}
 
 i18n
   .use(initReactI18next)

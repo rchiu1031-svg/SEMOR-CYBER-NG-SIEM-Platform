@@ -108,8 +108,8 @@ export const OverviewMetricCards: React.FC<OverviewMetricCardsProps> = ({
 
               {/* Sparkline Visual Bar */}
               <div className="mt-3 pt-2 border-t border-gray-900 flex items-end gap-1 h-4">
-                {metric.sparkline.map((val, idx) => {
-                  const max = Math.max(...metric.sparkline);
+                {(metric.sparkline || []).map((val, idx) => {
+                  const max = Math.max(1, ...(metric.sparkline || [1]));
                   const heightPercent = Math.max(20, Math.round((val / max) * 100));
                   return (
                     <div

@@ -37,6 +37,8 @@ import { createPlatformPerformanceRouter } from './server/platformPerformanceRou
 import { createActiveDefenseRouter } from './server/activeDefenseRouter.ts';
 import { createLicenseRouter } from './server/licenseRouter.ts';
 import { createAiGatewayRouter } from './server/aiGatewayRouter.ts';
+import { createCtoGovernanceRouter } from './server/ctoGovernanceRouter.ts';
+import { globalCtoGovernanceEngine } from './server/ctoGovernanceEngine.ts';
 import { globalFingerbankEngine } from './server/signatureUpdateEngine.ts';
 import { globalFlowCollectorEngine } from './server/flowCollectorEngine.ts';
 import { globalCollectorMemoryManager } from './server/collectorMemoryManager.ts';
@@ -2180,6 +2182,13 @@ async function startServer() {
     aiGatewayRouter(req, res, next);
   });
 
+  // Unified CTO Governance, Executive Risk & Continuous Compliance Router
+  const ctoGovernanceRouter = createCtoGovernanceRouter();
+  app.use('/api/v1/cto-governance', ctoGovernanceRouter);
+  app.use('/api/cto-governance', ctoGovernanceRouter);
+  app.use('/api/v1/executive', ctoGovernanceRouter);
+  app.use('/api/v1/compliance', ctoGovernanceRouter);
+
   // Discovered Assets & Inventory API (Dynamic store for physical network scans)
   let discoveredAssets: any[] = [];
   app.get('/api/v1/assets', (req, res) => {
@@ -2222,6 +2231,9 @@ async function startServer() {
 
       // 10. Cyber Threat Intelligence (CTI Indicators & Enforcement)
       globalCtiEngine.purgeData();
+
+      // 10b. Reset CTO Governance & Compliance Baseline
+      globalCtoGovernanceEngine.resetBaseline();
 
       // 10. Clear SIEM runtime log corpus & file
       runtimeLogCorpus = [];

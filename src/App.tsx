@@ -212,7 +212,6 @@ import { MalwareAnalysisView } from './components/malware/MalwareAnalysisView';
 import { VulnerabilityView } from './components/vulnerability/VulnerabilityView';
 import { SOARFIMView } from './components/soar/fim/SOARFIMView';
 import { CustomVisibilityView } from './components/visualization/CustomVisibilityView';
-import { ComplianceCenterView } from './components/compliance/ComplianceCenterView';
 import { ExecutiveDashboardView } from './components/executive/ExecutiveDashboardView';
 import { OverviewDashboardView } from './components/overview/OverviewDashboardView';
 import { CustomDashboardView } from './components/custom-dashboard/CustomDashboardView';
@@ -1996,7 +1995,7 @@ export default function App() {
       case 'executive-insights':
         return <ExecutiveDashboardView setActiveTab={setActiveTab} />;
       case 'compliance-center':
-        return <ComplianceCenterView />;
+        return <ExecutiveDashboardView setActiveTab={setActiveTab} initialSection="compliance" />;
       case 'settings':
         return <SettingsView activeSubTab={activeSettingsTab} setActiveSubTab={setActiveSettingsTab} currentUser={user} />;
       default:
@@ -2053,14 +2052,8 @@ export default function App() {
           >
             <SidebarSubItem 
               label={t('modules.executive')} 
-              active={activeTab === 'executive-insights'} 
+              active={activeTab === 'executive-insights' || activeTab === 'compliance-center'} 
               onClick={() => setActiveTab('executive-insights')}
-              collapsed={!isSidebarOpen}
-            />
-            <SidebarSubItem 
-              label={t('modules.compliance_center')} 
-              active={activeTab === 'compliance-center'} 
-              onClick={() => setActiveTab('compliance-center')}
               collapsed={!isSidebarOpen}
             />
             <SidebarSubItem 
@@ -7867,13 +7860,23 @@ function SettingsView({ activeSubTab, setActiveSubTab, currentUser }: { activeSu
   const [isSyncing, setIsSyncing] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [geminiApiKey, setGeminiApiKey] = useState(() => {
+    try {
+      return typeof window !== 'undefined' ? (localStorage.getItem('gemini_api_key') || '') : '';
+    } catch {
+      return '';
+    }
+  });
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
 
   const isReadOnly = currentUser.role === 'auditor' || currentUser.role === 'viewer';
 
   const handleSaveGeminiKey = () => {
-    localStorage.setItem('gemini_api_key', geminiApiKey);
+    try {
+      localStorage.setItem('gemini_api_key', geminiApiKey);
+    } catch {
+      // ignore storage errors in restricted iframes
+    }
     const notification = document.createElement('div');
     notification.className = 'fixed bottom-8 right-8 bg-green-600 text-white px-6 py-3 rounded-xl shadow-2xl z-[1000] font-bold text-sm animate-bounce';
     notification.innerHTML = 'Gemini API Configuration Saved Successfully';
