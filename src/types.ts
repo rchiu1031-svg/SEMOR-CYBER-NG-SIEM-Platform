@@ -22,23 +22,13 @@ export const MODULES: ModuleInfo[] = [
   },
   {
     id: 'flow',
-    name: 'SEMOR Flow (NDR)',
-    nameZh: 'SEMOR 流量分析 (NDR)',
-    description: 'Network Detection & Response: Full Packet Capture (FPC), High-speed Indexing, and PCAP Forensics (Arkime-style).',
-    descriptionZh: '網路偵測與回應：全封包側錄 (FPC)、高速索引與 PCAP 鑑識 (Arkime 模式)。',
+    name: 'SEMOR Flow & Alert Analytics (NDR)',
+    nameZh: '流量分析與告警中心 (NDR)',
+    description: 'Unified Network Detection & Response: Full Packet Capture (FPC), PCAP Forensics, Suricata IDS, DPI, and Multi-Dimensional Traffic Alert Analytics.',
+    descriptionZh: '整合式網路偵測與回應：結合全封包側錄 (FPC)、PCAP 鑑識、Suricata IDS、DPI 分析與多維度流量告警下鑽處置。',
     category: 'NDR',
-    engines: ['Arkime', 'Suricata', 'Zeek', 'VictoriaLogs'],
+    engines: ['Arkime', 'Suricata', 'Zeek', 'Interflow', 'VictoriaLogs'],
     icon: 'Activity'
-  },
-  {
-    id: 'ndr-analytics',
-    name: 'NDR Alert Analytics',
-    nameZh: 'NDR 流量告警分析 (Alert Analytics)',
-    description: 'Visualize network traffic alert distributions (severity, protocol, geo-origin) with deep-dive rule inspection and rapid response.',
-    descriptionZh: '視覺化全網流量告警分佈（嚴重性、通訊協定、地理來源），支援深入下鑽違規規則細節與即時應急處置。',
-    category: 'NDR',
-    engines: ['Suricata', 'Zeek', 'Recharts', 'Interflow'],
-    icon: 'BarChart2'
   },
   {
     id: 'endpoint',

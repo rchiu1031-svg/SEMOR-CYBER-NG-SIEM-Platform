@@ -141,8 +141,7 @@ const ALL_MODULES = [
   'honeypot-map',
   'ueba-investigation',
   'wargaming',
-  'correlation-summary',
-  'ndr-analytics'
+  'correlation-summary'
 ];
 
 export class LicenseEngine {
@@ -409,7 +408,7 @@ export class LicenseEngine {
       tierName = 'Professional Defense Suite (專業防禦版)';
       modules = [
         'discovery', 'flow', 'endpoint', 'case-management', 'gateway', 'fim',
-        'intel', 'malware-analysis', 'vulnerability', 'correlation-summary', 'ndr-analytics'
+        'intel', 'malware-analysis', 'vulnerability', 'correlation-summary'
       ];
     } else if (cleanKey.includes('COM') || cleanKey.includes('COMMUNITY')) {
       tier = 'Community';
@@ -588,7 +587,7 @@ export class LicenseEngine {
       defEps = 8000;
       modules = [
         'discovery', 'flow', 'endpoint', 'case-management', 'gateway', 'fim',
-        'intel', 'malware-analysis', 'vulnerability', 'correlation-summary', 'ndr-analytics'
+        'intel', 'malware-analysis', 'vulnerability', 'correlation-summary'
       ];
     } else if (tier === 'Community') {
       keyPrefix = 'SEMOR-COM';

@@ -554,7 +554,12 @@ export const siemService = {
     return response.data;
   },
 
-  // --- NDR Alert Analytics & Rule Drilldown API ---
+  // --- Unified NDR Traffic & Alert Analytics API ---
+  async getUnifiedNdrOverview() {
+    const response = await axios.get('/api/v1/ndr/unified/overview');
+    return response.data;
+  },
+
   async getNdrAlertAnalytics(params?: {
     timeRange?: string;
     severity?: string;

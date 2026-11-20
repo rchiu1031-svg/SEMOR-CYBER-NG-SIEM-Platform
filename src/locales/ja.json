@@ -49,8 +49,8 @@
     "ccs_usage": "CCS使用率"
   },
   "modules": {
-    "flow": "フロー分析 (NDR)",
-    "ndr-analytics": "NDR アラート分析",
+    "flow": "トラフィック・アラート分析 (NDR)",
+    "ndr-analytics": "トラフィック・アラート分析 (NDR)",
     "endpoint": "オープン XDR (EDR/XDR)",
     "ingest": "データ取り込み",
     "discovery": "ログ検索",

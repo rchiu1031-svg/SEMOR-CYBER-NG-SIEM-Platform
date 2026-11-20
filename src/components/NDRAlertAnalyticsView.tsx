@@ -125,7 +125,21 @@ interface AnalyticsData {
   alerts: NdrAlertItem[];
 }
 
-export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => void }> = ({ onNavigateToRuleSettings }) => {
+export interface NDRAlertAnalyticsViewProps {
+  embedded?: boolean;
+  onNavigateToRuleSettings?: () => void;
+  onDataMutated?: () => void;
+  onInspectFlowIp?: (ip: string, proto?: string) => void;
+  onInspectDpiPayload?: (payload: string, proto: string, srcIp: string, dstIp: string, srcPort: number, dstPort: number) => void;
+}
+
+export const NDRAlertAnalyticsView: React.FC<NDRAlertAnalyticsViewProps> = ({
+  embedded = false,
+  onNavigateToRuleSettings,
+  onDataMutated,
+  onInspectFlowIp,
+  onInspectDpiPayload
+}) => {
   const { t, i18n } = useTranslation();
   const isZh = i18n.language.startsWith('zh');
 
@@ -201,8 +215,9 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
         if (inspectedAlert && inspectedAlert.id === alertId) {
           setInspectedAlert(res.alert);
         }
-        // Refresh data quietly
+        // Refresh data quietly & notify parent unified NDR view
         fetchData(true);
+        onDataMutated?.();
       }
     } catch (err: any) {
       console.error('Mitigation failed:', err);
@@ -224,11 +239,12 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
         setIsSimulatingModalOpen(false);
         setMitigationFeedback(
           isZh
-            ? `已成功模擬注入流量違規事件: ${res.alert.id} (${res.alert.ruleName})`
-            : `Simulated traffic violation injected: ${res.alert.id} (${res.alert.ruleName})`
+            ? `已成功模擬注入流量違規事件: ${res.alert.id} (${res.alert.ruleName})，並同步至 PCAP 與 Suricata 串流`
+            : `Simulated traffic violation injected: ${res.alert.id} (${res.alert.ruleName}), synced to PCAP & Suricata`
         );
         setTimeout(() => setMitigationFeedback(null), 5000);
         await fetchData(true);
+        onDataMutated?.();
       }
     } catch (err) {
       console.error('Simulation error:', err);
@@ -279,7 +295,7 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6 space-y-6 font-sans">
+    <div className={cn(embedded ? 'space-y-6 font-sans text-slate-100' : 'min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6 space-y-6 font-sans')}>
       {/* Top Banner / Feedback Alert */}
       {mitigationFeedback && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-3 bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 px-4 py-3 rounded-lg shadow-xl shadow-emerald-950/40 backdrop-blur-md animate-in slide-in-from-top-4">
@@ -292,23 +308,25 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
       )}
 
       {/* Header Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-4 border-b border-slate-800">
+      <div className={cn('flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4', embedded ? 'bg-[#111114] border border-gray-800/80 rounded-2xl p-4' : 'pb-4 border-b border-slate-800')}>
         <div>
-          <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 uppercase tracking-wider mb-1">
-            <span>NDR Flow Security</span>
-            <ChevronRight className="w-3 h-3 text-slate-600" />
-            <span>Traffic Telemetry</span>
-            <ChevronRight className="w-3 h-3 text-slate-600" />
-            <span className="text-cyan-300 font-semibold">{isZh ? '流量告警多維分析' : 'Alert Analytics'}</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
-            <BarChart2 className="w-7 h-7 text-cyan-400" />
-            {isZh ? 'NDR 流量告警分析與違規下鑽 (Alert Analytics)' : 'NDR Alert Analytics & Rule Drilldown'}
-          </h1>
+          {!embedded && (
+            <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 uppercase tracking-wider mb-1">
+              <span>NDR Flow Security</span>
+              <ChevronRight className="w-3 h-3 text-slate-600" />
+              <span>Traffic Telemetry</span>
+              <ChevronRight className="w-3 h-3 text-slate-600" />
+              <span className="text-cyan-300 font-semibold">{isZh ? '流量告警多維分析' : 'Alert Analytics'}</span>
+            </div>
+          )}
+          <h2 className={cn(embedded ? 'text-base' : 'text-2xl', 'font-bold tracking-tight text-white flex items-center gap-2.5')}>
+            <BarChart2 className={cn(embedded ? 'w-5 h-5' : 'w-7 h-7', 'text-cyan-400')} />
+            {isZh ? 'NDR 流量告警多維分析與違規下鑽 (Alert Analytics)' : 'NDR Alert Analytics & Rule Drilldown'}
+          </h2>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
             {isZh 
-              ? '視覺化全網網路流量告警之嚴重性、通訊協定與地理來源分佈，支援即時跨維度交叉下鑽與違規流量深度取證處置。' 
-              : 'Multi-dimensional visualization of network traffic alerts by severity, protocol, and geographical source with instant rule violation drilldown.'}
+              ? '視覺化全網網路流量告警之嚴重性、通訊協定與地理來源分佈，與封包鑑識 (PCAP)、Suricata IDS 及 DPI 控制台雙向即時連動。' 
+              : 'Multi-dimensional visualization of network traffic alerts correlated in real time with PCAP forensics, Suricata IDS, and DPI inspection.'}
           </p>
         </div>
 
@@ -1200,15 +1218,29 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
                       </div>
                     </td>
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setInspectedAlert(alert);
-                        }}
-                        className="px-2.5 py-1 rounded bg-slate-800 hover:bg-cyan-600 hover:text-white text-slate-300 text-xs font-medium transition-colors"
-                      >
-                        {isZh ? '深入取證' : 'Inspect'}
-                      </button>
+                      <div className="inline-flex items-center gap-1.5">
+                        {onInspectFlowIp && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onInspectFlowIp(alert.srcIp, alert.protocol);
+                            }}
+                            className="px-2 py-1 rounded bg-indigo-950/70 hover:bg-indigo-600 border border-indigo-700/50 text-indigo-300 hover:text-white text-xs font-medium transition-colors"
+                            title={isZh ? '直接跳轉至 PCAP 封包鑑識過濾此 IP 連線' : 'Jump to PCAP Forensics filtered by this IP'}
+                          >
+                            {isZh ? '追蹤 PCAP' : 'PCAP'}
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInspectedAlert(alert);
+                          }}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-cyan-600 hover:text-white text-slate-300 text-xs font-medium transition-colors"
+                        >
+                          {isZh ? '深入取證' : 'Inspect'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1359,9 +1391,30 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
 
               {/* Forensic Payload Snippet */}
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between gap-2 flex-wrap">
                   <span>{isZh ? '封包深層鑑識截圖 (DPI Forensic Payload)' : 'Deep Packet Inspection Payload'}</span>
-                  <span className="text-[11px] font-mono text-cyan-400">Hex / ASCII Preview</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-cyan-400">Hex / ASCII Preview</span>
+                    {onInspectDpiPayload && (
+                      <button
+                        onClick={() => {
+                          const target = inspectedAlert;
+                          setInspectedAlert(null);
+                          onInspectDpiPayload(
+                            target.payloadSnippet,
+                            target.protocol,
+                            target.srcIp,
+                            target.dstIp,
+                            target.srcPort,
+                            target.dstPort
+                          );
+                        }}
+                        className="px-2.5 py-1 rounded bg-purple-950/70 hover:bg-purple-600 border border-purple-700/60 text-purple-200 hover:text-white text-[11px] font-semibold transition-colors"
+                      >
+                        {isZh ? '送入 DPI 香農熵深層解析 →' : 'Open in DPI Console →'}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="bg-slate-900 p-3 rounded-lg border border-slate-800/80 font-mono text-xs text-emerald-400 leading-relaxed overflow-x-auto whitespace-pre-wrap">
                   {inspectedAlert.payloadSnippet}
@@ -1398,6 +1451,21 @@ export const NDRAlertAnalyticsView: React.FC<{ onNavigateToRuleSettings?: () => 
                     <Zap className="w-3.5 h-3.5" />
                     <span>{isZh ? '動態部署 Suricata 攔截特徵' : 'Deploy Suricata Signature'}</span>
                   </button>
+
+                  {onInspectFlowIp && (
+                    <button
+                      onClick={() => {
+                        const targetIp = inspectedAlert.srcIp;
+                        const targetProto = inspectedAlert.protocol;
+                        setInspectedAlert(null);
+                        onInspectFlowIp(targetIp, targetProto);
+                      }}
+                      className="px-3 py-2 rounded-lg bg-indigo-950/80 hover:bg-indigo-800 border border-indigo-700 text-indigo-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>{isZh ? '前往 PCAP 封包串流追蹤' : 'Trace PCAP Stream'}</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => handleMitigate(inspectedAlert.id, 'export_pcap', 'PCAP forensic stream dump requested')}

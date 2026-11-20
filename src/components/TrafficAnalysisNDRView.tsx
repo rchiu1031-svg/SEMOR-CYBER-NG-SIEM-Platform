@@ -411,12 +411,28 @@ const PROTOCOL_PIE = [
   { name: 'Others (ICMP/NTP)', value: 2, color: '#6b7280' }
 ];
 
-export default function TrafficAnalysisNDRView() {
+export type NdrSubTab = 'forensics' | 'suricata' | 'analytics' | 'topology' | 'heatmap' | 'bandwidth' | 'dpi' | 'c2_beacon' | 'replay';
+
+export interface TrafficAnalysisNDRViewProps {
+  initialTab?: NdrSubTab;
+  onNavigateToRuleSettings?: () => void;
+}
+
+export default function TrafficAnalysisNDRView({
+  initialTab = 'forensics',
+  onNavigateToRuleSettings
+}: TrafficAnalysisNDRViewProps) {
   const { i18n } = useTranslation();
   const isZh = i18n.language?.startsWith('zh') || i18n.language === 'zh';
 
   // Navigation Subtabs
-  const [activeTab, setActiveTab] = useState<'forensics' | 'suricata' | 'analytics' | 'topology' | 'heatmap' | 'bandwidth' | 'dpi' | 'c2_beacon' | 'replay'>('forensics');
+  const [activeTab, setActiveTab] = useState<NdrSubTab>(initialTab);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
   
   // Forensics states
   const [pcapFilterQuery, setPcapFilterQuery] = useState('');
@@ -431,6 +447,7 @@ export default function TrafficAnalysisNDRView() {
   const [liveSessions, setLiveSessions] = useState<TrafficSession[]>(SAMPLE_SESSIONS);
   const [liveAlerts, setLiveAlerts] = useState<SuricataAlert[]>(SURICATA_ALERTS);
   const [telemetry, setTelemetry] = useState<any>(null);
+  const [unifiedOverview, setUnifiedOverview] = useState<any>(null);
   const [suricataRulesStatus, setSuricataRulesStatus] = useState<any>(null);
   const [bandwidthHourly, setBandwidthHourly] = useState(BANDWIDTH_HOURLY);
   const [topTalkers, setTopTalkers] = useState(TOP_TALKERS);
@@ -469,8 +486,9 @@ export default function TrafficAnalysisNDRView() {
   // Real-time backend data polling & synchronization
   const fetchAllNdrData = async () => {
     try {
-      const [telemetryRes, sessionsRes, alertsRes, rulesRes, bandwidthRes, talkersRes, beaconRes, ja3Res] = await Promise.allSettled([
+      const [telemetryRes, unifiedRes, sessionsRes, alertsRes, rulesRes, bandwidthRes, talkersRes, beaconRes, ja3Res] = await Promise.allSettled([
         fetch('/api/v1/ndr/telemetry').then(r => r.ok ? r.json() : null),
+        fetch('/api/v1/ndr/unified/overview').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/sessions').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/suricata/alerts').then(r => r.ok ? r.json() : null),
         fetch('/api/v1/ndr/suricata/rules-status').then(r => r.ok ? r.json() : null),
@@ -485,6 +503,9 @@ export default function TrafficAnalysisNDRView() {
         if (telemetryRes.value.captureState) {
           setIsLiveCapture(telemetryRes.value.captureState.running);
         }
+      }
+      if (unifiedRes.status === 'fulfilled' && unifiedRes.value?.success) {
+        setUnifiedOverview(unifiedRes.value);
       }
       if (sessionsRes.status === 'fulfilled' && sessionsRes.value?.success && Array.isArray(sessionsRes.value.sessions)) {
         setLiveSessions(sessionsRes.value.sessions);
@@ -808,24 +829,34 @@ export default function TrafficAnalysisNDRView() {
               <Activity className="w-7 h-7 text-blue-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-black text-white tracking-wider">
-                  {isZh ? 'SEMOR Flow (NDR) 分散式網路流量與封包鑑識中心' : 'SEMOR Flow (NDR) Network Traffic & PCAP Forensics'}
+                  {isZh ? 'SEMOR Flow (NDR) 網路流量分析與告警中心' : 'SEMOR Flow (NDR) Unified Traffic & Alert Analytics'}
                 </h1>
                 <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 border border-blue-500/30 text-[10px] font-black rounded-md font-mono uppercase">
-                  Arkime + Suricata
+                  Arkime + Suricata + Alert Analytics
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-1">
                 {isZh 
-                  ? '全封包擷取 (Full Packet Capture)、高階協定還原、即時 Suricata IDS 威脅偵測與 NetFlow 會話鑑識' 
-                  : 'Full packet capture, deep protocol decoding, real-time Suricata IDS inspection, and NetFlow session analytics'}
+                  ? '整合全封包擷取 (FPC)、高階協定還原、Suricata IDS、多維度流量告警分佈下鑽與即時應急處置' 
+                  : 'Unified full packet capture, deep protocol decoding, Suricata IDS, and multi-dimensional traffic alert analytics & response'}
               </p>
             </div>
           </div>
 
           {/* Quick Engine Telemetry Status */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onNavigateToRuleSettings && (
+              <button
+                onClick={onNavigateToRuleSettings}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#111114] hover:bg-gray-800 border border-gray-800 rounded-xl text-xs font-bold text-gray-300 hover:text-white transition-colors"
+                title={isZh ? '前往設定 NDR 流量告警規則門檻' : 'Configure NDR alert rule thresholds'}
+              >
+                <Sliders size={14} className="text-cyan-400" />
+                <span>{isZh ? '告警規則門檻' : 'Alert Rules'}</span>
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('heatmap')}
               className={cn(
@@ -839,7 +870,7 @@ export default function TrafficAnalysisNDRView() {
               <Flame size={14} className="text-amber-400 animate-pulse" />
               <span>{isZh ? '24H 流量熱力圖' : '24h Heatmap'}</span>
               <span className="px-1.5 py-0.2 text-[10px] font-mono bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-full">
-                4 異常叢集
+                {isZh ? '4 異常叢集' : '4 Anomalies'}
               </span>
             </button>
             <button 
@@ -861,7 +892,7 @@ export default function TrafficAnalysisNDRView() {
           </div>
         </div>
 
-        {/* 4 Telemetry Metrics Cards */}
+        {/* 4 Unified Telemetry & Alert Analytics KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-[#111114] border border-gray-800/80 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
             <div className="flex items-center justify-between text-gray-400 text-xs">
@@ -903,41 +934,50 @@ export default function TrafficAnalysisNDRView() {
 
           <div className="bg-[#111114] border border-gray-800/80 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
             <div className="flex items-center justify-between text-gray-400 text-xs">
-              <span className="font-bold uppercase tracking-wider">{isZh ? '作用中連線 Session' : 'Active Flow Sessions'}</span>
+              <span className="font-bold uppercase tracking-wider">{isZh ? '作用中連線與隔離策略' : 'Active Flows & Isolation'}</span>
               <Network size={14} className="text-emerald-400" />
             </div>
             <div className="flex items-baseline justify-between mt-3">
               <span className="text-2xl font-black text-white font-mono">
                 {telemetry?.throughput?.activeFlows ? telemetry.throughput.activeFlows.toLocaleString() : '58,420'}
               </span>
-              <span className="text-xs font-bold text-emerald-400">+2,150/m</span>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-[10px] text-gray-500 border-t border-gray-800/60 pt-2 font-mono">
-              <span>{isZh ? 'TCP/UDP 追蹤表' : 'State Table'}</span>
-              <span className="text-emerald-400 font-bold">Optimal (98%)</span>
-            </div>
-          </div>
-
-          <div className="bg-[#111114] border border-gray-800/80 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
-            <div className="flex items-center justify-between text-gray-400 text-xs">
-              <span className="font-bold uppercase tracking-wider">{isZh ? 'Suricata 阻斷告警' : 'Threat Interceptions'}</span>
-              <ShieldAlert size={14} className="text-rose-400" />
-            </div>
-            <div className="flex items-baseline justify-between mt-3">
-              <span className="text-2xl font-black text-rose-400 font-mono">
-                {telemetry?.alertsSummary?.total ? `${telemetry.alertsSummary.total} Alerts` : `${liveAlerts.length} Alerts`}
-              </span>
-              <span className="text-xs font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
-                {telemetry?.alertsSummary?.critical ? `${telemetry.alertsSummary.critical} Critical` : `${liveAlerts.filter(a => a.severity === 'Critical').length} Critical`}
+              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 font-mono">
+                {unifiedOverview?.metrics?.isolatedHostsCount ?? telemetry?.analyticsSummary?.isolatedHostsCount ?? 2} {isZh ? '台隔離/阻斷' : 'Blocked'}
               </span>
             </div>
             <div className="mt-3 flex items-center justify-between text-[10px] text-gray-500 border-t border-gray-800/60 pt-2 font-mono">
-              <span>{isZh ? '儲存保留空間' : 'PCAP Storage'}</span>
+              <span>{isZh ? 'PCAP 保留空間' : 'PCAP Storage'}</span>
               <span className="text-gray-300 font-bold">
                 {telemetry?.storage ? `${telemetry.storage.usedTB} TB / ${telemetry.storage.totalTB} TB` : '14.2 TB / 20 TB'}
               </span>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('analytics')}
+            className="text-left bg-[#111114] hover:border-rose-500/50 border border-gray-800/80 rounded-2xl p-4 shadow-xl flex flex-col justify-between transition-colors group"
+            title={isZh ? '點擊立即切換至流量告警分析下鑽視圖' : 'Click to open NDR Alert Analytics drilldown'}
+          >
+            <div className="flex items-center justify-between text-gray-400 text-xs w-full">
+              <span className="font-bold uppercase tracking-wider group-hover:text-rose-300 transition-colors">
+                {isZh ? '流量告警與 Suricata 攔截' : 'Traffic Alerts & Suricata'}
+              </span>
+              <ShieldAlert size={14} className="text-rose-400" />
+            </div>
+            <div className="flex items-baseline justify-between mt-3 w-full">
+              <span className="text-2xl font-black text-rose-400 font-mono">
+                {(telemetry?.analyticsSummary?.totalAlerts ?? unifiedOverview?.metrics?.analyticsAlertsCount ?? liveAlerts.length)} {isZh ? '筆告警' : 'Alerts'}
+              </span>
+              <span className="text-xs font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 font-mono">
+                {(telemetry?.analyticsSummary?.activeThreats ?? unifiedOverview?.metrics?.activeThreatsCount ?? 0)} {isZh ? '待處置' : 'Active'}
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[10px] text-gray-500 border-t border-gray-800/60 pt-2 font-mono w-full">
+              <span>Suricata: {telemetry?.alertsSummary?.total ?? liveAlerts.length} ({telemetry?.alertsSummary?.critical ?? liveAlerts.filter(a => a.severity === 'Critical').length} Crit)</span>
+              <span className="text-cyan-400 font-bold group-hover:underline">{isZh ? '前往告警分析 →' : 'Open Analytics →'}</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -945,9 +985,9 @@ export default function TrafficAnalysisNDRView() {
       <div className="flex items-center justify-between border-b border-gray-800/80 pb-1 overflow-x-auto custom-scrollbar">
         <div className="flex items-center gap-2">
           {[
-            { id: 'forensics', label: isZh ? '🔬 封包鑑識與 PCAP 串流' : 'PCAP Forensics', icon: FileCode },
-            { id: 'suricata', label: isZh ? '🛡️ Suricata IDS & 威脅檢測' : 'Suricata IDS & Zeek', icon: Shield },
-            { id: 'analytics', label: isZh ? '🚨 NDR 告警分佈分析' : 'NDR Alert Analytics', icon: ShieldAlert },
+            { id: 'forensics', label: isZh ? '🔬 封包鑑識與 PCAP 串流' : 'PCAP Forensics', icon: FileCode, badge: liveSessions.length },
+            { id: 'analytics', label: isZh ? '🚨 流量告警分佈與下鑽分析' : 'Traffic Alert Analytics', icon: ShieldAlert, badge: telemetry?.analyticsSummary?.activeThreats ?? unifiedOverview?.metrics?.activeThreatsCount ?? 0, badgeDanger: true },
+            { id: 'suricata', label: isZh ? '🛡️ Suricata IDS & 威脅檢測' : 'Suricata IDS & Zeek', icon: Shield, badge: liveAlerts.length },
             { id: 'dpi', label: isZh ? '⚡ DPI 深層負載與香農熵分析' : 'DPI & Payload Entropy', icon: Bug },
             { id: 'c2_beacon', label: isZh ? '📡 C2 信標週期與 JA3 指紋庫' : 'C2 Jitter & JA3 TLS', icon: Fingerprint },
             { id: 'topology', label: isZh ? '🌐 即時連線流量拓撲' : 'Traffic Topology', icon: Network },
@@ -960,7 +1000,7 @@ export default function TrafficAnalysisNDRView() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as NdrSubTab)}
                 className={cn(
                   "px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                   isActive 
@@ -970,6 +1010,18 @@ export default function TrafficAnalysisNDRView() {
               >
                 <Icon size={14} />
                 <span>{tab.label}</span>
+                {typeof tab.badge === 'number' && tab.badge > 0 && (
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded-full text-[10px] font-mono leading-none",
+                    isActive
+                      ? "bg-white/20 text-white"
+                      : tab.badgeDanger
+                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                        : "bg-gray-800 text-gray-300"
+                  )}>
+                    {tab.badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1629,10 +1681,45 @@ export default function TrafficAnalysisNDRView() {
         </div>
       )}
 
-      {/* SUBTAB: 🚨 NDR 告警分佈與規則鑽取分析 (NDR ALERT ANALYTICS DASHBOARD) */}
+      {/* SUBTAB: 🚨 NDR 告警分佈與規則鑽取分析 (INTEGRATED NDR ALERT ANALYTICS DASHBOARD) */}
       {activeTab === 'analytics' && (
         <div className="pt-1">
-          <NDRAlertAnalyticsView />
+          <NDRAlertAnalyticsView
+            embedded={true}
+            onNavigateToRuleSettings={onNavigateToRuleSettings}
+            onDataMutated={() => {
+              fetchAllNdrData();
+            }}
+            onInspectFlowIp={(ip) => {
+              setPcapFilterQuery(ip);
+              setSelectedProtoFilter('ALL');
+              setSelectedThreatFilter('ALL');
+              const matched = liveSessions.find(s => s.src_ip === ip || s.dst_ip === ip);
+              if (matched) {
+                setExpandedSessionId(matched.id);
+              }
+              setActiveTab('forensics');
+              showToast(
+                isZh
+                  ? `已連動下鑽至封包鑑識串流，自動過濾目標 IP: ${ip}`
+                  : `Cross-filtered PCAP Forensics stream for IP: ${ip}`
+              );
+            }}
+            onInspectDpiPayload={(payload, proto, srcIp, dstIp, srcPort, dstPort) => {
+              setDpiPayloadInput(payload);
+              setDpiProtocolInput(proto === 'TLS/HTTPS' ? 'HTTPS' : proto);
+              setDpiSrcIpInput(srcIp);
+              setDpiDstIpInput(dstIp);
+              setDpiSrcPortInput(String(srcPort));
+              setDpiDstPortInput(String(dstPort));
+              setActiveTab('dpi');
+              showToast(
+                isZh
+                  ? `已將告警負載送入 DPI 香農熵與特徵碼深層解析控制台`
+                  : `Loaded alert payload into DPI & Entropy Console`
+              );
+            }}
+          />
         </div>
       )}
 

@@ -197,7 +197,6 @@ import { PlatformPerformanceView } from './components/PlatformPerformanceView';
 import { LicenseManagementView } from './components/LicenseManagementView';
 import NetworkMonitorView from './components/NetworkMonitorView';
 import TrafficAnalysisNDRView from './components/TrafficAnalysisNDRView';
-import NDRAlertAnalyticsView from './components/NDRAlertAnalyticsView';
 import OpenXDRView from './components/OpenXDRView';
 import CorrelationSummaryView from './components/CorrelationSummaryView';
 import CorrelationSettingView from './components/CorrelationSettingView';
@@ -1735,9 +1734,16 @@ export default function App() {
       case 'apm':
         return <APMView />;
       case 'flow':
-        return <TrafficAnalysisNDRView />;
       case 'ndr-analytics':
-        return <NDRAlertAnalyticsView onNavigateToRuleSettings={() => { setActiveTab('settings'); setActiveSettingsTab('ndr_alerts'); }} />;
+        return (
+          <TrafficAnalysisNDRView
+            initialTab={activeTab === 'ndr-analytics' ? 'analytics' : 'forensics'}
+            onNavigateToRuleSettings={() => {
+              setActiveTab('settings');
+              setActiveSettingsTab('ndr_alerts');
+            }}
+          />
+        );
       case 'endpoint':
         return <OpenXDRView />;
       case 'soar':
@@ -2108,11 +2114,11 @@ export default function App() {
             isExpanded={expandedGroups['collection'] !== false}
             onToggle={() => toggleGroup('collection')}
           >
-            {MODULES.filter(m => userCanSeeModule(m.id) && ['flow', 'ndr-analytics', 'endpoint', 'discovery'].includes(m.id)).map(module => (
+            {MODULES.filter(m => userCanSeeModule(m.id) && ['flow', 'endpoint', 'discovery'].includes(m.id)).map(module => (
               <SidebarSubItem 
                 key={module.id}
                 label={t(`modules.${module.id}`)} 
-                active={activeTab === module.id} 
+                active={activeTab === module.id || (module.id === 'flow' && activeTab === 'ndr-analytics')} 
                 onClick={() => setActiveTab(module.id)}
                 collapsed={!isSidebarOpen}
               />

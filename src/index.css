@@ -243,7 +243,13 @@ body.theme-light {
 .theme-light .bg-\[\#1b1b22\],
 .theme-light .bg-\[\#1e1e24\],
 .theme-light .bg-\[\#050507\],
-.theme-light .bg-\[\#040406\] {
+.theme-light .bg-\[\#040406\],
+.theme-light .bg-\[\#09180f\],
+.theme-light .bg-\[\#1e1b4b\],
+.theme-light .bg-\[\#3b0764\],
+.theme-light .bg-\[\#451a03\],
+.theme-light [class*="bg-[#0"]:not([class*="00FF66"]):not([class*="00ff66"]):not([class*="00e65c"]):not([class*="0284c7"]):not([class*="0ea5e9"]):not([class*="059669"]),
+.theme-light [class*="bg-[#1"]:not([class*="1d4ed8"]):not([class*="10b981"]) {
   background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
 }
@@ -257,121 +263,46 @@ body.theme-light {
 .theme-light .bg-slate-950,
 .theme-light .bg-zinc-900,
 .theme-light .bg-zinc-950,
+.theme-light .bg-neutral-900,
+.theme-light .bg-neutral-950,
 .theme-light [class*="bg-gray-900/"],
 .theme-light [class*="bg-gray-950/"],
 .theme-light [class*="bg-slate-900/"],
-.theme-light [class*="bg-slate-950/"] {
+.theme-light [class*="bg-slate-950/"],
+.theme-light [class*="bg-zinc-900/"],
+.theme-light [class*="bg-zinc-950/"] {
   background-color: #f8fafc !important;
   border-color: #e2e8f0 !important;
 }
 
-/* Segmented control tracks & slightly darker sub-panels */
+/* Segmented control tracks, ghost surfaces & slightly darker sub-panels */
 .theme-light .bg-gray-800,
 .theme-light [class*="bg-gray-800/"],
 .theme-light .bg-gray-850,
-.theme-light [class*="bg-gray-850/"] {
+.theme-light [class*="bg-gray-850/"],
+.theme-light .bg-slate-800,
+.theme-light [class*="bg-slate-800/"],
+.theme-light .bg-zinc-800,
+.theme-light [class*="bg-zinc-800/"],
+.theme-light .bg-white\/5,
+.theme-light .bg-white\/10,
+.theme-light .bg-white\/\[0\.02\],
+.theme-light .bg-white\/\[0\.03\],
+.theme-light .bg-white\/\[0\.04\],
+.theme-light .bg-white\/\[0\.05\],
+.theme-light .bg-white\/\[0\.06\],
+.theme-light .bg-white\/\[0\.08\] {
   background-color: #f1f5f9 !important;
   border-color: #e2e8f0 !important;
 }
 
-/* Preserve solid colored buttons, status indicators, badges, and gradient buttons */
-.theme-light .bg-blue-600,
-.theme-light .bg-blue-500,
-.theme-light .bg-blue-700,
-.theme-light .bg-red-600,
-.theme-light .bg-red-500,
-.theme-light .bg-red-700,
-.theme-light .bg-emerald-600,
-.theme-light .bg-emerald-500,
-.theme-light .bg-purple-600,
-.theme-light .bg-purple-500,
-.theme-light .bg-cyan-600,
-.theme-light .bg-cyan-500,
-.theme-light .bg-amber-600,
-.theme-light .bg-amber-500,
-.theme-light .bg-rose-600,
-.theme-light .bg-rose-500,
-.theme-light [class*="bg-gradient-"],
-.theme-light [class*="from-blue-"],
-.theme-light [class*="from-purple-"],
-.theme-light [class*="from-red-"],
-.theme-light [class*="from-rose-"],
-.theme-light [class*="from-emerald-"],
-.theme-light [class*="from-cyan-"],
-.theme-light [class*="from-indigo-"] {
-  color: #ffffff !important;
-}
-
-.theme-light .bg-blue-600 *,
-.theme-light .bg-blue-500 *,
-.theme-light .bg-red-600 *,
-.theme-light .bg-red-500 *,
-.theme-light .bg-emerald-600 *,
-.theme-light .bg-emerald-500 *,
-.theme-light .bg-purple-600 *,
-.theme-light .bg-purple-500 *,
-.theme-light .bg-cyan-600 *,
-.theme-light .bg-cyan-500 *,
-.theme-light .bg-amber-600 *,
-.theme-light .bg-amber-500 *,
-.theme-light .bg-rose-600 *,
-.theme-light .bg-rose-500 *,
-.theme-light [class*="bg-gradient-"] *,
-.theme-light [class*="from-blue-"] *,
-.theme-light [class*="from-purple-"] *,
-.theme-light [class*="from-red-"] *,
-.theme-light [class*="from-rose-"] *,
-.theme-light [class*="from-emerald-"] *,
-.theme-light [class*="from-cyan-"] *,
-.theme-light [class*="from-indigo-"] * {
-  color: #ffffff !important;
-}
-
-/* Ensure SVG icons inside colored and gradient containers remain crisp white */
-.theme-light [class*="bg-gradient-"] svg,
-.theme-light [class*="from-"] svg,
-.theme-light .bg-blue-600 svg,
-.theme-light .bg-blue-500 svg,
-.theme-light .bg-red-600 svg,
-.theme-light .bg-red-500 svg,
-.theme-light .bg-purple-600 svg,
-.theme-light .bg-purple-500 svg,
-.theme-light .bg-emerald-600 svg,
-.theme-light .bg-emerald-500 svg,
-.theme-light .bg-cyan-600 svg,
-.theme-light .bg-amber-600 svg,
-.theme-light .bg-rose-600 svg {
-  color: #ffffff !important;
-  stroke: currentColor !important;
-}
-
-/* Circular badges, avatar initials, and step markers with letters/numbers inside (e.g. A, B, 1, 2, AI, Step N) */
-.theme-light [class*="rounded-full"][class*="bg-blue-"],
-.theme-light [class*="rounded-full"][class*="bg-red-"],
-.theme-light [class*="rounded-full"][class*="bg-emerald-"],
-.theme-light [class*="rounded-full"][class*="bg-purple-"],
-.theme-light [class*="rounded-full"][class*="bg-amber-"],
-.theme-light [class*="rounded-full"][class*="bg-orange-"],
-.theme-light [class*="rounded-full"][class*="bg-cyan-"],
-.theme-light [class*="rounded-full"][class*="bg-indigo-"],
-.theme-light [class*="rounded-md"][class*="bg-blue-"],
-.theme-light [class*="rounded-lg"][class*="bg-blue-"],
-.theme-light [class*="rounded-xl"][class*="bg-blue-"] {
-  color: #ffffff !important;
-}
-
-.theme-light [class*="rounded-full"][class*="bg-blue-"] *,
-.theme-light [class*="rounded-full"][class*="bg-red-"] *,
-.theme-light [class*="rounded-full"][class*="bg-emerald-"] *,
-.theme-light [class*="rounded-full"][class*="bg-purple-"] *,
-.theme-light [class*="rounded-full"][class*="bg-amber-"] *,
-.theme-light [class*="rounded-full"][class*="bg-orange-"] *,
-.theme-light [class*="rounded-full"][class*="bg-cyan-"] *,
-.theme-light [class*="rounded-full"][class*="bg-indigo-"] *,
-.theme-light [class*="rounded-md"][class*="bg-blue-"] *,
-.theme-light [class*="rounded-lg"][class*="bg-blue-"] *,
-.theme-light [class*="rounded-xl"][class*="bg-blue-"] * {
-  color: #ffffff !important;
+.theme-light .bg-white\/15,
+.theme-light .bg-white\/20,
+.theme-light .hover\:bg-white\/5:hover,
+.theme-light .hover\:bg-white\/10:hover,
+.theme-light .hover\:bg-gray-800:hover,
+.theme-light .hover\:bg-gray-900:hover {
+  background-color: #e2e8f0 !important;
 }
 
 /* Borders & Dividers */
@@ -388,8 +319,11 @@ body.theme-light {
 .theme-light .border-slate-850,
 .theme-light .border-slate-900,
 .theme-light .border-slate-700,
+.theme-light .border-zinc-800,
+.theme-light .border-zinc-700,
 .theme-light .border-white\/5,
 .theme-light .border-white\/10,
+.theme-light .border-white\/15,
 .theme-light .border-white\/20 {
   border-color: #e2e8f0 !important;
 }
@@ -404,130 +338,189 @@ body.theme-light {
   border-color: #e2e8f0 !important;
 }
 
-/* Headings, Paragraphs, and Text Color */
+/* =========================================================================
+   LIGHT MODE TEXT CONTRAST (APPLIED GLOBALLY FIRST, THEN SOLID BUTTONS RE-ASSERT WHITE)
+   ========================================================================= */
 .theme-light h1,
 .theme-light h2,
 .theme-light h3,
 .theme-light h4,
 .theme-light h5,
 .theme-light h6,
-.theme-light p.text-white,
-.theme-light p.text-gray-100,
-.theme-light p.text-gray-200,
-.theme-light span.text-white,
-.theme-light span.text-gray-100,
-.theme-light span.text-gray-200,
-.theme-light div.text-white,
-.theme-light div.text-gray-100,
-.theme-light div.text-gray-200,
-.theme-light td.text-white,
-.theme-light th.text-white,
+.theme-light .text-white,
+.theme-light .text-white\/95,
+.theme-light .text-white\/90,
+.theme-light .text-white\/85,
+.theme-light .text-white\/80,
+.theme-light .text-white\/75,
+.theme-light .text-white\/70,
+.theme-light .text-gray-50,
+.theme-light .text-gray-100,
+.theme-light .text-gray-200,
+.theme-light .text-slate-50,
 .theme-light .text-slate-100,
-.theme-light .text-slate-200 {
+.theme-light .text-slate-200,
+.theme-light .text-zinc-50,
+.theme-light .text-zinc-100,
+.theme-light .text-zinc-200,
+.theme-light .text-neutral-50,
+.theme-light .text-neutral-100,
+.theme-light .text-neutral-200,
+.theme-light .hover\:text-white:hover,
+.theme-light .group:hover .group-hover\:text-white {
   color: #0f172a !important;
 }
 
-/* Re-assert white text for elements inside colored badges, solid buttons, and active tabs in light mode */
-.theme-light .bg-blue-600 span,
-.theme-light .bg-blue-500 span,
-.theme-light .bg-red-600 span,
-.theme-light .bg-red-500 span,
-.theme-light .bg-emerald-600 span,
-.theme-light .bg-emerald-500 span,
-.theme-light .bg-purple-600 span,
-.theme-light .bg-purple-500 span,
-.theme-light .bg-cyan-600 span,
-.theme-light .bg-rose-600 span,
-.theme-light [class*="bg-gradient-"] span,
-.theme-light [class*="from-"] span,
-.theme-light .bg-blue-600 div,
-.theme-light .bg-blue-500 div,
-.theme-light .bg-red-600 div,
-.theme-light .bg-red-500 div,
-.theme-light .bg-emerald-600 div,
-.theme-light .bg-emerald-500 div,
-.theme-light .bg-purple-600 div,
-.theme-light .bg-purple-500 div,
-.theme-light .bg-cyan-600 div,
-.theme-light .bg-rose-600 div,
-.theme-light [class*="bg-gradient-"] div,
-.theme-light [class*="from-"] div,
-.theme-light .bg-blue-600 h1, .theme-light .bg-blue-600 h2, .theme-light .bg-blue-600 h3, .theme-light .bg-blue-600 h4, .theme-light .bg-blue-600 h5,
-.theme-light .bg-purple-600 h1, .theme-light .bg-purple-600 h2, .theme-light .bg-purple-600 h3, .theme-light .bg-purple-600 h4, .theme-light .bg-purple-600 h5,
-.theme-light .bg-red-600 h1, .theme-light .bg-red-600 h2, .theme-light .bg-red-600 h3, .theme-light .bg-red-600 h4, .theme-light .bg-red-600 h5,
-.theme-light [class*="bg-gradient-"] h1, .theme-light [class*="bg-gradient-"] h2, .theme-light [class*="bg-gradient-"] h3, .theme-light [class*="bg-gradient-"] h4, .theme-light [class*="bg-gradient-"] h5 {
-  color: #ffffff !important;
+/* Preserve gradient clip-text headlines (e.g., brand logo) */
+.theme-light .bg-clip-text.text-transparent {
+  color: transparent !important;
+}
+
+/* Floating SVG labels using Tailwind fill-white on light canvases */
+.theme-light text.fill-white,
+.theme-light .group:hover text.group-hover\:fill-white {
+  fill: #0f172a !important;
 }
 
 .theme-light .text-gray-300,
-.theme-light .text-slate-300 {
+.theme-light .text-slate-300,
+.theme-light .text-zinc-300,
+.theme-light .text-neutral-300 {
   color: #334155 !important;
 }
 
 .theme-light .text-gray-400,
-.theme-light .text-slate-400 {
+.theme-light .text-slate-400,
+.theme-light .text-zinc-400,
+.theme-light .text-neutral-400 {
   color: #475569 !important;
 }
 
 .theme-light .text-gray-500,
-.theme-light .text-slate-500 {
+.theme-light .text-slate-500,
+.theme-light .text-zinc-500 {
   color: #64748b !important;
 }
 
 .theme-light .text-gray-600,
 .theme-light .text-slate-600 {
-  color: #94a3b8 !important;
+  color: #475569 !important;
 }
 
-/* Saturated Cyber Accent Text in Light Mode (High Contrast on White) */
-.theme-light .text-blue-400,
-.theme-light .text-blue-300 {
-  color: #2563eb !important;
+/* Saturated Cyber Accent Text in Light Mode (High Contrast on White & Pale Tints) */
+.theme-light .text-blue-100,
+.theme-light .text-blue-100\/80,
+.theme-light .text-blue-200,
+.theme-light .text-blue-300,
+.theme-light .text-blue-300\/90,
+.theme-light .text-blue-400 {
+  color: #1d4ed8 !important;
 }
 
+.theme-light .text-indigo-100,
+.theme-light .text-indigo-200,
+.theme-light .text-indigo-300,
+.theme-light .text-indigo-400 {
+  color: #4338ca !important;
+}
+
+.theme-light .text-cyan-100,
+.theme-light .text-cyan-200,
+.theme-light .text-cyan-300,
 .theme-light .text-cyan-400,
-.theme-light .text-cyan-300 {
-  color: #0284c7 !important;
+.theme-light .text-sky-200,
+.theme-light .text-sky-300,
+.theme-light .text-sky-400 {
+  color: #0369a1 !important;
 }
 
-.theme-light .text-emerald-400,
+.theme-light .text-emerald-100,
+.theme-light .text-emerald-200,
 .theme-light .text-emerald-300,
-.theme-light .text-green-400 {
-  color: #059669 !important;
+.theme-light .text-emerald-400,
+.theme-light .text-green-200,
+.theme-light .text-green-300,
+.theme-light .text-green-400,
+.theme-light .text-teal-200,
+.theme-light .text-teal-300,
+.theme-light .text-teal-300\/90,
+.theme-light .text-teal-400,
+.theme-light .text-lime-300,
+.theme-light .text-lime-400 {
+  color: #047857 !important;
 }
 
-.theme-light .text-red-400,
-.theme-light .text-rose-400,
+.theme-light .text-red-100,
+.theme-light .text-red-100\/90,
+.theme-light .text-red-200,
+.theme-light .text-red-200\/90,
 .theme-light .text-red-300,
-.theme-light .text-rose-300 {
-  color: #dc2626 !important;
+.theme-light .text-red-300\/80,
+.theme-light .text-red-300\/90,
+.theme-light .text-red-400,
+.theme-light .text-rose-100,
+.theme-light .text-rose-200,
+.theme-light .text-rose-200\/80,
+.theme-light .text-rose-200\/95,
+.theme-light .text-rose-300,
+.theme-light .text-rose-300\/80,
+.theme-light .text-rose-300\/90,
+.theme-light .text-rose-400 {
+  color: #b91c1c !important;
 }
 
+.theme-light .text-purple-100,
+.theme-light .text-purple-200,
+.theme-light .text-purple-300,
 .theme-light .text-purple-400,
-.theme-light .text-purple-300 {
-  color: #7c3aed !important;
+.theme-light .text-violet-200,
+.theme-light .text-violet-300,
+.theme-light .text-violet-400 {
+  color: #6d28d9 !important;
 }
 
+.theme-light .text-pink-200,
+.theme-light .text-pink-300,
+.theme-light .text-pink-400 {
+  color: #be185d !important;
+}
+
+.theme-light .text-amber-100,
+.theme-light .text-amber-100\/90,
+.theme-light .text-amber-200,
+.theme-light .text-amber-200\/90,
+.theme-light .text-amber-300,
+.theme-light .text-amber-300\/90,
 .theme-light .text-amber-400,
-.theme-light .text-orange-400,
-.theme-light .text-amber-300 {
-  color: #d97706 !important;
-}
-
-.theme-light .text-yellow-400,
-.theme-light .text-yellow-500 {
+.theme-light .text-orange-200,
+.theme-light .text-orange-300,
+.theme-light .text-orange-400 {
   color: #b45309 !important;
 }
 
-/* Cyber Badge & Pill Backgrounds in Light Mode */
+.theme-light .text-yellow-200,
+.theme-light .text-yellow-300,
+.theme-light .text-yellow-400,
+.theme-light .text-yellow-500 {
+  color: #a16207 !important;
+}
+
+/* Cyber Badge & Pill Translucent Backgrounds in Light Mode */
 .theme-light .bg-blue-950\/40,
+.theme-light .bg-blue-950\/30,
 .theme-light .bg-blue-950\/20,
+.theme-light .bg-blue-900\/40,
 .theme-light .bg-blue-900\/20,
 .theme-light .bg-blue-600\/10,
 .theme-light .bg-blue-600\/15,
 .theme-light .bg-blue-600\/20,
 .theme-light .bg-blue-500\/10,
-.theme-light .bg-blue-500\/20 {
+.theme-light .bg-blue-500\/15,
+.theme-light .bg-blue-500\/20,
+.theme-light .bg-indigo-950\/40,
+.theme-light .bg-indigo-600\/15,
+.theme-light .bg-indigo-500\/10,
+.theme-light .bg-indigo-500\/20 {
   background-color: #eff6ff !important;
   border-color: #bfdbfe !important;
 }
@@ -544,14 +537,17 @@ body.theme-light {
 }
 
 .theme-light .bg-red-950\/40,
-.theme-light .bg-red-950\/20,
 .theme-light .bg-red-950\/30,
+.theme-light .bg-red-950\/20,
+.theme-light .bg-red-900\/20,
 .theme-light .bg-red-600\/10,
 .theme-light .bg-red-600\/15,
 .theme-light .bg-red-600\/20,
 .theme-light .bg-rose-950\/30,
 .theme-light .bg-rose-600\/10,
+.theme-light .bg-rose-500\/15,
 .theme-light .bg-red-500\/10,
+.theme-light .bg-red-500\/15,
 .theme-light .bg-red-500\/20 {
   background-color: #fef2f2 !important;
   border-color: #fecaca !important;
@@ -559,11 +555,14 @@ body.theme-light {
 
 .theme-light .bg-purple-950\/40,
 .theme-light .bg-purple-950\/20,
+.theme-light .bg-purple-900\/20,
 .theme-light .bg-purple-600\/10,
 .theme-light .bg-purple-600\/15,
 .theme-light .bg-purple-600\/20,
 .theme-light .bg-purple-500\/10,
-.theme-light .bg-purple-500\/20 {
+.theme-light .bg-purple-500\/20,
+.theme-light .bg-violet-500\/10,
+.theme-light .bg-violet-600\/15 {
   background-color: #faf5ff !important;
   border-color: #e9d5ff !important;
 }
@@ -571,9 +570,13 @@ body.theme-light {
 .theme-light .bg-emerald-950\/40,
 .theme-light .bg-emerald-950\/20,
 .theme-light .bg-emerald-600\/10,
+.theme-light .bg-emerald-600\/15,
 .theme-light .bg-emerald-500\/15,
 .theme-light .bg-emerald-500\/20,
-.theme-light .bg-emerald-500\/10 {
+.theme-light .bg-emerald-500\/10,
+.theme-light .bg-green-500\/10,
+.theme-light .bg-green-500\/20,
+.theme-light .bg-teal-500\/10 {
   background-color: #f0fdf4 !important;
   border-color: #bbf7d0 !important;
 }
@@ -582,7 +585,10 @@ body.theme-light {
 .theme-light .bg-amber-950\/20,
 .theme-light .bg-amber-500\/15,
 .theme-light .bg-amber-500\/20,
-.theme-light .bg-amber-500\/10 {
+.theme-light .bg-amber-500\/10,
+.theme-light .bg-orange-500\/10,
+.theme-light .bg-orange-500\/20,
+.theme-light .bg-yellow-500\/10 {
   background-color: #fffbeb !important;
   border-color: #fde68a !important;
 }
@@ -699,11 +705,11 @@ body.theme-light {
 }
 
 .theme-light aside .text-gray-600 {
-  color: #94a3b8 !important;
+  color: #475569 !important;
 }
 
 .theme-light aside .text-gray-700 {
-  color: #cbd5e1 !important;
+  color: #64748b !important;
 }
 
 /* Modal overlays and dialogs in Light Mode */
@@ -732,7 +738,8 @@ body.theme-light {
 
 /* Gradients in Light Mode (Transforms dark/murky gradients into crisp presentation tints) */
 .theme-light [class*="from-red-950"],
-.theme-light [class*="from-rose-950"] {
+.theme-light [class*="from-rose-950"],
+.theme-light [class*="from-red-900"] {
   --tw-gradient-from: #fef2f2 !important;
 }
 
@@ -747,33 +754,43 @@ body.theme-light {
 }
 
 .theme-light [class*="from-blue-950"],
-.theme-light [class*="from-indigo-950"] {
+.theme-light [class*="from-indigo-950"],
+.theme-light [class*="from-blue-900"],
+.theme-light [class*="from-indigo-900"] {
   --tw-gradient-from: #eff6ff !important;
 }
 
 .theme-light [class*="via-blue-950"],
-.theme-light [class*="via-indigo-950"] {
+.theme-light [class*="via-indigo-950"],
+.theme-light [class*="via-blue-900"],
+.theme-light [class*="via-indigo-900"] {
   --tw-gradient-via: #dbeafe !important;
 }
 
 .theme-light [class*="to-blue-950"],
-.theme-light [class*="to-indigo-950"] {
+.theme-light [class*="to-indigo-950"],
+.theme-light [class*="to-blue-900"],
+.theme-light [class*="to-indigo-900"] {
   --tw-gradient-to: #eff6ff !important;
 }
 
-.theme-light [class*="from-purple-950"] {
+.theme-light [class*="from-purple-950"],
+.theme-light [class*="from-purple-900"] {
   --tw-gradient-from: #faf5ff !important;
 }
 
-.theme-light [class*="via-purple-950"] {
+.theme-light [class*="via-purple-950"],
+.theme-light [class*="via-purple-900"] {
   --tw-gradient-via: #f3e8ff !important;
 }
 
-.theme-light [class*="to-purple-950"] {
+.theme-light [class*="to-purple-950"],
+.theme-light [class*="to-purple-900"] {
   --tw-gradient-to: #faf5ff !important;
 }
 
-.theme-light [class*="from-cyan-950"] {
+.theme-light [class*="from-cyan-950"],
+.theme-light [class*="from-cyan-900"] {
   --tw-gradient-from: #ecfeff !important;
 }
 
@@ -785,7 +802,8 @@ body.theme-light {
   --tw-gradient-to: #ecfeff !important;
 }
 
-.theme-light [class*="from-emerald-950"] {
+.theme-light [class*="from-emerald-950"],
+.theme-light [class*="from-emerald-900"] {
   --tw-gradient-from: #f0fdf4 !important;
 }
 
@@ -797,7 +815,8 @@ body.theme-light {
   --tw-gradient-to: #f0fdf4 !important;
 }
 
-.theme-light [class*="from-amber-950"] {
+.theme-light [class*="from-amber-950"],
+.theme-light [class*="from-amber-900"] {
   --tw-gradient-from: #fffbeb !important;
 }
 
@@ -849,9 +868,79 @@ body.theme-light {
 }
 
 /* =========================================================================
+   SOLID SATURATED COLORED SURFACES IN LIGHT MODE (EXACT CLASSES ONLY!)
+   Re-asserts crisp white text & icons ONLY on genuine solid dark/vivid fills,
+   80-90% opaque colored toasts, and solid vivid gradients — NEVER matching
+   translucent /10, /20 or pale -50/-100 tints.
+   ========================================================================= */
+.theme-light :is(
+  .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-600\/90,
+  .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-600\/80,
+  .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-600\/80,
+  .bg-violet-500, .bg-violet-600,
+  .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-500\/80, .bg-red-600\/80, .bg-red-600\/90,
+  .bg-rose-500, .bg-rose-600, .bg-rose-600\/90,
+  .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-500\/80, .bg-emerald-600\/90,
+  .bg-green-600, .bg-cyan-600, .bg-cyan-600\/90, .bg-teal-600, .bg-sky-600,
+  .bg-amber-600, .bg-amber-600\/90, .bg-orange-600, .bg-orange-500\/90, .bg-pink-600,
+  .from-blue-500:not(.bg-clip-text), .from-blue-600:not(.bg-clip-text), .from-blue-700:not(.bg-clip-text),
+  .from-indigo-500:not(.bg-clip-text), .from-indigo-600:not(.bg-clip-text), .from-indigo-700:not(.bg-clip-text),
+  .from-purple-500:not(.bg-clip-text), .from-purple-600:not(.bg-clip-text),
+  .from-red-500:not(.bg-clip-text), .from-red-600:not(.bg-clip-text),
+  .from-rose-500:not(.bg-clip-text), .from-rose-600:not(.bg-clip-text),
+  .from-emerald-500:not(.bg-clip-text), .from-emerald-600:not(.bg-clip-text), .from-emerald-700:not(.bg-clip-text),
+  .from-green-500:not(.bg-clip-text), .from-green-600:not(.bg-clip-text),
+  .from-cyan-500:not(.bg-clip-text), .from-cyan-600:not(.bg-clip-text),
+  .from-teal-600:not(.bg-clip-text), .from-amber-600:not(.bg-clip-text), .from-orange-500:not(.bg-clip-text)
+) {
+  color: #ffffff !important;
+}
+
+.theme-light :is(
+  .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-blue-600\/90,
+  .bg-indigo-500, .bg-indigo-600, .bg-indigo-700, .bg-indigo-600\/80,
+  .bg-purple-500, .bg-purple-600, .bg-purple-700, .bg-purple-600\/80,
+  .bg-violet-500, .bg-violet-600,
+  .bg-red-500, .bg-red-600, .bg-red-700, .bg-red-500\/80, .bg-red-600\/80, .bg-red-600\/90,
+  .bg-rose-500, .bg-rose-600, .bg-rose-600\/90,
+  .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-emerald-500\/80, .bg-emerald-600\/90,
+  .bg-green-600, .bg-cyan-600, .bg-cyan-600\/90, .bg-teal-600, .bg-sky-600,
+  .bg-amber-600, .bg-amber-600\/90, .bg-orange-600, .bg-orange-500\/90, .bg-pink-600,
+  .from-blue-500:not(.bg-clip-text), .from-blue-600:not(.bg-clip-text), .from-blue-700:not(.bg-clip-text),
+  .from-indigo-500:not(.bg-clip-text), .from-indigo-600:not(.bg-clip-text), .from-indigo-700:not(.bg-clip-text),
+  .from-purple-500:not(.bg-clip-text), .from-purple-600:not(.bg-clip-text),
+  .from-red-500:not(.bg-clip-text), .from-red-600:not(.bg-clip-text),
+  .from-rose-500:not(.bg-clip-text), .from-rose-600:not(.bg-clip-text),
+  .from-emerald-500:not(.bg-clip-text), .from-emerald-600:not(.bg-clip-text), .from-emerald-700:not(.bg-clip-text),
+  .from-green-500:not(.bg-clip-text), .from-green-600:not(.bg-clip-text),
+  .from-cyan-500:not(.bg-clip-text), .from-cyan-600:not(.bg-clip-text),
+  .from-teal-600:not(.bg-clip-text), .from-amber-600:not(.bg-clip-text), .from-orange-500:not(.bg-clip-text)
+) :is(*, *:hover) {
+  color: #ffffff !important;
+}
+
+.theme-light :is(
+  .bg-blue-500, .bg-blue-600, .bg-blue-700, .bg-indigo-600, .bg-purple-600,
+  .bg-red-500, .bg-red-600, .bg-rose-600, .bg-emerald-600, .bg-cyan-600,
+  .bg-amber-600, .bg-orange-600, .from-blue-600:not(.bg-clip-text), .from-purple-600:not(.bg-clip-text)
+):hover {
+  color: #ffffff !important;
+}
+
+/* Protect explicit white pills/buttons nested inside solid colored banners */
+.theme-light :is(
+  .bg-blue-600, .bg-indigo-600, .bg-purple-600, .bg-red-600, .bg-emerald-600,
+  .from-blue-600, .from-indigo-600, .from-purple-600, .from-red-600, .from-emerald-600
+) .bg-white,
+.theme-light :is(
+  .bg-blue-600, .bg-indigo-600, .bg-purple-600, .bg-red-600, .bg-emerald-600,
+  .from-blue-600, .from-indigo-600, .from-purple-600, .from-red-600, .from-emerald-600
+) .bg-white * {
+  color: #0f172a !important;
+}
+
+/* =========================================================================
    ICON & TEXT-IN-ICON LEGIBILITY & BACKGROUND OPTIMIZATIONS (ALL THEMES)
-   Eliminates black-on-black or illegible icons/letters, giving icon containers
-   crisp surface definition and guaranteed contrast across dark and light modes.
    ========================================================================= */
 
 /* Dark Mode Icon Elevation (Prevents text-gray-600/700 from disappearing on dark canvases) */
@@ -914,53 +1003,6 @@ body:not(.theme-light) [class*="w-10"][class*="h-10"][class*="bg-black"],
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
-}
-
-/* Ensure letters/numbers/initials in avatar chips and badges stay white in Light Mode */
-.theme-light div[class*="rounded-full"][class*="bg-blue-"],
-.theme-light div[class*="rounded-full"][class*="bg-purple-"],
-.theme-light div[class*="rounded-full"][class*="bg-indigo-"],
-.theme-light div[class*="rounded-full"][class*="bg-emerald-"],
-.theme-light div[class*="rounded-full"][class*="bg-red-"],
-.theme-light div[class*="rounded-full"][class*="bg-rose-"],
-.theme-light div[class*="rounded-full"][class*="bg-cyan-"],
-.theme-light span[class*="rounded-full"][class*="bg-blue-"],
-.theme-light span[class*="rounded-full"][class*="bg-purple-"],
-.theme-light span[class*="rounded-full"][class*="bg-indigo-"],
-.theme-light span[class*="rounded-full"][class*="bg-emerald-"],
-.theme-light span[class*="rounded-full"][class*="bg-red-"],
-.theme-light span[class*="rounded-full"][class*="bg-rose-"],
-.theme-light span[class*="rounded-full"][class*="bg-cyan-"] {
-  color: #ffffff !important;
-}
-
-.theme-light div[class*="rounded-full"][class*="bg-blue-"] *,
-.theme-light div[class*="rounded-full"][class*="bg-purple-"] *,
-.theme-light div[class*="rounded-full"][class*="bg-indigo-"] *,
-.theme-light div[class*="rounded-full"][class*="bg-emerald-"] *,
-.theme-light div[class*="rounded-full"][class*="bg-red-"] *,
-.theme-light div[class*="rounded-full"][class*="bg-rose-"] *,
-.theme-light div[class*="rounded-full"][class*="bg-cyan-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-blue-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-purple-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-indigo-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-emerald-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-red-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-rose-"] *,
-.theme-light span[class*="rounded-full"][class*="bg-cyan-"] * {
-  color: #ffffff !important;
-}
-
-/* Ensure SVG icons inside colored action buttons maintain their vibrant white or brand color */
-.theme-light button[class*="bg-blue-"] svg,
-.theme-light button[class*="bg-purple-"] svg,
-.theme-light button[class*="bg-indigo-"] svg,
-.theme-light button[class*="bg-emerald-"] svg,
-.theme-light button[class*="bg-red-"] svg,
-.theme-light button[class*="bg-rose-"] svg,
-.theme-light button[class*="bg-gradient-"] svg,
-.theme-light [class*="bg-gradient-"] svg {
-  color: #ffffff !important;
 }
 
 /* High contrast for neon green actions across themes */

@@ -49,8 +49,8 @@
     "ccs_usage": "CCS 使用率"
   },
   "modules": {
-    "flow": "流量分析 (NDR)",
-    "ndr-analytics": "NDR 流量告警分析",
+    "flow": "流量分析與告警 (NDR)",
+    "ndr-analytics": "流量分析與告警 (NDR)",
     "endpoint": "開放式 XDR (EDR/XDR)",
     "ingest": "數據接入",
     "discovery": "日誌搜尋",

