@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Shield,
   Clock,
@@ -49,6 +50,8 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
   isLiveConnected = true,
   onSimulateIngest
 }) => {
+  const { t, i18n } = useTranslation();
+  const isJa = i18n.language?.startsWith('ja');
   const { isLight } = useTheme();
   const timeRanges: { id: TimeRange; labelZh: string; labelEn: string }[] = [
     { id: '15m', labelZh: '15分鐘', labelEn: '15m' },
@@ -75,7 +78,7 @@ export const OverviewHeader: React.FC<OverviewHeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className={cn("text-2xl lg:text-3xl font-black tracking-tight", isLight ? "text-slate-900" : "text-white")}>
-                  {isZh ? '營運安全 XDR 總覽儀表板' : 'Operational XDR Overview Dashboard'}
+                  {t('common.war_room_dashboard', isZh ? '戰情室儀表板' : isJa ? '戦況室ダッシュボード' : 'War Room Dashboard')}
                 </h1>
                 <span className={cn(
                   "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",

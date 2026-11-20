@@ -237,6 +237,7 @@ export const EXACT_PHRASES: Record<string, string> = {
   '威脅情資系統': 'Threat Intelligence Platform',
   '風險評估': 'Risk Assessment',
   '漏洞更新': 'Vulnerability Update',
+  '戰情室儀表板': 'War Room Dashboard',
   '日誌解碼與正規化工作平台': 'Log Decoder & Normalization Workbench',
   'SOAR 資安案件管理與應變處置中心': 'SOAR Security Case Management & Incident Response Center',
   '自訂組件參數設定': 'Custom Widget Configuration',
